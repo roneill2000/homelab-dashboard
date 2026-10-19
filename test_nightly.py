@@ -1,6 +1,7 @@
 from datetime import datetime,timezone
 from pathlib import Path
 import json,re,tempfile,unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from nightly import log_snapshot as s,runner as r
 
@@ -64,26 +65,50 @@ class RunnerTests(unittest.TestCase):
   accepted=r.checked_finding(group,'The process exited with status 1; the underlying cause is unknown.')
   self.assertNotIn('withheld_reason',accepted)
   self.assertIn('withheld_reason',r.checked_finding(group,'The process returned status 10.'))
+  self.assertIn('withheld_reason',r.checked_finding(group,'There is 1 recorded failure, but the exit code is unknown.'))
+  self.assertNotIn('withheld_reason',r.checked_finding(group,'The exit code was unknown; status=1 was recorded.'))
  def test_failure_stops_owned_container_and_saves_failure(self):
   snapshot=dict(groups=[],window_start=1,window_end=1000,coverage_limited=True,files_scanned=0,matched_entries=0,distinct_groups=0,source='patterns',hosts=[])
   values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot]
-  with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=type('Space',(),{'free':2**32})()),patch.object(r.subprocess,'run') as run:
+  with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=type('Space',(),{'free':2**32})()),patch.object(r.subprocess,'run') as run,patch.object(r,'stop_model') as stop:
    run.side_effect=[type('Result',(),{'returncode':1})(),RuntimeError('launch failure'),None]
    with self.assertRaises(RuntimeError):r.main()
    saved=json.loads((Path(d)/'reports/latest.json').read_text())
-   self.assertEqual(saved['status'],'failed');self.assertEqual(run.call_args.args[0][:2],['docker','stop'])
+   self.assertEqual(saved['status'],'failed');stop.assert_called_once()
  def test_success_publishes_only_final_answer_and_releases_gpu(self):
   group=dict(id='g',host='utilities',level='WARNING',count=1,first_at=800,last_at=800,message='filebrowser.service: FAILURE')
   snapshot=dict(groups=[group],window_start=1,window_end=1000,coverage_limited=True,files_scanned=1,matched_entries=1,distinct_groups=1,source='patterns',hosts=[])
   answer={'choices':[{'finish_reason':'stop','message':{'content':'Historical process failure.','reasoning_content':'Private speculation that must not be published.'}}],'usage':{'prompt_tokens':10,'completion_tokens':20}}
   values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'data':[{'id':r.MODEL}]},answer]
-  with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=type('Space',(),{'free':2**32})()),patch.object(r.subprocess,'run') as run:
+  with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=type('Space',(),{'free':2**32})()),patch.object(r.subprocess,'run') as run,patch.object(r,'stop_model') as stop:
    run.return_value=type('Result',(),{'returncode':1})()
    r.main();raw=(Path(d)/'reports/latest.json').read_text();saved=json.loads(raw)
    self.assertEqual(saved['status'],'complete');self.assertEqual(saved['findings'][0]['interpretation'],'Historical process failure.')
    self.assertNotIn('Private speculation',raw);self.assertEqual(saved['usage']['completion_tokens'],20)
    self.assertIn('load_seconds',saved);self.assertIn('generation_seconds',saved)
-   self.assertEqual(run.call_args.args[0][:2],['docker','stop'])
+   stop.assert_called_once()
+ def test_stop_model_verifies_stop_and_falls_back_to_remove(self):
+  result=lambda code=0,out='',err='':SimpleNamespace(returncode=code,stdout=out,stderr=err)
+  with patch.object(r.subprocess,'run',side_effect=[result(),result(out='false')]) as run:
+   r.stop_model();self.assertEqual(run.call_count,2)
+  with patch.object(r.subprocess,'run',side_effect=[result(1),result(out='true'),result(),result(1,err='Error: No such object: '+r.NAME)]) as run:
+   r.stop_model();self.assertEqual(run.call_args_list[2].args[0][:3],['docker','rm','-f'])
+  with patch.object(r.subprocess,'run',side_effect=[result(1),result(1,err='daemon unavailable'),result(1),result(1,err='daemon unavailable')]):
+   with self.assertRaisesRegex(RuntimeError,'cleanup failed'):r.stop_model()
+ def test_lock_contention_manual_returns_and_scheduled_retries(self):
+  with patch.object(r.fcntl,'flock',side_effect=BlockingIOError):
+   self.assertFalse(r.acquire_run_lock(object()))
+  with patch.object(r.fcntl,'flock',side_effect=[BlockingIOError,None]),patch.object(r.time,'sleep') as sleep:
+   self.assertTrue(r.acquire_run_lock(object(),True));sleep.assert_called_once()
+  with patch.object(r.fcntl,'flock',side_effect=BlockingIOError),patch.object(r.time,'monotonic',side_effect=[0,1200]):
+   self.assertFalse(r.acquire_run_lock(object(),True))
+ def test_cleanup_failure_replaces_complete_report(self):
+  snapshot=dict(groups=[],window_start=1,window_end=1000,coverage_limited=True,files_scanned=0,matched_entries=0,distinct_groups=0,source='patterns',hosts=[])
+  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'data':[{'id':r.MODEL}]}]
+  with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(r.subprocess,'run',return_value=SimpleNamespace(returncode=1)),patch.object(r,'stop_model',side_effect=RuntimeError('cleanup failed')):
+   with self.assertRaises(RuntimeError):r.main()
+   report=json.loads((Path(d)/'reports/latest.json').read_text())
+   self.assertEqual(report['status'],'failed');self.assertEqual(report['error'],'cleanup_failed')
  def test_report_permissions_and_retention(self):
   with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)):
    folder=Path(d)/'reports';folder.mkdir()

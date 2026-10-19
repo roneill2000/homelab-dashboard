@@ -10,8 +10,18 @@ MAX_GROUPS=80
 
 
 def scrub(text):
-    text=re.sub(r'(?i)(authorization\s*[:=]\s*(?:bearer|basic)\s+)\S+',r'\1[redacted]',text)
-    text=re.sub(r'(?i)((?:password|passwd|token|api[_-]?key|secret)\s*[:=]\s*)[^\s,;]+',r'\1[redacted]',text)
+    # Logs can embed JSON, quoted values, or credential-bearing URLs. Keep
+    # surrounding text useful without retaining those common secret forms.
+    quoted=r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+    def hide(match):
+        value=match.group(2)
+        quote=value[0] if value[:1] in ('"', "'") else ''
+        return match.group(1)+quote+'[redacted]'+quote
+    text=re.sub(r'(?i)(\b[a-z][a-z0-9+.-]*://)[^/\s?#]+@',r'\1[redacted]@',text)
+    text=re.sub(r'(?i)(["\']?\bauthorization["\']?\s*[:=]\s*)('
+                +quoted+r'|(?:bearer|basic)\s+[^\s,;]+|[^\s,;]+)',hide,text)
+    text=re.sub(r'(?i)(["\']?\b(?:password|passwd|(?:access[_-]?|refresh[_-]?)?token|api[_-]?key|secret)["\']?\s*[:=]\s*)('
+                +quoted+r'|[^\s,;]+)',hide,text)
     return text
 
 

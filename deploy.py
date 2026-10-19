@@ -19,6 +19,7 @@ exec(compile(payload['backend_patch.py'], 'backend_patch.py', 'exec'), patch_nam
 updated = patch_namespace['patch_backend'](updated)
 updated = patch_namespace['patch_log_details'](updated)
 updated = patch_namespace['patch_log_groups'](updated)
+updated = patch_namespace['patch_qwen'](updated)
 marker = '# HOMELAB_STORAGE_V2'
 if marker not in updated:
     updated = updated.replace('class DashboardHandler(', 'import storage_monitor\nstorage_monitor.start()\n\n'+marker+'\nclass DashboardHandler(', 1)
@@ -48,11 +49,12 @@ compile(updated, str(backend), 'exec')
 compile(payload['storage_monitor.py'], 'storage_monitor.py', 'exec')
 compile(payload['activity_monitor.py'], 'activity_monitor.py', 'exec')
 compile(payload['log_monitor.py'], 'log_monitor.py', 'exec')
+compile(payload['qwen_proxy.py'], 'qwen_proxy.py', 'exec')
 assert '/*__INITIAL_TELEMETRY_SLOT__*/' in payload['index.html']
 backup = pathlib.Path('/opt/homelab-dashboard/backups') / datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
 backup.mkdir(parents=True, mode=0o700)
 os.chmod(backup.parent, 0o700)
-targets = {'/usr/local/bin/log_monitor.py': payload['log_monitor.py'], '/usr/local/bin/activity_monitor.py': payload['activity_monitor.py'], str(backend): updated, '/usr/local/bin/storage_monitor.py': payload['storage_monitor.py'], '/opt/homelab-dashboard/index.html': payload['index.html']}
+targets = {'/usr/local/bin/qwen_proxy.py': payload['qwen_proxy.py'], '/usr/local/bin/log_monitor.py': payload['log_monitor.py'], '/usr/local/bin/activity_monitor.py': payload['activity_monitor.py'], str(backend): updated, '/usr/local/bin/storage_monitor.py': payload['storage_monitor.py'], '/opt/homelab-dashboard/index.html': payload['index.html']}
 manifest = {}
 for target, content in targets.items():
     p = pathlib.Path(target)
@@ -88,6 +90,6 @@ print(json.dumps({'backup':str(backup),'status':'healthy','backend_sha256':hashl
 """
 
 if __name__ == '__main__':
-    data = {name:(ROOT/name).read_text() for name in ('index.html','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py')}
+    data = {name:(ROOT/name).read_text() for name in ('index.html','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py')}
     script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
     subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)

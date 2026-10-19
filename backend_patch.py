@@ -258,3 +258,20 @@ def patch_log_groups(source):
     lines=source.splitlines(keepends=True)
     for start,end,value in sorted(edits,reverse=True):lines[start-1:end]=[value]
     result=''.join(lines)+'\n'+marker+'\n';compile(result,'<dashboard>','exec');return result
+
+
+def patch_qwen(source):
+    marker='# HOMELAB_QWEN_V1'
+    if marker in source:return source
+    tree=ast.parse(source)
+    handler=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='DashboardHandler')
+    edits=[]
+    for method in handler.body:
+        if isinstance(method,ast.FunctionDef) and method.name in ('do_GET','do_POST'):
+            post=method.name=='do_POST'
+            edits.append((method.body[0].lineno-1,
+                          '        import qwen_proxy\n        if qwen_proxy.handle(self, post='+str(post)+'): return\n'))
+    if len(edits)!=2:raise ValueError('Expected GET and POST handlers')
+    lines=source.splitlines(keepends=True)
+    for index,code in sorted(edits,reverse=True):lines[index:index]=[code]
+    result=''.join(lines)+'\n'+marker+'\n';compile(result,'<dashboard>','exec');return result
