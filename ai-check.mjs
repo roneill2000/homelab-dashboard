@@ -32,8 +32,27 @@ try{
  await page.getByRole('button',{name:'Find a service'}).click();await page.getByRole('textbox',{name:'Search service names and IPs'}).fill('192.168.0.16');
  await expect(page.locator('.command-results a')).toHaveCount(1);await page.keyboard.press('Escape');
  await page.getByRole('button',{name:'Local AI',exact:true}).click();
- const broken=structuredClone(data);broken.ai.desktop={...broken.ai.desktop,online:false,error:'Source unavailable'};
- await page.route('**/api/storage?*',r=>r.fulfill({json:broken}));await page.getByRole('button',{name:'Refresh telemetry'}).click();
- await expect(panel.getByText('Unverified',{exact:true})).toHaveCount(3,{timeout:15000});await expect(panel).toContainText('last seen');
- expect(errors).toEqual([]);console.log('PASS: live Open WebUI and three desktop models, configured context, model links, service/search integration, stale states, 360/448/1920/3440px; no inference or actions.');
+ let fixture=structuredClone(data);
+ await page.route('**/api/storage?*',r=>r.fulfill({json:fixture}));
+ const refresh=async()=>{await page.getByRole('button',{name:'Refresh telemetry'}).click()};
+ fixture.ai.desktop={...fixture.ai.desktop,online:false,error:'Source unavailable'};await refresh();
+ await expect(panel.getByText('Gaming PC unavailable',{exact:true})).toBeVisible({timeout:15000});
+ await expect(panel.getByRole('button',{name:'PC unavailable',exact:true})).toHaveCount(3);
+ for(const button of await panel.getByRole('button',{name:'PC unavailable',exact:true}).all())await expect(button).toBeDisabled();
+ await expect(panel.getByRole('link',{name:'Open chat'})).toHaveCount(0);await expect(panel).toContainText('last seen');
+ await expect(panel.locator('.ai-launch')).toHaveAttribute('href','http://192.168.0.16:3000/');
+ for(const width of [360,448,1920,3440]){
+  await page.setViewportSize({width,height:1100});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:`.preview/local-ai-offline-${width}.png`,fullPage:true});
+ }
+ // A dashboard restart while the PC is off has no cached inventory.
+ fixture.ai.desktop={online:false,error:'Source unavailable',last_attempt_at:Date.now()/1000};await refresh();
+ await expect(panel.locator('.ai-model')).toHaveCount(3);await expect(panel.getByRole('button',{name:'PC unavailable',exact:true})).toHaveCount(3);await expect(panel.getByText(/last seen/)).toHaveCount(0);
+ // Stale successful data is also unavailable; it must not keep chat enabled.
+ fixture=structuredClone(data);fixture.ai.desktop.last_success_at=Date.now()/1000-120;await refresh();
+ await expect(panel.getByText('Waiting for gaming PC status',{exact:true})).toBeVisible();await expect(panel.getByRole('button',{name:'PC unavailable',exact:true})).toHaveCount(3);
+ fixture=structuredClone(data);fixture.ai.desktop.last_success_at=Date.now()/1000;fixture.ai.webui.last_success_at=Date.now()/1000;await refresh();
+ await expect(panel.getByRole('link',{name:'Open chat'})).toHaveCount(3);await expect(panel.locator('.ai-offline')).toHaveCount(0);
+ fixture.ai.webui.online=false;await refresh();await expect(panel.getByRole('button',{name:'Web UI unavailable',exact:true})).toHaveCount(3);
+ expect(errors).toEqual([]);console.log('PASS: live Open WebUI and three desktop models, configured context, model links, service/search integration, offline/cold-start/stale/recovery states, 360/448/1920/3440px; no inference or actions.');
 }finally{await browser.close()}

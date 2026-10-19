@@ -22,6 +22,12 @@ class AITests(unittest.TestCase):
    a.collect(1000);self.assertTrue(a.snapshot()['desktop']['online'])
    with patch.object(a,'desktop',side_effect=TimeoutError):a.collect(1031)
    result=a.snapshot()['desktop'];self.assertFalse(result['online']);self.assertEqual(result['last_success_at'],1000);self.assertEqual(result['models'][0]['id'],'a')
+   self.assertTrue(a.snapshot()['webui']['online'])
+   a.collect(1062);self.assertTrue(a.snapshot()['desktop']['online']);self.assertIsNone(a.snapshot()['desktop']['error']);self.assertEqual(a.snapshot()['desktop']['last_success_at'],1062)
+ def test_cold_start_while_pc_is_offline(self):
+  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={'version':'test'}),patch.object(a,'desktop',side_effect=TimeoutError):
+   a.collect(1000)
+   result=a.snapshot();self.assertTrue(result['webui']['online']);self.assertFalse(result['desktop']['online']);self.assertNotIn('models',result['desktop']);self.assertNotIn('last_success_at',result['desktop'])
  def test_poll_is_cached_and_snapshot_cannot_mutate_state(self):
   with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={}) as web,patch.object(a,'desktop',return_value={'models':[{'id':'a'}]}) as desk:
    a.collect(1000);a.collect(1010);self.assertEqual(desk.call_count,1)

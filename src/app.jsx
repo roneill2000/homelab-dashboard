@@ -68,18 +68,20 @@ const modelProfiles={
  'qwen3.8-27b':{role:'Reasoning',speed:16.3}
 };
 function LocalAI({ai,compact=false,onOpen}){
- const web=ai?.webui||{},pc=ai?.desktop||{},live=sourceFresh(pc),items=pc.models||[];
+ const web=ai?.webui||{},pc=ai?.desktop||{},live=sourceFresh(pc),webLive=sourceFresh(web),ready=live&&webLive,items=pc.models||(live?[]:Object.keys(modelProfiles).map(id=>({id,state:'unknown',context_tokens:null})));
+ const pcStatus=pc.online===false?'Gaming PC unavailable':'Waiting for gaming PC status';
  const labels={loaded:'Loaded',unloaded:'Loads on demand',loading:'Loading',unloading:'Unloading',sleeping:'Sleeping',failed:'Failed',unknown:'Unknown'};
  return <section className="local-ai-section">
   <div className="section-heading"><h2>{compact?'Local AI':'Chat'}</h2>{compact&&<button className="text-button" onClick={onOpen}>View models <Icon name="arrow" size={16}/></button>}</div>
-  <a className="panel ai-host ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer"><div><h3>Open WebUI <Icon name="external" size={20}/></h3><p>Chat with your desktop models</p><p className="mono">192.168.0.16:3000</p></div><SourceBadge source={web} onlineLabel="Available"/></a>
+  <a className="panel ai-host ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer"><div><h3>Open WebUI <Icon name="external" size={20}/></h3><p>Chat with your desktop models</p><p className="mono">192.168.0.16:3000</p></div><SourceBadge source={web} onlineLabel="Web UI online"/></a>
   <SourceNote source={web}/>
-  {compact?<div className="ai-summary"><span>{live?`${items.length} models · ${items.filter(m=>m.state==='loaded').length} loaded`:'Model inventory unavailable'}</span>{live&&items.filter(m=>m.state==='loaded').map(m=><a key={m.id} href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">{m.id} <Icon name="external" size={14}/></a>)}</div>:<>
+  {!live&&<div className="ai-offline" role="status"><strong>{pcStatus}</strong><p>The PC may be off, asleep, or its model server stopped. Desktop chat will be available when it reconnects. Status checks resume automatically.</p>{webLive&&<p>Open WebUI is still available. The A310 prompt on Homepage runs separately on Unraid.</p>}</div>}
+  {compact?<div className="ai-summary"><span>{live?`${items.length} models · ${items.filter(m=>m.state==='loaded').length} loaded`:'Desktop models currently unavailable'}</span>{live&&items.filter(m=>m.state==='loaded').map(m=><a key={m.id} href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">{m.id} <Icon name="external" size={14}/></a>)}</div>:<>
    <div className="ai-model-grid">{items.map(m=>{const profile=modelProfiles[m.id];return <article className="panel ai-model" key={m.id}>
-    <div className="ai-model-title"><div><h3>{m.id}</h3>{profile&&<p className="ai-role">{profile.role}</p>}</div><Badge state={live&&m.state==='loaded'?true:live&&m.state==='failed'?false:null} label={live?(labels[m.state]||'Unknown'):'Unverified'}/></div>
+    <div className="ai-model-title"><div><h3>{m.id}</h3>{profile&&<p className="ai-role">{profile.role}</p>}</div><Badge state={live&&m.state==='loaded'?true:live&&m.state==='failed'?false:null} label={live?(labels[m.state]||'Unknown'):'Unavailable'}/></div>
     {profile&&<div className="ai-benchmark"><strong>{profile.speed.toFixed(1)} <em>tok/s</em></strong><span>Recorded benchmark</span></div>}
-    <div className="ai-context"><strong>{num(m.context_tokens)}</strong><span>tokens · context setting{!live?' · last seen':''}</span></div>
-    <a className="secondary-button" href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">Open chat <Icon name="external" size={16}/></a>
+    <div className="ai-context"><strong>{num(m.context_tokens)}</strong><span>tokens · context setting{!live&&valid(m.context_tokens)?' · last seen':''}</span></div>
+    {ready?<a className="secondary-button" href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">Open chat <Icon name="external" size={16}/></a>:<button className="secondary-button" disabled>{live?'Web UI unavailable':'PC unavailable'}</button>}
    </article>})}</div>
    {!items.length&&<div className="panel ai-empty">{live?'No models reported.':'Waiting for model status.'}</div>}
    <p className="source-note">Recorded speeds are your previous benchmarks, not live readings. Actual speed varies with the prompt and context.</p>

@@ -174,3 +174,11 @@ Recorded benchmark speeds supplied by Ryan on 19 October are 90.0 tok/s for qwen
 Validation: 76 Python tests; isolated Chrome `ai-check.mjs` and existing `ui-smoke.mjs`. UI checks cover live inventory, model-link encoding, search, unavailable states and 360/448/1920/3440px layouts without submitting prompts. Direct workstation LAN HTTP was unavailable, so browser verification used a temporary localhost SSH forward to the same deployed Homepage. Signed-in model selection inside Open WebUI was not exercised. Link syntax follows [Open WebUI URL parameters](https://docs.openwebui.com/features/chat-conversations/chat-features/url-params/).
 
 Final deployment backup: `/opt/homelab-dashboard/backups/20261019T223810596445Z` (previous working AI layout). The pre-integration backup is `20261019T223345758535Z`. No model process, array or existing application container was restarted.
+
+### Gaming PC off or asleep
+
+The Windows PC is Ryan's gaming machine and is intentionally offline between uses. Homepage treats its unreachable model API as a normal unavailable state, with a neutral note rather than a host-failure alarm. Open WebUI availability is independent; its launcher remains accessible. Desktop-model chat links are disabled while the model source is unavailable/stale or Open WebUI is unavailable. They return automatically after fresh successful reads. The collector uses four-second HTTP timeouts and checks about every thirty seconds; the UI observes these on its normal refresh cycle. It sends no wake, model-load or inference commands.
+
+If Homepage restarts while the PC is off, the three saved model profiles and recorded benchmarks remain visible with unavailable state and unknown context. Cached readings, when present, are labeled last seen. The separate A310 Homepage prompt remains on Unraid; there is no automatic fallback of Open WebUI requests to that model. Open WebUI itself cannot generate desktop-model answers while the PC is off.
+
+Validation: six collector tests, including independent WebUI availability, cold start and recovery; browser fixtures for offline, cold start, stale status, return online and WebUI outage. Phone/desktop/ultrawide checks and existing UI smoke pass. The real gaming PC was not powered off for these tests. Dashboard backup: `/opt/homelab-dashboard/backups/20261019T224002187728Z`.
