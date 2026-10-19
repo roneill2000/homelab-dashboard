@@ -194,3 +194,19 @@ Findings: the MoE sampling preset does not match [Qwen's thinking-mode recommend
 No `--sleep-idle-seconds` option appeared in any reported launch arguments. [llama.cpp documents idle sleep as disabled by default](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md#sleeping-on-idle). Recommend an explicit roughly5-minute idle unload for a shared gaming GPU; one-model capacity alone does not guarantee idle VRAM release. Host-level environment/preset files were not read, so absence from reported arguments is not proof no external idle policy exists. The27B instance was awake and active during this read.
 
 Open WebUI title/tags/follow-up generation are enabled, with empty task-model/default parameter overrides. Its HTTP client timeout is600s. Very long xhigh requests could reach that timeout; no such failure was observed. The loaded27B server reports vision/video/audio false, so current serving is text-only despite upstream model multimodality. These are limits to be aware of, not changes made.
+
+### Approved model defaults — 19 October 2026
+
+Ryan authorized medium reasoning and the proposed sampling/idle changes, and chose a PowerShell command for Windows configuration because SSH/SMB/WinRM management ports were unreachable from LXC104. `configure_webui_models.py` uses the installed Open WebUI model persistence methods to update 27B `reasoning_effort=medium` and create the MoE override with temperature1.0, top_p0.95, top_k20, min_p0, presence_penalty1.5 and repeat_penalty1. Existing model metadata/access are preserved, and Open WebUI model history records the changes. Private SQLite backup: `/opt/open-webui/backups/20261019T224642Z/webui.db`.
+
+Both persisted records and the installed `apply_model_params_to_body_openai` request builder were checked successfully. Normal chat handling reads model parameters from the database per request, so no application restart was necessary. Explicit per-chat parameters can still override defaults. No new inference or model restart was used for verification.
+
+`Set-LlmDefaults.ps1` is staged at `\\192.168.0.4\4TB\homelab\Set-LlmDefaults-20261019.ps1` (Unraid `/mnt/user/4TB/homelab/Set-LlmDefaults-20261019.ps1`). SHA256: `967b4a9e16c59d4979fe5897cbb2d8533cab42d3bbb0aef0f39cf24f2feb08f5`. It validates all three expected INI sections, preserves unrelated settings, atomically replaces `C:\llm\models.ini` with a timestamped backup, and verifies the resulting file. It adds sleep-idle-seconds300 to each model, aligns native MoE sampling, and sets native27B medium. It does not stop/reload the router. Runtime changes require Ryan to run the command and then restart his router after any active chat finishes. Script source was reviewed against official llama.cpp preset syntax; it has not been executed on Windows.
+
+Run in PowerShell on .12:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\192.168.0.4\4TB\homelab\Set-LlmDefaults-20261019.ps1"
+```
+
+The execution-policy override applies only to that PowerShell process. After Ryan runs it and restarts the router, re-query authenticated `/v1/models` to confirm sleep-idle-seconds and sampling arguments, then observe actual idle memory release before claiming idle unload is active.
