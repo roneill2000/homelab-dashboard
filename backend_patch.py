@@ -1,0 +1,166 @@
+"""Pure, bounded backend accuracy migration; credentials stay in remote memory."""
+import ast
+
+MARKER = '# HOMELAB_ACCURACY_V1'
+HELPERS = '''
+def _dashboard_number(value, digits=0):
+    import math
+    try:
+        number = float(value) if value is not None else None
+        return round(number, digits) if number is not None and math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+def _dashboard_observed(path, payload=None, online=True):
+    keys = path.split('.')
+    previous = TELEMETRY
+    for key in keys:
+        previous = previous.get(key, {})
+    if not isinstance(previous, dict):
+        previous = {}
+    result = dict(previous if payload is None else payload)
+    stamp = int(time.time())
+    result.update(online=bool(online), last_attempt_at=stamp,
+                  last_success_at=stamp if online else previous.get('last_success_at'),
+                  error=None if online else 'Source poll failed')
+    return result
+
+def _dashboard_dns_cluster():
+    with STATE_LOCK:
+        dns = TELEMETRY['pihole']
+        nodes = [dns.get('primary', {}), dns.get('secondary', {})]
+        available = all(n.get('online') is True for n in nodes)
+        flags = [n.get('blocking') for n in nodes]
+        blocking = True if available and all(v is True for v in flags) else False if available and all(v is False for v in flags) else None
+        status = 'protected' if blocking is True else 'paused' if blocking is False else 'mixed' if available else 'unknown'
+        dns.update(blocking=blocking, status=status)
+        TELEMETRY['pihole'] = _dashboard_observed('pihole', dns, available)
+'''
+
+
+def telemetry_path(node):
+    keys = []
+    while isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+        keys.insert(0, node.slice.value)
+        node = node.value
+    return keys if isinstance(node, ast.Name) and node.id == 'TELEMETRY' else None
+
+
+def expression(text):
+    return ast.parse(text, mode='eval').body
+
+
+class CollectorPatch(ast.NodeTransformer):
+    def __init__(self, function_name):
+        self.function_name = function_name
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if self.function_name == 'poll_dns_and_speed' and isinstance(node.func, ast.Attribute) and node.func.attr == 'get' and len(node.args) == 2:
+            if isinstance(node.args[0], ast.Constant) and node.args[0].value == '_blocking':
+                node.args[1] = ast.Constant(None)
+            elif isinstance(node.args[1], ast.Constant) and node.args[1].value in (2195333, 18):
+                node.args[1] = ast.Constant(None)
+        return node
+
+    def visit_Subscript(self, node):
+        self.generic_visit(node)
+        if self.function_name == 'poll_media_and_syslog' and telemetry_path(node) == ['media', 'radarr']:
+            node.slice = ast.Constant('readarr')
+        return node
+
+    def visit_Dict(self, node):
+        self.generic_visit(node)
+        if self.function_name == 'poll_unraid_and_scrutiny':
+            for i, key in enumerate(node.keys):
+                if isinstance(key, ast.Constant) and key.value == 'healthy':
+                    value = node.values[i]
+                    if isinstance(value, ast.Compare) and isinstance(value.left, ast.Call):
+                        reading = value.left
+                        reading.args = reading.args[:1]
+                        node.values[i] = ast.IfExp(test=ast.Compare(left=reading, ops=[ast.IsNot()], comparators=[ast.Constant(None)]), body=value, orelse=ast.Constant(None))
+        return node
+
+    def visit_Assign(self, node):
+        self.generic_visit(node)
+        if len(node.targets) != 1:
+            return node
+        target = node.targets[0]
+        name = target.id if isinstance(target, ast.Name) else None
+        sensors = {'cpu_temp', 'nvme_temp', 'gpu_temp', 'gpu_fan_rpm'}
+        scratch = {'scratch_pct', 'scratch_free_gb', 'scratch_total_gb'}
+        if self.function_name in {'poll_proxmox', 'poll_unraid_and_scrutiny'}:
+            if name in sensors:
+                if isinstance(node.value, ast.Constant):
+                    node.value = ast.Constant(None)
+                else:
+                    # Existing assignments are round(float(sensor.get('value', fallback))).
+                    gets = [n for n in ast.walk(node.value) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'get']
+                    if len(gets) != 1:
+                        raise ValueError('Unexpected sensor expression')
+                    reading = gets[0]
+                    reading.args = reading.args[:1]
+                    node.value = ast.Call(func=ast.Name('_dashboard_number', ast.Load()), args=[reading], keywords=[])
+            elif name in scratch and isinstance(node.value, ast.Constant):
+                node.value = ast.Constant(None)
+        path = telemetry_path(target)
+        if not path:
+            return node
+        if path[-1] == 'online' and isinstance(node.value, ast.Constant) and node.value.value is False:
+            parent = target.value
+            return ast.copy_location(ast.Assign(targets=[parent], value=ast.Call(func=ast.Name('_dashboard_observed', ast.Load()), args=[ast.Constant('.'.join(path[:-1]))], keywords=[ast.keyword(arg='online', value=ast.Constant(False))])), node)
+        eligible = {'pve', 'unraid', 'scrutiny', 'speedtest', 'syslog', 'netalertx', 'services', 'weather'}
+        watched = len(path) == 1 and path[0] in eligible or len(path) == 2 and path[0] == 'media' or path in [['pihole', 'primary'], ['pihole', 'secondary']]
+        if watched:
+            if path == ['media', 'readarr'] and isinstance(node.value, ast.Dict):
+                node.value.keys = [ast.Constant('books') if isinstance(k, ast.Constant) and k.value == 'movies' else k for k in node.value.keys]
+            node.value = ast.Call(func=ast.Name('_dashboard_observed', ast.Load()), args=[ast.Constant('.'.join(path)), node.value], keywords=[])
+        return node
+
+
+def patch_backend(source):
+    """Return patched source without executing it, logging it, or writing it."""
+    if MARKER in source:
+        compile(source, '<dashboard>', 'exec')
+        return source
+    tree = ast.parse(source)
+    names = {'poll_proxmox', 'poll_unraid_and_scrutiny', 'poll_dns_and_speed', 'poll_media_and_syslog', 'poll_network_and_matrix'}
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    missing = names - functions.keys()
+    if missing:
+        raise ValueError('Unsupported backend: collector functions missing')
+    edits = []
+    for name in names:
+        old = functions[name]
+        start, end = old.lineno, old.end_lineno
+        node = CollectorPatch(name).visit(old)
+        if name == 'poll_dns_and_speed':
+            node.body.append(ast.Expr(value=ast.Call(func=ast.Name('_dashboard_dns_cluster', ast.Load()), args=[], keywords=[])))
+        ast.fix_missing_locations(node)
+        edits.append((start, end, ast.unparse(node) + '\n'))
+    # The legacy Readarr collector mislabeled its result as Radarr. Remove only
+    # that initializer entry; this does not discover or invent a Radarr service.
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'TELEMETRY' for t in node.targets) and isinstance(node.value, ast.Dict):
+            changed = False
+            for key, value in zip(node.value.keys, node.value.values):
+                if isinstance(key, ast.Constant) and key.value == 'media' and isinstance(value, ast.Dict):
+                    for i, media_key in enumerate(value.keys):
+                        if isinstance(media_key, ast.Constant) and media_key.value == 'radarr':
+                            value.keys[i] = ast.Constant('readarr')
+                            value.values[i] = expression("{'online': False, 'books': None, 'queue': None}")
+                            changed = True
+            if changed:
+                ast.fix_missing_locations(node)
+                edits.append((node.lineno, node.end_lineno, ast.unparse(node) + '\n'))
+    lines = source.splitlines(keepends=True)
+    for start, end, replacement in sorted(edits, reverse=True):
+        lines[start-1:end] = [replacement]
+    # Helpers precede all function definitions and any service start calls.
+    result = ''.join(lines)
+    insertion = next(n.lineno for n in ast.parse(result).body if isinstance(n, ast.FunctionDef))
+    lines = result.splitlines(keepends=True)
+    lines[insertion-1:insertion-1] = [MARKER + '\n' + HELPERS + '\n']
+    result = ''.join(lines)
+    compile(result, '<dashboard>', 'exec')
+    return result

@@ -89,6 +89,40 @@ def collect():
         _latest.clear()
         _latest.update(latest)
 
+def aggregate_history(rows, bucket):
+    """Average complete readings; explicit null points retain collection gaps."""
+    metrics = ('read_bps', 'write_bps', 'used_pct', 'latency_ms')
+    groups, previous, gap_buckets, markers, first_stamps = {}, {}, set(), {}, {}
+    for key, ts, *values in rows:
+        first_stamps.setdefault(key, ts)
+        group = (key, ts // bucket)
+        groups.setdefault(group, []).append((ts, values))
+        prior = previous.get(key)
+        if prior is not None and ts - prior > 30:
+            # Even an outage wholly inside a large bucket must remain visible.
+            gap_buckets.add(group)
+            points = markers.setdefault(key, [])
+            for stamp in (prior + 1, ts - 1):
+                points.append(dict(ts=stamp, **{metric: None for metric in metrics}))
+        previous[key] = ts
+    histories = {}
+    for group, samples in groups.items():
+        key, _ = group
+        point = {'ts': samples[-1][0]}
+        for index, metric in enumerate(metrics):
+            values = [values[index] for _, values in samples]
+            point[metric] = None if group in gap_buckets or any(value is None for value in values) else sum(values) / len(values)
+        histories.setdefault(key, []).append(point)
+    for key, points in histories.items():
+        if points[0]['ts'] != first_stamps[key]:
+            points.insert(0, dict(points[0], ts=first_stamps[key]))
+    for key, points in markers.items():
+        histories.setdefault(key, []).extend(points)
+    for points in histories.values():
+        points.sort(key=lambda point: point['ts'])
+    return histories
+
+
 def snapshot(window=3600):
     window = min(86400, max(900, int(window)))
     now = int(time.time())
@@ -97,12 +131,13 @@ def snapshot(window=3600):
     with connect() as db:
         first = db.execute('SELECT MIN(ts) FROM samples').fetchone()[0]
         bucket = max(10, min(window, now-first if first else window) // 240)
-        rows = db.execute('SELECT id, MAX(ts), AVG(read_bps), AVG(write_bps), AVG(used_pct), AVG(latency_ms) FROM samples WHERE ts >= ? GROUP BY id, CAST(ts / ? AS INTEGER) ORDER BY MAX(ts)', (now-window, bucket)).fetchall()
+        rows = db.execute('SELECT id, ts, read_bps, write_bps, used_pct, latency_ms FROM samples WHERE ts >= ? ORDER BY id, ts', (now-window,)).fetchall()
         first = db.execute('SELECT MIN(ts) FROM samples').fetchone()[0]
+    histories = aggregate_history(rows, bucket)
     for key, name, host, device, mount, desc in DISKS:
         latest.setdefault(key, dict(id=key, name=name, host=host, device=device, mount=mount, description=desc, online=False, sampled_at=None))
         latest[key]['bucket_seconds'] = bucket
-        latest[key]['history'] = [dict(ts=r[1], read_bps=r[2], write_bps=r[3], used_pct=r[4], latency_ms=r[5]) for r in rows if r[0] == key]
+        latest[key]['history'] = histories.get(key, [])
     return dict(disks=list(latest.values()), collected_at=now, history_since=first, window=window,
                 sample_seconds=10, bucket_seconds=bucket, retention_hours=24, source='Glances cumulative disk counters')
 

@@ -14,6 +14,9 @@ node = next(n for n in ast.parse(source).body if isinstance(n, ast.Assign) and a
 lines = source.splitlines(keepends=True)
 lines[node.lineno-1:node.end_lineno] = ["INDEX_HTML = open('/opt/homelab-dashboard/index.html', encoding='utf-8').read()\n"]
 updated = ''.join(lines)
+patch_namespace = {}
+exec(compile(payload['backend_patch.py'], 'backend_patch.py', 'exec'), patch_namespace)
+updated = patch_namespace['patch_backend'](updated)
 marker = '# HOMELAB_STORAGE_V2'
 if marker not in updated:
     updated = updated.replace('class DashboardHandler(', 'import storage_monitor\nstorage_monitor.start()\n\n'+marker+'\nclass DashboardHandler(', 1)
@@ -81,6 +84,6 @@ print(json.dumps({'backup':str(backup),'status':'healthy','backend_sha256':hashl
 """
 
 if __name__ == '__main__':
-    data = {name:(ROOT/name).read_text() for name in ('index.html','storage_monitor.py')}
+    data = {name:(ROOT/name).read_text() for name in ('index.html','storage_monitor.py','backend_patch.py')}
     script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
     subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)

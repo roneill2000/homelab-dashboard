@@ -22,7 +22,7 @@ PW_CHANNEL=chrome node ui-smoke.mjs
 
 Homepage is Proxmox LXC 104. Existing Python service `homelab-dashboard` listens on port 80. Its secret-bearing integrations remain on the server and are never pulled into this project.
 
-`python3 deploy.py` uploads the built HTML and storage collector through SSH to Proxmox. It patches only the HTML assignment, storage import, and GET route in the existing backend. It checks syntax, creates a private timestamped backup, restarts only the dashboard service, checks its API, and restores the previous files if its health check fails.
+`python3 deploy.py` uploads the built HTML and storage collector through SSH to Proxmox. It patches the HTML assignment, storage import/GET route, and bounded collector accuracy fixes through `backend_patch.py`; credentials remain in remote memory and existing control actions are preserved. It checks syntax, creates a private timestamped backup, restarts only the dashboard service, checks its API, and restores the previous files if its health check fails.
 
 Remote files:
 - `/usr/local/bin/homelab-dashboard.py`: existing service, minimally patched.
@@ -46,11 +46,11 @@ Both hosts already expose Glances v4 at port 61208. No new host agent or API cre
 
 Mappings were checked against Proxmox mounts and Unraid's `/var/local/emhttp/disks.ini`. Recheck after replacing or adding disks. The current Unraid array has one data disk; this is not automatic multi-disk discovery. Parity throughput is separate and never added to data throughput. Speeds use decimal MB/s; capacity uses decimal GB/TB. These are physical disk rates, not SMB network transfer rates. Busy percentage is unavailable in these Glances responses. I/O latency is shown when cumulative timings and operation counts are available and work occurred.
 
-History began at deployment, 19 October 2026 at 13:24 EDT. There is no historical backfill. SABnzbd's separate speed chart records the current browser session only. Existing host and application telemetry collectors remain unchanged. Services without direct monitoring are labeled unmonitored.
+History began at deployment, 19 October 2026 at 13:24 EDT. There is no historical backfill. SABnzbd's separate speed chart records the current browser session only. Host and application collectors now expose per-source freshness and preserve missing readings as unknown. Services without direct monitoring are labeled unmonitored.
 
 ## Validation
 
-Three Python tests cover cumulative rates, counter resets, missing-vs-idle readings, persistent history queries, and parity separation. Live API checks passed for all four windows and invalid input. A dashboard-service restart preserved recorded history. UI smoke checks are recorded in the session handoff.
+Ten Python tests cover cumulative rates, counter resets, missing-vs-idle readings, persistent history and outage gaps, parity separation, and backend accuracy transformations. Live API checks passed for all four windows and invalid input. A dashboard-service restart preserved recorded history. UI smoke checks are recorded in the session handoff.
 
 `baseline.html` preserves the original public HTML with initial live telemetry stripped. `src/` is the editable frontend; `index.html` is generated.
 
@@ -59,3 +59,15 @@ Three Python tests cover cumulative rates, counter resets, missing-vs-idle readi
 Ryan requested removal of decorative copy and better phone/large-screen use. Page subtitles, taglines, and onboarding copy are removed. Metric definitions are collapsed under “Metric details”. Phone controls use 44px targets; charts have larger axis labels; the fleet table becomes cards. Larger screens use a wider content area, four-column storage/service grids and drive-health cards.
 
 `DASHBOARD_URL=http://192.168.0.2/ node responsive-check.mjs` checks Overview, Storage, Services and Fleet at 360×800, 412×915, 448×998, 998×448, 1440×1000, 1920×1080, 2560×1440 and 3440×1440. It checks both page and card overflow, mobile topbar target sizes and JavaScript errors, and captures phone/desktop/ultrawide screenshots. The mobile contexts use touch and DPR 3. The 448×998 case approximates the Pixel 11 Pro XL panel's 1344×2992 aspect ratio, per [Google's specifications](https://store.google.com/us/product/pixel_11_pro_specs?hl=en-US); Android display-size settings and browser chrome can change the actual CSS viewport. This is browser emulation, not an on-device test.
+
+## Larger type and independent review
+
+See `AUDIT-2026-10-19.md` for three Sol agents' findings, fixes, remaining limits and recommendations. Additional regression checks:
+
+```sh
+python3 -m unittest -v test_storage.py test_backend_patch.py
+DASHBOARD_URL=http://192.168.0.2/ node accessibility-check.mjs
+DASHBOARD_URL=http://192.168.0.2/ node content-check.mjs
+```
+
+`content-check.mjs` injects synthetic failure responses in its isolated browser only. It does not modify server telemetry. The pre-audit rollback is `/opt/homelab-dashboard/backups/20261019T174131926226Z`; restore backend, HTML and storage_monitor.py together from its manifest if reverting the audit changes.
