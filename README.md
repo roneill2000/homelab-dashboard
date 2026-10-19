@@ -160,3 +160,17 @@ Live validation: 16.22 tokens/s, 452 input tokens, 819 output tokens, 6.53s warm
 Validation: 71 offline Python tests, `node gpu-check.mjs`, updated `node qwen-check.mjs`, and existing dashboard smoke. GPU checks cover all graph modes/ranges, keyboard inspection, stale/partial readings, phone 360/448 and desktop 1920/3440 widths. GPU source and broker backup: `/mnt/disk1/.homelab-nightly/backups/20261019T203240703902Z`. Dashboard backup: `/opt/homelab-dashboard/backups/20261019T203358037891Z`. No array or existing application-container restart was required.
 
 Runtime reference for token statistics: [llama.cpp server timing fields](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md#timings-and-context-usage). GPU command arguments were checked against the installed `intel_gpu_top -h` and actual bounded output on this host.
+
+## Open WebUI and desktop models
+
+Open WebUI at `http://192.168.0.16:3000` is the launch destination on Overview, in the Local AI view, and in the searchable/pinnable service catalog. The Local AI view shows the three model IDs reported by the Windows llama.cpp router, current load state, configured/runtime context and model-specific Open WebUI links. Unloaded models say “Loads on demand.” Router connection details are collapsed; backend ports are not service tiles. Ryan confirmed the single-router setup and requested that Open WebUI remain the user-facing entry point.
+
+Recorded benchmark speeds supplied by Ryan on 19 October are 90.0 tok/s for qwen2.5-coder-14b, 86.1 for qwen3.6-35b-moe and 16.3 for qwen3.8-27b. They are explicitly labeled previous benchmarks, not live telemetry or measurements from this session. The one-model-at-a-time behavior is also from Ryan's supplied configuration summary.
+
+`ai_monitor.py` polls Open WebUI `/api/config` and authenticated `http://192.168.0.12:8080/v1/models` about every 30 seconds. Failed reads retain the last inventory but mark it unavailable; stale load states become unverified. Only model ID, state and context allocation are exposed. Context uses loaded `meta.n_ctx` or configured `--ctx-size`, never the larger training-context limit. No chat, load or unload request is issued by this collector.
+
+`python3 configure_ai.py` reuses the verified Open WebUI connection credential entirely on the home hosts. It writes `/etc/homelab-dashboard/ai.json` in LXC104 with mode 0600. Secrets, model paths and process arguments are not sent to the browser or saved in this repository. `deploy.py` installs the collector along with the existing dashboard modules.
+
+Validation: 76 Python tests; isolated Chrome `ai-check.mjs` and existing `ui-smoke.mjs`. UI checks cover live inventory, model-link encoding, search, unavailable states and 360/448/1920/3440px layouts without submitting prompts. Direct workstation LAN HTTP was unavailable, so browser verification used a temporary localhost SSH forward to the same deployed Homepage. Signed-in model selection inside Open WebUI was not exercised. Link syntax follows [Open WebUI URL parameters](https://docs.openwebui.com/features/chat-conversations/chat-features/url-params/).
+
+Final deployment backup: `/opt/homelab-dashboard/backups/20261019T223810596445Z` (previous working AI layout). The pre-integration backup is `20261019T223345758535Z`. No model process, array or existing application container was restarted.
