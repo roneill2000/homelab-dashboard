@@ -164,3 +164,72 @@ def patch_backend(source):
     result = ''.join(lines)
     compile(result, '<dashboard>', 'exec')
     return result
+
+LOG_MARKER = '# HOMELAB_FULL_LOG_V1'
+LOG_HELPER = '''
+def _dashboard_log_details(status):
+    import json, math, urllib.request
+    result = dict(status, latest_event=None, last_alert_full=False)
+    try:
+        with urllib.request.urlopen('http://192.168.0.3:8999/api/alerts', timeout=3) as response:
+            raw = response.read(262145)
+        if len(raw) > 262144:
+            return result
+        events = json.loads(raw)
+        if not isinstance(events, list):
+            return result
+        candidates = [e for e in events[:100] if isinstance(e, dict) and isinstance(e.get('msg'), str)
+                      and isinstance(e.get('ts'), (int, float)) and math.isfinite(e['ts'])]
+        if candidates:
+            event = max(candidates, key=lambda e: e['ts'])
+            result.update(last_alert=event['msg'], last_alert_full=True,
+                          latest_event={k:event.get(k) for k in ('msg','host','level','ts')})
+    except Exception:
+        pass
+    return result
+'''
+
+
+def patch_log_details(source):
+    """Fetch the bounded full-entry endpoint before acquiring the state lock."""
+    if LOG_MARKER in source:
+        return source
+    tree = ast.parse(source)
+    edits = []
+    class LogPatch(ast.NodeTransformer):
+        matched = 0
+        def visit_Assign(self, node):
+            self.generic_visit(node)
+            value = node.value
+            if (isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == 'fetch_json'
+                    and value.args and isinstance(value.args[0], ast.Constant)
+                    and value.args[0].value == 'http://192.168.0.3:8999/api/status'
+                    and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+                self.matched += 1
+                name = node.targets[0].id
+                return [node, ast.Assign(targets=[ast.Name(name, ast.Store())], value=expression('_dashboard_log_details('+name+')'))]
+            return node
+        def visit_Dict(self, node):
+            self.generic_visit(node)
+            for k,v in zip(node.keys,node.values):
+                if isinstance(k,ast.Constant) and k.value=='last_alert' and isinstance(v,ast.Call) and isinstance(v.func,ast.Attribute):
+                    base=ast.unparse(v.func.value)
+                    node.keys += [ast.Constant('latest_event'),ast.Constant('last_alert_full')]
+                    node.values += [expression(base+".get('latest_event')"),expression(base+".get('last_alert_full', False)")]
+                    break
+            return node
+    for old in tree.body:
+        if isinstance(old,ast.FunctionDef) and old.name in ('poll_media_and_syslog','task_syslog'):
+            transformer=LogPatch();new=transformer.visit(old)
+            if transformer.matched:
+                ast.fix_missing_locations(new)
+                edits.append((old.lineno,old.end_lineno,ast.unparse(new)+'\n'))
+    if not edits:
+        raise ValueError('Expected syslog collector not found')
+    lines=source.splitlines(keepends=True)
+    for start,end,replacement in sorted(edits,reverse=True): lines[start-1:end]=[replacement]
+    result=''.join(lines)
+    insertion=next(n.lineno for n in ast.parse(result).body if isinstance(n,ast.FunctionDef))
+    lines=result.splitlines(keepends=True);lines[insertion-1:insertion-1]=[LOG_MARKER+'\n'+LOG_HELPER+'\n']
+    result=''.join(lines);compile(result,'<dashboard>','exec')
+    return result

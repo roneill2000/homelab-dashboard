@@ -17,6 +17,7 @@ updated = ''.join(lines)
 patch_namespace = {}
 exec(compile(payload['backend_patch.py'], 'backend_patch.py', 'exec'), patch_namespace)
 updated = patch_namespace['patch_backend'](updated)
+updated = patch_namespace['patch_log_details'](updated)
 marker = '# HOMELAB_STORAGE_V2'
 if marker not in updated:
     updated = updated.replace('class DashboardHandler(', 'import storage_monitor\nstorage_monitor.start()\n\n'+marker+'\nclass DashboardHandler(', 1)
