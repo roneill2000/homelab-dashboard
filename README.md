@@ -92,3 +92,11 @@ Dashboard backup before these integrations: `/opt/homelab-dashboard/backups/2026
 ## Full log entries
 
 The syslog monitor's `/api/status` truncates `last_alert` to 95 characters. `patch_log_details` now fetches `/api/alerts` before the dashboard state lock, with a 3s timeout and 256KiB response cap, and selects the newest valid event. It preserves the original summary if detail retrieval fails and explicitly labels that fallback. Event time, host and severity are separate metadata; the raw message remains intact. Entries over 300 characters offer an accessible inline expand/collapse control. Normal entries wrap in full. `test_log_details.py` covers bounded retrieval, fallback, ordering and patch idempotence; `node log-check.mjs` verifies the live full message and long-line wrapping at 360/448/1920px. Pre-change rollback: `/opt/homelab-dashboard/backups/20261019T180339701156Z`.
+
+## Repeated logs and current service state
+
+`log_monitor.py` groups the returned recent alert window by host, severity and exact message after stripping transport timestamps/host prefixes and process PIDs. Exit codes, paths and other details remain significant. The current endpoint returns 60 entries; these counts are explicitly separate from the monitor's 150-warning daily total. First/last times cover the returned window only. The latest raw message remains expandable.
+
+A fixed, read-only Proxmox probe checks `filebrowser.service` inside utilities LXC 102 every 30s through the existing Glances AMP. No log-supplied value can choose a command. The frontend says “Running again” only when verified active/running state has a start time after the group's last failure. Other states include running, failed, restarting, stopped and unverified. Service observations expire after 90s; source failures retain historical groups with unverified current status. Only utilities/FileBrowser has this explicit mapping so far. Process state is not proof of complete application health.
+
+Deployed probe backup: `/etc/glances/homelab-backup-20261019T181542Z`. Initial grouped-view dashboard backup: `/opt/homelab-dashboard/backups/20261019T181654062392Z`. 29 Python tests pass; `log-groups-check.mjs` verifies current recovery, stale/failed states, scoped counts, keyboard expansion and 360/448/1920/3440px layouts.

@@ -233,3 +233,28 @@ def patch_log_details(source):
     lines=result.splitlines(keepends=True);lines[insertion-1:insertion-1]=[LOG_MARKER+'\n'+LOG_HELPER+'\n']
     result=''.join(lines);compile(result,'<dashboard>','exec')
     return result
+
+
+def patch_log_groups(source):
+    marker='# HOMELAB_LOG_GROUPS_V1'
+    if marker in source:return source
+    tree=ast.parse(source);edits=[]
+    for old in tree.body:
+        if isinstance(old,ast.FunctionDef) and old.name=='_dashboard_log_details':
+            edits.append((old.lineno,old.end_lineno,'def _dashboard_log_details(status):\n    import log_monitor\n    return log_monitor.details(status)\n'))
+        elif isinstance(old,ast.FunctionDef) and old.name in ('task_syslog','poll_media_and_syslog'):
+            changed=False
+            for node in ast.walk(old):
+                if isinstance(node,ast.Dict):
+                    for key,value in zip(node.keys,node.values):
+                        if isinstance(key,ast.Constant) and key.value=='latest_event' and isinstance(value,ast.Call) and isinstance(value.func,ast.Attribute):
+                            base=ast.unparse(value.func.value)
+                            node.keys += [ast.Constant('log_groups'),ast.Constant('log_window')]
+                            node.values += [expression(base+".get('log_groups')"),expression(base+".get('log_window')")]
+                            changed=True;break
+            if changed:
+                ast.fix_missing_locations(old);edits.append((old.lineno,old.end_lineno,ast.unparse(old)+'\n'))
+    if len(edits)<2:raise ValueError('Expected full log collector not found')
+    lines=source.splitlines(keepends=True)
+    for start,end,value in sorted(edits,reverse=True):lines[start-1:end]=[value]
+    result=''.join(lines)+'\n'+marker+'\n';compile(result,'<dashboard>','exec');return result

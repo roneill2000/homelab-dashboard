@@ -62,6 +62,28 @@ def backup(cache=None):
     return data
 
 
+def service_status(cache=None):
+    """Fixed, read-only service check. Log contents never choose a command."""
+    from datetime import datetime, timezone
+    cache = cache or Path('/run/homelab-service-status.json')
+    try:
+        if time.time()-cache.stat().st_mtime < 30:
+            return json.loads(cache.read_text())
+    except (OSError, ValueError): pass
+    raw=subprocess.check_output(['pct','exec','102','--','env','TZ=UTC','systemctl','show',
+                                 'filebrowser.service','-p','LoadState','-p','ActiveState','-p','SubState',
+                                 '-p','ActiveEnterTimestamp'],timeout=4,text=True)
+    fields=dict(line.split('=',1) for line in raw.splitlines() if '=' in line)
+    started=None
+    try:
+        started=datetime.strptime(fields.get('ActiveEnterTimestamp',''),'%a %Y-%m-%d %H:%M:%S %Z').replace(tzinfo=timezone.utc).timestamp()
+    except ValueError: pass
+    data={'utilities/filebrowser.service':dict(observed_at=int(time.time()),load=fields.get('LoadState'),
+          active=fields.get('ActiveState'),sub=fields.get('SubState'),active_since=started)}
+    cache.write_text(json.dumps(data));cache.chmod(0o600)
+    return data
+
+
 def main():
     p = argparse.ArgumentParser();p.add_argument('--root', default='/');p.add_argument('--kind', choices=['pve','unraid'], required=True)
     a = p.parse_args();root = Path(a.root)
@@ -73,6 +95,9 @@ def main():
     except (OSError, ValueError): out['io_pressure'] = None
     try: out['recovery'] = backup() if a.kind == 'pve' else parity(root)
     except Exception: out['recovery'] = None
+    if a.kind == 'pve':
+        try: out['services'] = service_status()
+        except Exception: out['services'] = {}
     print(json.dumps(out, separators=(',', ':')))
 
 if __name__ == '__main__': main()

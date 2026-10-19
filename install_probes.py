@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parent
 SCRIPT = r'''
@@ -44,6 +45,7 @@ if __name__ == '__main__':
     for kind,host,config,command,restart in [
       ('pve','192.168.0.3','/etc/glances/glances.conf','/usr/bin/python3 /etc/glances/homelab-host-probe.py --kind pve',['systemctl','restart','glances']),
       ('unraid','192.168.0.4','/mnt/user/appdata/glances/glances.conf','/venv/bin/python3 /etc/glances/homelab-host-probe.py --root /rootfs --kind unraid',['docker','restart','Glances'])]:
+        if len(sys.argv)>1 and kind != sys.argv[1]: continue
         data=dict(kind=kind,config=config,command=command,restart=restart,source=(ROOT/'host_probe.py').read_text())
         script=SCRIPT.replace('json.loads(PAYLOAD)','json.loads('+repr(json.dumps(data))+')')
         subprocess.run(['ssh','-o','BatchMode=yes','root@'+host,'python3','-'],input=script,text=True,check=True)

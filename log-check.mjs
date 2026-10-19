@@ -5,11 +5,11 @@ let data;
 await expect.poll(async()=>{data=await (await page.request.get(base+'/api/telemetry')).json();return data.syslog?.last_alert_full;},{timeout:30000}).toBe(true);
 const actual=data.syslog.latest_event.msg;
 await page.route('**/api/action/**',r=>r.abort());
-await page.goto(base);await expect(page.locator('.log-message')).toHaveText(actual);
+await page.goto(base);await expect(page.locator('.log-message').first()).toHaveText(actual);
 expect(actual.endsWith('...')).toBe(false);
 const now=Math.floor(Date.now()/1000),long='systemd: '+('long-log-field/'.repeat(100))+' status=1/FAILURE';
 data.syslog={...data.syslog,online:true,error:null,last_success_at:now,last_attempt_at:now,warnings_24h:1,last_alert:long,last_alert_full:true,latest_event:{msg:long,ts:now-3600,host:'utilities',level:'WARNING'}};
-data.updated_at=now;
+data.updated_at=now;delete data.syslog.log_groups;delete data.syslog.log_window;
 await page.route('**/api/telemetry',r=>r.fulfill({contentType:'application/json',body:JSON.stringify(data)}));
 for(const width of [360,448,1920]){
  await page.setViewportSize({width,height:1000});await page.reload();
