@@ -6,6 +6,7 @@ data.activity.nightly=report;data.activity.nightly_source_available=true;
 await p.route('**/api/storage*',r=>r.fulfill({contentType:'application/json',body:JSON.stringify(data)}));await p.goto(base);
 const panel=p.locator('.nightly-panel').first();await expect(panel).toContainText('2 log groups found');await expect(panel).toContainText('1 groups were not sent');await panel.getByRole('button',{name:'Read report'}).click();await expect(panel).toContainText('Service state at review: running again');expect(await p.evaluate(()=>window.injected)).toBeUndefined();
 for(const width of [360,448,1920,3440]){await p.setViewportSize({width,height:1000});expect(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(await panel.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);}
+report.findings[0].withheld_reason='exit_status_omitted';await p.reload();await panel.getByRole('button',{name:'Read report'}).click();await expect(panel).toContainText('Explanation withheld');
 report.completed_at=now-37*3600;await p.reload();await expect(panel.locator('.badge')).toHaveText('Older report');
 report.status='failed';report.notes='Review failed';await p.reload();await expect(panel.locator('.badge')).toHaveText('Run failed');await expect(panel.getByRole('button',{name:'Read report'})).toHaveCount(0);
 report.status='running';report.updated_at=now-3*3600;await p.reload();await expect(panel.locator('.badge')).toHaveText('Run overdue');

@@ -56,6 +56,14 @@ class RunnerTests(unittest.TestCase):
   self.assertTrue(body['chat_template_kwargs']['enable_thinking'])
   self.assertLessEqual(body['max_tokens'],1152)
   self.assertIn('--reasoning-budget',r.container_command())
+ def test_explanation_cannot_omit_explicit_exit_status(self):
+  group={'id':'x','message':'filebrowser.service: Main process exited, code=exited, status=1/FAILURE'}
+  withheld=r.checked_finding(group,'The log does not reveal the specific error code.')
+  self.assertEqual(withheld['withheld_reason'],'exit_status_omitted')
+  self.assertIn('exit status 1',withheld['interpretation'])
+  accepted=r.checked_finding(group,'The process exited with status 1; the underlying cause is unknown.')
+  self.assertNotIn('withheld_reason',accepted)
+  self.assertIn('withheld_reason',r.checked_finding(group,'The process returned status 10.'))
  def test_failure_stops_owned_container_and_saves_failure(self):
   snapshot=dict(groups=[],window_start=1,window_end=1000,coverage_limited=True,files_scanned=0,matched_entries=0,distinct_groups=0,source='patterns',hosts=[])
   values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot]
@@ -64,6 +72,18 @@ class RunnerTests(unittest.TestCase):
    with self.assertRaises(RuntimeError):r.main()
    saved=json.loads((Path(d)/'reports/latest.json').read_text())
    self.assertEqual(saved['status'],'failed');self.assertEqual(run.call_args.args[0][:2],['docker','stop'])
+ def test_success_publishes_only_final_answer_and_releases_gpu(self):
+  group=dict(id='g',host='utilities',level='WARNING',count=1,first_at=800,last_at=800,message='filebrowser.service: FAILURE')
+  snapshot=dict(groups=[group],window_start=1,window_end=1000,coverage_limited=True,files_scanned=1,matched_entries=1,distinct_groups=1,source='patterns',hosts=[])
+  answer={'choices':[{'finish_reason':'stop','message':{'content':'Historical process failure.','reasoning_content':'Private speculation that must not be published.'}}],'usage':{'prompt_tokens':10,'completion_tokens':20}}
+  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'data':[{'id':r.MODEL}]},answer]
+  with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=type('Space',(),{'free':2**32})()),patch.object(r.subprocess,'run') as run:
+   run.return_value=type('Result',(),{'returncode':1})()
+   r.main();raw=(Path(d)/'reports/latest.json').read_text();saved=json.loads(raw)
+   self.assertEqual(saved['status'],'complete');self.assertEqual(saved['findings'][0]['interpretation'],'Historical process failure.')
+   self.assertNotIn('Private speculation',raw);self.assertEqual(saved['usage']['completion_tokens'],20)
+   self.assertIn('load_seconds',saved);self.assertIn('generation_seconds',saved)
+   self.assertEqual(run.call_args.args[0][:2],['docker','stop'])
  def test_report_permissions_and_retention(self):
   with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)):
    folder=Path(d)/'reports';folder.mkdir()
