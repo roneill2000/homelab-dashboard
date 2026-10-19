@@ -24,10 +24,9 @@ await expect(p.locator('.summary-stat').filter({hasText:'DNS protection'})).toCo
 await p.getByRole('button',{name:'Network & DNS',exact:true}).click();
 await expect(p.getByRole('button',{name:/Pause blocking|Resume blocking/})).toBeDisabled();
 await p.getByRole('button',{name:'Media & downloads',exact:true}).click();
-await expect(p.locator('.download-value')).toContainText('—');
-await expect(p.locator('.download-panel .badge')).toHaveText('Stale');
+await expect(p.locator('.service-card').filter({hasText:'SABnzbd'}).locator('.service-dot')).toHaveAttribute('aria-label','Stale');
 await expect(p.locator('.service-card').filter({hasText:'Readarr'})).toContainText('113 books · 8 queued');
-await expect(p.locator('.download-value')).toContainText('MiB/s');
+await expect(p.locator('.activity-panel')).toContainText('MB/s');
 await p.getByRole('button',{name:'Storage',exact:true}).click();
 for(const badge of await p.locator('.drive-row .badge').all())await expect(badge).toHaveText('Unknown');
 console.log('PASS: stale source metrics, mixed DNS disabled, Readarr books, SAB source failure and units, stale SMART status.');

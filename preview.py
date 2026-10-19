@@ -10,6 +10,7 @@ BASE = Path(__file__).parent
 (BASE / '.preview').mkdir(exist_ok=True)
 os.environ['HOMELAB_METRICS_DB'] = str(BASE / '.preview/metrics.sqlite3')
 import storage_monitor
+storage_monitor.activity_monitor.TELEMETRY = 'http://192.168.0.2/api/telemetry'
 storage_monitor.start()
 
 class Handler(BaseHTTPRequestHandler):

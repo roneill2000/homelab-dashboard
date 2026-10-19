@@ -1,4 +1,5 @@
 """Read-only Glances collector with 24-hour, server-side disk history."""
+import activity_monitor
 import concurrent.futures
 import json
 import os
@@ -28,6 +29,8 @@ def initialize():
     with connect() as db:
         db.execute('CREATE TABLE IF NOT EXISTS samples (id TEXT, ts INTEGER, read_bps REAL, write_bps REAL, used_pct REAL, latency_ms REAL, PRIMARY KEY(id, ts))')
 
+    activity_monitor.initialize(connect)
+
 def rates(previous, current, seconds):
     """Glances gauges are cumulative; never divide an already-normalized rate."""
     if not previous or seconds <= 0 or seconds > 90:
@@ -51,17 +54,27 @@ def fetch(host):
     for endpoint in ('diskio', 'fs'):
         with urllib.request.urlopen('http://' + host + ':61208/api/4/' + endpoint, timeout=4) as response:
             out[endpoint] = json.load(response)
+    try:
+        with urllib.request.urlopen('http://' + host + ':61208/api/4/amps', timeout=4) as response:
+            out['amps'] = json.load(response)
+    except Exception:
+        out['amps'] = []
     return out
 
 def collect():
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         futures = {host: pool.submit(fetch, host) for host in ('192.168.0.3', '192.168.0.4')}
+        downloads = {'sab':pool.submit(activity_monitor.sab_rate), 'rdt':pool.submit(activity_monitor.rdt_rate)}
         hosts = {}
         for host, future in futures.items():
             try:
                 hosts[host] = future.result()
             except Exception:
                 hosts[host] = None
+        download_results = {}
+        for name, future in downloads.items():
+            try: download_results[name] = future.result()
+            except Exception: download_results[name] = None
     now = int(time.time())
     rows, latest = [], {}
     for key, name, host, device, mount, description in DISKS:
@@ -82,6 +95,8 @@ def collect():
                            used_bytes=fs.get('used') if fs else None,
                            free_bytes=fs.get('free') if fs else None)
         rows.append((key, now, read, write, used, latency))
+    activity_monitor.collect(connect, hosts, latest, now, download_results)
+    rows = [(key, now, d['read_bps'], d['write_bps'], d['used_pct'], d['latency_ms']) for key,d in latest.items()]
     with connect() as db:
         db.executemany('INSERT OR REPLACE INTO samples VALUES (?,?,?,?,?,?)', rows)
         db.execute('DELETE FROM samples WHERE ts < ?', (now - 86400,))
@@ -89,9 +104,8 @@ def collect():
         _latest.clear()
         _latest.update(latest)
 
-def aggregate_history(rows, bucket):
+def aggregate_history(rows, bucket, metrics=('read_bps', 'write_bps', 'used_pct', 'latency_ms')):
     """Average complete readings; explicit null points retain collection gaps."""
-    metrics = ('read_bps', 'write_bps', 'used_pct', 'latency_ms')
     groups, previous, gap_buckets, markers, first_stamps = {}, {}, set(), {}, {}
     for key, ts, *values in rows:
         first_stamps.setdefault(key, ts)
@@ -138,7 +152,7 @@ def snapshot(window=3600):
         latest.setdefault(key, dict(id=key, name=name, host=host, device=device, mount=mount, description=desc, online=False, sampled_at=None))
         latest[key]['bucket_seconds'] = bucket
         latest[key]['history'] = histories.get(key, [])
-    return dict(disks=list(latest.values()), collected_at=now, history_since=first, window=window,
+    return dict(activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
                 sample_seconds=10, bucket_seconds=bucket, retention_hours=24, source='Glances cumulative disk counters')
 
 def start():
