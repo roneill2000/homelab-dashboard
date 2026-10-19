@@ -98,6 +98,12 @@ def main():
     if a.kind == 'pve':
         try: out['services'] = service_status()
         except Exception: out['services'] = {}
+    if a.kind == 'unraid':
+        try:
+            report_path=root/'mnt/disk1/.homelab-nightly/reports/latest.json'
+            if report_path.stat().st_size<=65536:
+                out['nightly']=json.loads(report_path.read_text())
+        except (OSError,ValueError):pass
     print(json.dumps(out, separators=(',', ':')))
 
 if __name__ == '__main__': main()

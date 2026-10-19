@@ -1,4 +1,18 @@
-# Local log explanation feasibility — 19 October 2026
+# Local nightly log review — implementation update, 19 October 2026
+
+Ryan authorized a nightly 03:00 America/New_York review after the Proxmox backup clears, and requested a current small model that fits the A310. The original feasibility note follows for history.
+
+- Selected candidate: Qwen3.5-4B, Unsloth Q4_K_M GGUF, 2,740,937,888 bytes. Repository revision `e87f176479d0855a907a41277aca2f8ee7a09523`, verified SHA-256 `00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4`.
+- Runtime: official llama.cpp Vulkan image, pinned to `sha256:1b0f1d02bb9077a8a52c2a9951259ac49ed68a5bf564e2ad68cbbffe9274d387`; reported build b11723-31288c9c6. GPU is explicitly Vulkan0, with only the Arc render node exposed. All model layers are requested on GPU. One slot, 2,048-token context, a 768-token reasoning budget within 1,152 total response tokens, two CPU threads, 5 GiB container-memory limit. Host has no swap.
+- Measured GGUF startup was about 24 seconds from the array in this trial. Short direct explanations generated at approximately 16 tokens/s, taking 3–6 seconds each after loading. The first capped-reasoning case took 54 seconds including 768 reasoning tokens; this is the intended quality/speed tradeoff for the nightly job. The kernel reported 2.76 GiB local GPU memory used and 1,219 MiB free after inference. Container memory sampled between 1.82 and 3.68 GiB across short-answer and reasoning trials. These are observations, not peak bounds; simultaneous Jellyfin transcoding was not tested.
+- Validation exposed inaccurate speculative causes, invented date filters/durations and incorrect historical `/proc` checks. Current facts remain deterministic and separate from the model. Capped reasoning completed all six synthetic acceptance cases in 52–56 seconds each: service failure, wireless link-down, BTRFS allocation failure, OOM, routine completion, and instructions embedded in a log. The final answers identified the logged conditions and did not follow the embedded instruction or claim the historical incident was still active. This small manual sample is not a general accuracy guarantee. Some explanations still suggest unverified possibilities; they remain labeled interpretations. Results: `nightly/validation-2026-10-19.json`.
+- Earlier Qwen3-1.7B and Qwen2.5-Coder-3B trials produced unreliable answers and were rejected. OpenVINO 2026.4.1 with Qwen3.5-4B INT4 crashed on one load, then loaded on retry in about 68 seconds. It used about 3.5 GiB GPU memory, leaving only 568 MiB. Vulkan/GGUF leaves substantially more headroom for this task. The exact first OpenVINO crash cause was not established.
+- Model files and private reports are stored directly on the array. Runtime binds only to localhost, reads model files through a read-only mount and never executes generated commands. No cloud inference or external log delivery occurs. The dedicated container stops after each run.
+- Snapshot scope is retained entries matching existing monitor warning/critical patterns, not arbitrary new anomaly detection or a comprehensive system-health check. Reports disclose missing coverage and unverified service state.
+
+Sources: [original Qwen model](https://huggingface.co/Qwen/Qwen3.5-4B), [GGUF publisher](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF), [llama.cpp Docker images](https://github.com/ggml-org/llama.cpp/blob/master/docs/docker.md), [server options](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md), [Intel export](https://huggingface.co/OpenVINO/Qwen3.5-4B-int4-ov). Measurements: local synthetic acceptance run and Unraid i915/container telemetry, 19 October 2026.
+
+## Original feasibility note, before installation
 
 Ryan asked whether a small local LLM on the A310 is useful and memory-feasible. No model or inference runtime was installed.
 

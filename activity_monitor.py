@@ -101,7 +101,10 @@ def collect(connect, hosts, disks, now, download_results):
         db.execute('INSERT OR REPLACE INTO activity VALUES ('+','.join('?' for _ in range(1+len(METRICS)))+')', [now]+[row[k] for k in METRICS])
         db.execute('DELETE FROM activity WHERE ts < ?', (now-86400,))
     with _lock:
-        _latest.clear();_latest.update(dict(latest=row,recovery=recovery))
+        current_nightly=(probes.get('192.168.0.4') or {}).get('nightly')
+        report_available=isinstance(current_nightly,dict)
+        nightly=current_nightly if report_available else _latest.get('nightly')
+        _latest.clear();_latest.update(dict(latest=row,recovery=recovery,nightly=nightly,nightly_source_available=report_available))
     _previous.clear();_previous.update({host:p for host,p in probes.items() if p})
 
 

@@ -61,5 +61,22 @@ class ActivityTests(unittest.TestCase):
         with s.connect() as db: self.assertEqual(db.execute('SELECT count(*) FROM samples').fetchone()[0],1)
     def test_explicit_zero_download_rate_is_numeric(self):
         self.assertTrue(a.numeric(0));self.assertFalse(a.numeric(None));self.assertFalse(a.numeric(float('nan')));self.assertFalse(a.numeric(-1))
+    def test_missing_report_is_unavailable_even_when_host_probe_succeeds(self):
+        before=copy.deepcopy(a._latest);previous=copy.deepcopy(a._previous)
+        try:
+            report={'status':'complete','completed_at':90}
+            p={'sampled_at':100,'disks':{},'nightly':report}
+            disk=dict(host='192.168.0.3',device='sda',read_bps=0,write_bps=0)
+            hosts={'192.168.0.4':{'amps':[{'name':'Homelab','result':json.dumps(p)}]}}
+            a.collect(s.connect,hosts,{'scratch':disk},100,{})
+            self.assertTrue(a._latest['nightly_source_available'])
+            del p['nightly'];p['sampled_at']=110
+            hosts['192.168.0.4']['amps'][0]['result']=json.dumps(p)
+            a.collect(s.connect,hosts,{'scratch':disk},110,{})
+            self.assertFalse(a._latest['nightly_source_available'])
+            self.assertEqual(a._latest['nightly'],report)
+        finally:
+            a._latest.clear();a._latest.update(before)
+            a._previous.clear();a._previous.update(previous)
 
 if __name__=='__main__': unittest.main()

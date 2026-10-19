@@ -27,6 +27,7 @@ def connect():
 def initialize():
     os.makedirs(os.path.dirname(os.path.abspath(DB)), exist_ok=True)
     with connect() as db:
+        db.execute('CREATE TABLE IF NOT EXISTS capacity_samples (id TEXT, ts INTEGER, free_bytes REAL, size_bytes REAL, PRIMARY KEY(id, ts))')
         db.execute('CREATE TABLE IF NOT EXISTS samples (id TEXT, ts INTEGER, read_bps REAL, write_bps REAL, used_pct REAL, latency_ms REAL, PRIMARY KEY(id, ts))')
 
     activity_monitor.initialize(connect)
@@ -100,6 +101,8 @@ def collect():
     with connect() as db:
         db.executemany('INSERT OR REPLACE INTO samples VALUES (?,?,?,?,?,?)', rows)
         db.execute('DELETE FROM samples WHERE ts < ?', (now - 86400,))
+        db.executemany('INSERT OR REPLACE INTO capacity_samples VALUES (?,?,?,?)',[(key,now,d['free_bytes'],d['size_bytes']) for key,d in latest.items()])
+        db.execute('DELETE FROM capacity_samples WHERE ts < ?', (now - 86400,))
     with _lock:
         _latest.clear()
         _latest.update(latest)
@@ -137,6 +140,31 @@ def aggregate_history(rows, bucket, metrics=('read_bps', 'write_bps', 'used_pct'
     return histories
 
 
+def exhaustion_estimate(rows,now):
+    """Five-minute net free-space change, independent of device write traffic."""
+    out=dict(state='collecting',seconds=None,growth_bps=None,window_seconds=None)
+    if not rows:return out
+    last=rows[-1]
+    if now-last[0]>45 or last[1] is None or not last[2]:return dict(out,state='unavailable')
+    if last[1]<=16*1024**2:return dict(out,state='full',seconds=0)
+    usable=[]
+    for row in reversed(rows):
+        if row[1] is None or row[2]!=last[2] or (usable and usable[-1][0]-row[0]>45):break
+        usable.append(row)
+    if len(usable)<2 or last[0]-usable[-1][0]<120:return out
+    # A completed move can hide renewed filling in the long average. Use the
+    # latest minute to detect direction; for growth choose the faster observed rate.
+    recent=next((row for row in usable if last[0]-row[0]>=60),usable[-1])
+    recent_dt=last[0]-recent[0];recent_delta=recent[1]-last[1]
+    out.update(window_seconds=recent_dt,growth_bps=recent_delta/recent_dt)
+    if abs(recent_delta)<64*1024**2:return dict(out,state='flat')
+    if recent_delta<0:return dict(out,state='draining')
+    first=usable[-1];dt=last[0]-first[0];delta=first[1]-last[1]
+    if delta/dt>out['growth_bps']:out.update(window_seconds=dt,growth_bps=delta/dt)
+    return dict(out,state='filling',seconds=round(last[1]/out['growth_bps']))
+
+
+
 def snapshot(window=3600):
     window = min(86400, max(900, int(window)))
     now = int(time.time())
@@ -147,9 +175,12 @@ def snapshot(window=3600):
         bucket = max(10, min(window, now-first if first else window) // 240)
         rows = db.execute('SELECT id, ts, read_bps, write_bps, used_pct, latency_ms FROM samples WHERE ts >= ? ORDER BY id, ts', (now-window,)).fetchall()
         first = db.execute('SELECT MIN(ts) FROM samples').fetchone()[0]
+        capacity=db.execute('SELECT id,ts,free_bytes,size_bytes FROM capacity_samples WHERE ts>=? ORDER BY id,ts',(now-300,)).fetchall()
+    estimates={key:exhaustion_estimate([row[1:] for row in capacity if row[0]==key],now) for key, *_ in DISKS}
     histories = aggregate_history(rows, bucket)
     for key, name, host, device, mount, desc in DISKS:
         latest.setdefault(key, dict(id=key, name=name, host=host, device=device, mount=mount, description=desc, online=False, sampled_at=None))
+        latest[key]['exhaustion'] = estimates[key]
         latest[key]['bucket_seconds'] = bucket
         latest[key]['history'] = histories.get(key, [])
     return dict(activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
