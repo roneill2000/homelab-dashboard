@@ -65,7 +65,7 @@ os.chmod(stage,0o600);os.replace(stage,path)
 print('Dashboard Qwen credential installed (private)')
 '''
 if __name__=='__main__':
- payload={name:(ROOT/name).read_text() for name in ('qwen_service.py','runner.py','log_snapshot.py')}
+ payload={name:(ROOT/name).read_text() for name in ('qwen_service.py','runner.py','log_snapshot.py','gpu_probe.py')}
  script=REMOTE.replace('json.loads(PAYLOAD)','json.loads('+repr(json.dumps(payload))+')')
  result=subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.4','python3','-'],input=script,text=True,capture_output=True)
  if result.returncode:raise RuntimeError('Broker installation failed: '+result.stderr[-1500:])

@@ -19,6 +19,13 @@ def storage(now=1000):
 
 
 class QwenTests(unittest.TestCase):
+    def test_performance_uses_measured_generation_timings(self):
+        data=q.performance({'usage':{'prompt_tokens':100,'completion_tokens':800},'timings':{'predicted_per_second':16,'predicted_ms':50000}},55)
+        self.assertEqual(data['tokens_per_second'],16);self.assertEqual(data['generation_seconds'],50)
+        self.assertEqual(data['response_seconds'],55);self.assertEqual(data['output_tokens'],800)
+        self.assertIsNone(q.performance({},50)['tokens_per_second'])
+        self.assertIsNone(q.performance({'timings':{'predicted_per_second':float('nan')}},1)['tokens_per_second'])
+
     def test_context_stale_and_future_samples_withhold_values(self):
         fresh=q.context(storage(),1000)
         self.assertTrue(fresh['disks'][0]['fresh'])

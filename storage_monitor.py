@@ -1,5 +1,6 @@
 """Read-only Glances collector with 24-hour, server-side disk history."""
 import activity_monitor
+import gpu_monitor
 import concurrent.futures
 import json
 import os
@@ -31,6 +32,7 @@ def initialize():
         db.execute('CREATE TABLE IF NOT EXISTS samples (id TEXT, ts INTEGER, read_bps REAL, write_bps REAL, used_pct REAL, latency_ms REAL, PRIMARY KEY(id, ts))')
 
     activity_monitor.initialize(connect)
+    gpu_monitor.initialize(connect)
 
 def rates(previous, current, seconds):
     """Glances gauges are cumulative; never divide an already-normalized rate."""
@@ -63,8 +65,9 @@ def fetch(host):
     return out
 
 def collect():
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         futures = {host: pool.submit(fetch, host) for host in ('192.168.0.3', '192.168.0.4')}
+        gpu_future=pool.submit(gpu_monitor.fetch)
         downloads = {'sab':pool.submit(activity_monitor.sab_rate), 'rdt':pool.submit(activity_monitor.rdt_rate)}
         hosts = {}
         for host, future in futures.items():
@@ -76,7 +79,10 @@ def collect():
         for name, future in downloads.items():
             try: download_results[name] = future.result()
             except Exception: download_results[name] = None
+    try:gpu=gpu_future.result()
+    except Exception:gpu=None
     now = int(time.time())
+    gpu_monitor.collect(connect,gpu,now)
     rows, latest = [], {}
     for key, name, host, device, mount, description in DISKS:
         payload = hosts[host]
@@ -183,7 +189,7 @@ def snapshot(window=3600):
         latest[key]['exhaustion'] = estimates[key]
         latest[key]['bucket_seconds'] = bucket
         latest[key]['history'] = histories.get(key, [])
-    return dict(activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
+    return dict(gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
                 sample_seconds=10, bucket_seconds=bucket, retention_hours=24, source='Glances cumulative disk counters')
 
 def start():

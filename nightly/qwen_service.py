@@ -13,6 +13,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import runner as r
 from log_snapshot import scrub
+import gpu_probe
 
 CONFIG = r.ROOT / 'qwen-token'
 BIND = ('192.168.0.4', 11438)
@@ -52,6 +53,16 @@ def body_for(prompt, evidence):
                           dict(role='user',content='Observations: '+json.dumps(evidence,separators=(',',':'))+'\nQuestion: '+prompt)])
 
 
+def performance(response, elapsed):
+    timing=response.get('timings') or {};usage=response.get('usage') or {}
+    def value(source,key):return gpu_probe.number(source.get(key))
+    ms=value(timing,'predicted_ms')
+    return dict(tokens_per_second=value(timing,'predicted_per_second'),
+                input_tokens=value(usage,'prompt_tokens'),output_tokens=value(usage,'completion_tokens'),
+                generation_seconds=round(ms/1000,2) if ms is not None else None,
+                response_seconds=round(elapsed,2))
+
+
 class Broker:
     def __init__(self):
         self.mutex = threading.Lock()
@@ -81,7 +92,7 @@ class Broker:
                 lock.close()
                 return 409, dict(status='busy',model='Qwen3.5-4B',error='The nightly review is using Qwen. Try again when it finishes.')
             self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),
-                            model='Qwen3.5-4B',updated_at=int(time.time()),
+                            model='Qwen3.5-4B',updated_at=int(time.time()),started_at=int(time.time()),
                             context_note='Current disk readings and backup activity only. No live log search or chat history. Answers can be wrong.')
             accepted = dict(self.job)
             worker=threading.Thread(target=self.work,args=(lock,),name='qwen-question',daemon=False)
@@ -91,14 +102,15 @@ class Broker:
             return 202, accepted
 
     def work(self, lock):
-        owned=False;result={}
+        owned=False;result={};work_started=time.monotonic()
         try:
             storage=r.fetch('http://192.168.0.2/api/storage',timeout=20)
             if not r.backup_clear(storage,time.time()):
                 raise ValueError('Backup activity is running or unavailable. Try again after the backup.')
             if r.shutil.disk_usage('/mnt/cache').free<1024**3:
                 raise ValueError('Cache has less than 1 GiB free. Try again after space is available.')
-            self.update(status='loading')
+            load_started=time.monotonic()
+            self.update(status='loading',load_started_at=int(time.time()))
             # run.lock excludes the nightly process before any shared container operation.
             r.stop_model()
             owned=True
@@ -112,6 +124,7 @@ class Broker:
                 if state.returncode or state.stdout.strip()!='true':raise ValueError('The model stopped while loading. Try again.')
                 if time.monotonic()>deadline:raise ValueError('Model loading timed out. Try again later.')
                 self.update(status='loading');time.sleep(3)
+            self.update(load_seconds=round(time.monotonic()-load_started,2))
             # Fetch fresh observations after the potentially slow model load.
             storage=r.fetch('http://192.168.0.2/api/storage',timeout=20)
             if not r.backup_clear(storage,time.time()):
@@ -124,12 +137,13 @@ class Broker:
             count=len(r.fetch(r.API+'/tokenize',{'content':template,'add_special':True},timeout=10)['tokens'])
             if count>850:
                 raise ValueError('This question is too long for the model with current readings. Please shorten it.')
-            self.update(status='generating',context_at=evidence['observed_at'])
+            self.update(status='generating',context_at=evidence['observed_at'],generation_started_at=int(time.time()))
+            generation_started=time.monotonic()
             response=r.fetch(r.API+'/v1/chat/completions',body,timeout=180)
             choice=response['choices'][0];answer=choice['message'].get('content','').strip()
             if not answer or len(answer)>6000 or '<think>' in answer or choice.get('finish_reason')!='stop':
                 raise ValueError('The model did not finish a usable answer. Try a shorter, more specific question.')
-            result=dict(status='complete',answer=scrub(answer))
+            result=dict(status='complete',answer=scrub(answer),performance=performance(response,time.monotonic()-generation_started))
         except ValueError as exc:
             result=dict(status='failed',error=str(exc)[:200])
         except Exception:
@@ -139,6 +153,7 @@ class Broker:
                 if owned:r.stop_model()
             except Exception:
                 result=dict(status='failed',error='GPU cleanup could not be verified. Check the model container before retrying.')
+            result['total_seconds']=round(time.monotonic()-work_started,2)
             self.update(**result)
             lock.close()
 
@@ -156,6 +171,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
     def do_GET(self):
         if not self.authorized():return self.reply(403,{'error':'Forbidden'})
+        if self.path=='/gpu':return self.reply(200,gpu_probe.snapshot())
         if self.path!='/job':return self.reply(404,{'error':'Not found'})
         self.reply(200,BROKER.state())
     def do_POST(self):
@@ -185,6 +201,7 @@ def main():
     except BlockingIOError:return
     # Python waits for the non-daemon inference worker to clean up on termination.
     signal.signal(signal.SIGTERM,lambda *_: (_ for _ in ()).throw(SystemExit(0)))
+    gpu_probe.start()
     with ThreadingHTTPServer(BIND,Handler) as server:server.serve_forever()
 
 if __name__=='__main__':main()
