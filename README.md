@@ -210,3 +210,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\192.168.0.4\4TB\homel
 ```
 
 The execution-policy override applies only to that PowerShell process. After Ryan runs it and restarts the router, re-query authenticated `/v1/models` to confirm sleep-idle-seconds and sampling arguments, then observe actual idle memory release before claiming idle unload is active.
+
+Post-application verification, 19 October 2026 at approximately22:50UTC: Ryan reported the Windows command/restart complete. Fresh authenticated router reads confirm all three presets now include `--sleep-idle-seconds 300`;27B includes `--reasoning-effort medium`; MoE includes temperature1/top_p0.95/top_k20/min_p0/presence_penalty1.5/repeat_penalty1. Context/GPU/cache/Flash Attention settings remain as previously recorded. Router remains max_instances1/autoload enabled, and all three models report unloaded. No new model was loaded to test the timer, so native configuration is verified but a complete timed idle cycle and GPU memory release remain unobserved.
