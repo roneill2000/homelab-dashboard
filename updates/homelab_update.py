@@ -104,6 +104,40 @@ def old_snapshots(listing, keep):
     return sorted(n for n in set(names) if n != keep)
 
 
+# Read-only probe run inside each LXC: failed units, then every network mount.
+HEALTH_SH = r"""
+echo "U $(systemctl --failed --plain --no-legend 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
+awk '$3 ~ /^(cifs|smb3|nfs|nfs4)$/ {print $2}' /proc/mounts | while read -r m; do
+  if timeout 5 stat -t "$m" >/dev/null 2>&1; then echo "M ok $m"; else echo "M stale $m"; fi
+done
+awk '$1 !~ /^#/ && $3 ~ /^(cifs|smb3|nfs|nfs4)$/ {print $2}' /etc/fstab 2>/dev/null | while read -r m; do
+  awk -v m="$m" '$2==m{f=1} END{exit !f}' /proc/mounts || echo "M missing $m"
+done
+"""
+
+
+def parse_guest_health(text):
+    units, mounts = None, []
+    for line in text.splitlines():
+        if line == 'U' or line.startswith('U '):  # bare 'U' when output stripping removed the space
+            units = line[2:].split()
+        elif line.startswith('M '):
+            parts = line.split(None, 2)
+            if len(parts) == 3 and parts[1] in ('ok', 'stale', 'missing'):
+                mounts.append(dict(path=parts[2], state=parts[1]))
+    return dict(failed_units=units, mounts=mounts)
+
+
+def update_summary(state):
+    job = state.get('job') or {}
+    items = state.get('items') or []
+    return dict(checked_at=state.get('checked_at'),
+                job={k: job.get(k) for k in ('kind', 'status', 'finished_at', 'error')} if job else None,
+                pending=[dict(name=i['name'], kind=i['kind'], detail=i.get('detail')) for i in items if i.get('state') == 'pending'],
+                failed=[dict(name=i['name'], kind=i['kind'], detail=i.get('detail'), rollback=i.get('rollback')) for i in items if i.get('state') == 'failed'],
+                manual=[dict(name=i['name'], detail=i.get('detail')) for i in items if i.get('state') in ('skipped', 'unknown') and 'hand' in (i.get('detail') or '')])
+
+
 def blank_state():
     return dict(job=None, items=[], checked_at=None)
 
@@ -379,6 +413,25 @@ def run_job(kind):
             run.finish('failed', str(exc)[:300])
 
 
+def health():
+    now = int(time.time())
+    out = dict(observed_at=now, guests=[], containers=None, updates=update_summary(read_state()))
+    code, text = sh(['pct', 'list'], timeout=30)
+    for g in parse_pct_list(text) if code == 0 else []:
+        entry = dict(vmid=g['vmid'], name=g['name'], status=g['status'])
+        if g['status'] == 'running':
+            rc, probe = guest(g['vmid'], HEALTH_SH, timeout=45)
+            entry.update(parse_guest_health(probe) if rc == 0 else dict(error='Probe failed'))
+        out['guests'].append(entry)
+    if code:
+        out['guests'] = None
+    rc, text = unraid("docker ps -a --format '{{.Names}}|{{.State}}|{{.Status}}'", timeout=20)
+    if rc == 0:
+        out['containers'] = [dict(zip(('name', 'state', 'status'), (line.split('|') + ['', ''])[:3]))
+                             for line in text.splitlines() if line]
+    return out
+
+
 def status():
     state = read_state()
     job = state.get('job')
@@ -391,17 +444,19 @@ def main(argv):
     command = argv[1] if len(argv) > 1 else ''
     if command == 'ssh':
         command = os.environ.get('SSH_ORIGINAL_COMMAND', '').strip()
-        if command not in ('status', 'check', 'start'):
+        if command not in ('status', 'health', 'check', 'start'):
             print(json.dumps(dict(ok=False, error='Unsupported command.')))
             return 2
     if command == 'status':
         print(json.dumps(status()))
+    elif command == 'health':
+        print(json.dumps(health()))
     elif command in ('check', 'start'):
         print(json.dumps(spawn('check' if command == 'check' else 'update')))
     elif command in ('run-check', 'run-update'):
         run_job(command[4:])
     else:
-        print('usage: homelab-update status|check|start', file=sys.stderr)
+        print('usage: homelab-update status|health|check|start', file=sys.stderr)
         return 2
     return 0
 

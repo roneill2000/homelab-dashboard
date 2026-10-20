@@ -11,6 +11,7 @@ KEY='/etc/homelab-dashboard/update_ed25519'
 KNOWN='/etc/homelab-dashboard/update_known_hosts'
 TARGET='root@192.168.0.3'
 CACHE={'at':0,'body':None};LOCK=threading.Lock()
+FLEET={'at':0,'body':None};FLEET_LOCK=threading.Lock()
 
 
 def remote(command,timeout=15):
@@ -27,8 +28,23 @@ def status():
         body=remote('status');CACHE.update(at=time.time(),body=body);return body
 
 
+def fleet():
+    # Read-only container health from Proxmox; a probe takes ~8 s, so cache for a minute.
+    with FLEET_LOCK:
+        if FLEET['body'] is not None and time.time()-FLEET['at']<60:return FLEET['body']
+        body=remote('health',timeout=90);FLEET.update(at=time.time(),body=body);return body
+
+
 def handle(handler,post=False):
-    if urllib.parse.urlparse(handler.path).path!='/api/updates':return False
+    path=urllib.parse.urlparse(handler.path).path
+    if path=='/api/fleet' and not post:
+        raw=b''
+        try:raw=json.dumps(fleet()).encode();code=200
+        except Exception:raw=json.dumps(dict(error='Fleet health unavailable.')).encode();code=503
+        handler.send_response(code);handler.send_header('Content-Type','application/json')
+        handler.send_header('Cache-Control','no-store');handler.send_header('Content-Length',str(len(raw)))
+        handler.end_headers();handler.wfile.write(raw);return True
+    if path!='/api/updates':return False
     def reply(code,data):
         raw=json.dumps(data).encode();handler.send_response(code)
         handler.send_header('Content-Type','application/json');handler.send_header('Cache-Control','no-store')

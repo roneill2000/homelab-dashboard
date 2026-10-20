@@ -36,9 +36,18 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(u.old_snapshots(listing, 'preupd_202610201300'), ['preupd_202610190300'])
 
 
+class HealthParseTests(unittest.TestCase):
+    def test_probe_output(self):
+        self.assertEqual(u.parse_guest_health('U\nM stale /mnt/UNRAID\nM ok /mnt/NAS\nM missing /mnt/x y'),
+                         dict(failed_units=[], mounts=[dict(path='/mnt/UNRAID', state='stale'), dict(path='/mnt/NAS', state='ok'),
+                                                        dict(path='/mnt/x y', state='missing')]))
+        self.assertEqual(u.parse_guest_health('U tmp.mount a.timer')['failed_units'], ['tmp.mount', 'a.timer'])
+        self.assertIsNone(u.parse_guest_health('garbage')['failed_units'])
+
+
 class SshGateTests(unittest.TestCase):
     def test_only_three_commands_reach_the_runner(self):
-        for cmd in ('run-update', 'status; rm -rf /', 'bash', ''):
+        for cmd in ('run-update', 'status; rm -rf /', 'bash', '', 'health; id'):
             with patch.dict('os.environ', {'SSH_ORIGINAL_COMMAND': cmd}), patch.object(u, 'spawn') as spawn, \
                  patch.object(u, 'run_job') as job, patch('sys.stdout', new=io.StringIO()):
                 self.assertEqual(u.main(['x', 'ssh']), 2)

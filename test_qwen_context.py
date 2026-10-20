@@ -55,3 +55,32 @@ class ContextTests(unittest.TestCase):
     def test_service_recovery_does_not_select_backup_or_match_unraid(self):
         self.assertNotIn('recovery',c.topics('FileBrowser service recovery after warnings on Unraid'))
         self.assertIn('recovery',c.topics('Did the backup succeed?'))
+
+
+class FleetSourceTests(unittest.TestCase):
+    FLEET={'observed_at':990,'guests':[{'vmid':102,'name':'utilities','status':'running','failed_units':[],
+            'mounts':[{'path':'/mnt/UNRAID','state':'stale'},{'path':'/mnt/NAS','state':'ok'}]},
+           {'vmid':113,'name':'memos','status':'running','failed_units':['tmp.mount'],'mounts':[]}],
+           'containers':[{'name':'zurg','state':'running','status':'Up 2 days'},{'name':'Bench','state':'exited','status':'Exited (0)'}],
+           'updates':{'checked_at':900,'pending':[{'name':'kasm','kind':'LXC','detail':'1 package'}],'failed':[],'manual':[]}}
+
+    def build(self,prompt,fleet):
+        return c.build(prompt,{},{},{},1000,{'disks':[]},None,fleet)
+
+    def test_filebrowser_stale_question_gets_mount_state(self):
+        ev=self.build('Does my filebrowser unraid have a stale handle?',self.FLEET)
+        mounts=ev['sources']['mounts']
+        self.assertTrue(mounts['fresh'])
+        self.assertEqual(mounts['guests'],[{'vmid':102,'name':'utilities','mounts':self.FLEET['guests'][0]['mounts']}])
+        self.assertTrue(any('FileBrowser runs natively in LXC 102' in f for f in ev['recorded_configuration']['facts']))
+
+    def test_units_containers_updates_selected_by_question(self):
+        self.assertIn('tmp.mount',str(self.build('any failed systemd units?',self.FLEET)['sources']['units']))
+        self.assertIn('Bench',str(self.build('which docker containers are stopped?',self.FLEET)['sources']['containers']))
+        self.assertEqual(self.build('what needs an update?',self.FLEET)['sources']['updates']['pending'][0]['name'],'kasm')
+
+    def test_stale_or_missing_fleet_withholds_values(self):
+        old=dict(self.FLEET,observed_at=500)
+        mounts=self.build('stale mount?',old)['sources']['mounts']
+        self.assertFalse(mounts['fresh']);self.assertNotIn('guests',mounts)
+        self.assertFalse(self.build('stale mount?',None)['sources']['mounts']['fresh'])

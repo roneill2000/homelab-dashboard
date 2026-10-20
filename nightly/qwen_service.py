@@ -147,8 +147,12 @@ class Broker:
                 try:snapshot=r.fetch('http://192.168.0.3:8999/api/nightly-snapshot',timeout=30)
                 except Exception:pass
                 services=r.measured_services()
+            fleet={}
+            if set(qwen_context.topics(prompt))&{'mounts','units','containers','updates'}:
+                try:fleet=r.fetch('http://192.168.0.2/api/fleet',timeout=60)
+                except Exception:pass
             now=time.time()
-            evidence=qwen_context.build(prompt,storage,telemetry,snapshot,now,context(storage,now),services)
+            evidence=qwen_context.build(prompt,storage,telemetry,snapshot,now,context(storage,now),services,fleet)
             while True:
                 body=body_for(prompt,evidence)
                 template=r.fetch(r.API+'/apply-template',{'messages':body['messages'],'chat_template_kwargs':body['chat_template_kwargs']},timeout=10)['prompt']

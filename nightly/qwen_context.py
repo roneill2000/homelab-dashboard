@@ -11,7 +11,8 @@ from log_monitor import service_state
 
 CAPABILITIES = ('Available observations: host CPU/RAM, guests/containers, disk capacity and I/O history, '
                 'SMART health, backup/parity status, downloads, DNS/network summaries, service reachability, '
-                'model inventory/GPU, and bounded retained warning logs. Sources are selected by question. '
+                'model inventory/GPU, network mounts and failed systemd units inside each Proxmox container, '
+                'every Unraid Docker container including stopped ones, pending updates, and bounded retained warning logs. Sources are selected by question. '
                 'No arbitrary SSH, internet search, private notes, file contents, chat history, or configuration writes. '
                 'General knowledge questions are allowed; distinguish them from observed local facts.')
 RECORDED = {
@@ -24,7 +25,11 @@ RECORDED = {
               'Home internet plan is 2.5 Gbps (user supplied); disk MB/s is not SMB or WAN throughput.',
               'Nightly review is scheduled 03:00 America/New_York, waiting for backups to finish.',
               'Proxmox nightly backup membership now includes 112 Open WebUI and 113 Memos; keep last 3.',
-              'Memos LAN access intentionally grants owner access without login.'],
+              'Memos LAN access intentionally grants owner access without login.',
+              'FileBrowser runs natively in LXC 102 utilities (192.168.0.13:6501), not on Unraid. It serves /mnt, including /mnt/UNRAID (CIFS from the Unraid 4tb share) and /mnt/NAS.',
+              'mount-heal in LXC 102 checks fstab CIFS/NFS mounts every 2 minutes and remounts stale or missing ones.',
+              'Kasm 103 and stopped VMs 100, 101, 109, 110 are intentionally not backed up.',
+              'The Homepage Updates page snapshots each LXC before apt upgrade and updates one guest at a time; it never reboots.'],
     'notice': 'Recorded configuration, not a live configuration check.'}
 
 KEYWORDS = {
@@ -37,6 +42,10 @@ KEYWORDS = {
     'network': r'network|dns|internet|pihole|pi.hole|bandwidth|ping|speed|lan|wan',
     'ai': r'qwen|gemma|model|llm|ai\b|gpu|a310|arc|token|vram|webui',
     'logs': r'log|warn|error|fail|crash|incident|nightly|review|wrong|problem|broken',
+    'mounts': r'mount|share|smb|cifs|nfs|stale|handle|filebrowser|nas\b|/mnt',
+    'units': r'service|systemd|unit|fail|crash|broken|wrong|problem|down|error|health',
+    'containers': r'docker|container|stopped|exited|unhealthy|running',
+    'updates': r'update|upgrade|patch|package|apt\b|outdated|version|image',
 }
 
 
@@ -75,7 +84,7 @@ def trend(rows,fields):
     return result
 
 
-def build(prompt,storage,telemetry,snapshot,now,base,services=None):
+def build(prompt,storage,telemetry,snapshot,now,base,services=None,fleet=None):
     selected=topics(prompt);t=telemetry or {};a=storage.get('activity') or {}
     sections={}
     sections['storage']={'source':'Homepage /api/storage',**base}
@@ -131,6 +140,20 @@ def build(prompt,storage,telemetry,snapshot,now,base,services=None):
         sections['logs']['groups_not_included']=max(0,snap.get('distinct_groups',len(groups))-len(groups[:6]))
         sections['logs']['notice']='Retained warning-pattern matches only; not all logs or proof of current health.'
     sections['logs']['nightly']=pick(a.get('nightly') or {},'status started_at completed_at model')
+    f=fleet or {};fleet_ok=isinstance(f.get('observed_at'),(int,float)) and 0<=now-f['observed_at']<=180
+    def fleet_source(key,notice):
+        return {'source':'Proxmox homelab-update health probe','observed_at':f.get('observed_at'),'fresh':fleet_ok and f.get(key) is not None,'notice':notice}
+    guests=f.get('guests') or []
+    sections['mounts']=fleet_source('guests','Each network mount checked with a 5 s stat from inside its container. Containers with no network mounts are omitted.')
+    if sections['mounts']['fresh']:
+        sections['mounts']['guests']=[dict(vmid=g['vmid'],name=g['name'],mounts=g['mounts']) for g in guests if g.get('mounts')]
+    sections['units']=fleet_source('guests','Failed systemd units per running LXC. Some .mount/.timer failures are normal in unprivileged containers and do not mean the app is down.')
+    if sections['units']['fresh']:
+        sections['units']['guests']=[dict(vmid=g['vmid'],name=g['name'],status=g['status'],failed_units=g.get('failed_units'),error=g.get('error')) for g in guests]
+    sections['containers']=fleet_source('containers','All Unraid Docker containers, including stopped ones.')
+    if sections['containers']['fresh']:sections['containers']['unraid']=f['containers'][:30]
+    sections['updates']=fleet_source('updates','From the last Updates-page check; not a live package query.')
+    if sections['updates']['fresh']:sections['updates'].update(f['updates'])
     # Specific questions get their relevant sections first; broad checks get
     # hosts/storage/services. Every omitted section is explicitly named.
     evidence={'observed_at':int(now),'recorded_configuration':RECORDED,
