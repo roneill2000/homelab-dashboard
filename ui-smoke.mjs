@@ -25,7 +25,7 @@ for(const range of ['15m','1h','6h','24h']){
 await page.getByRole('button',{name:'Capacity used',exact:true}).click();
 await page.getByText('Parity has no filesystem capacity to chart.').waitFor();
 await page.screenshot({path:'.preview/storage.png',fullPage:true});
-await page.getByRole('button',{name:'All services 27',exact:true}).click();
+await page.getByRole('button',{name:'All services 28',exact:true}).click();
 await page.getByRole('textbox',{name:'Filter services',exact:true}).fill('does-not-exist');
 await page.getByRole('heading',{name:'No matching services'}).waitFor();
 await page.getByRole('button',{name:'Clear filters',exact:true}).click();

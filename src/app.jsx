@@ -8,6 +8,7 @@ const size=v=>!valid(v)?'—':v>=1e12?`${num(v/1e12,2)} TB`:`${num(v/1e9,1)} GB`
 const bounded=v=>Math.max(0,Math.min(100,Number(v)||0));
 function useStored(key,initial){const [v,set]=useState(()=>{try{return JSON.parse(localStorage.getItem(key))??initial}catch{return initial}});useEffect(()=>{try{localStorage.setItem(key,JSON.stringify(v))}catch{}},[v]);return [v,set]}
 const catalog=[
+ ['memos','Memos','Notes','http://192.168.0.18:5230','cloud','book','#7de5c0'],
  ['openwebui','Open WebUI','Chat with desktop models','http://192.168.0.16:3000','ai','terminal','#7de5c0'],
  ['pve','Proxmox','Virtual machines & containers','https://192.168.0.3:8006','infra','server','#ef9c65'],['unraid','Unraid','Storage & Docker','http://192.168.0.4','infra','layers','#f49b99'],['scrutiny','Scrutiny','Drive health & temperatures','http://192.168.0.4:8080','infra','disk','#94bbea'],['syslog','System logs','Central event monitor','http://192.168.0.3:8999','infra','activity','#f3c87b'],
  ['router','Flint 3','Wi-Fi 7 & routing','http://192.168.0.1','network','wifi','#9eacef'],['pihole11','Pi-hole primary','DNS filtering · .11','http://192.168.0.11/admin','network','shield','#dd8f9f'],['pihole10','Pi-hole replica','DNS filtering · .10','http://192.168.0.10/admin','network','shield','#dd8f9f'],['openspeedtest','LAN speed test','Test your local connection','http://192.168.0.13:3000','network','activity','#8acfe2'],['speedtest','Speedtest Tracker','Internet speed history','http://192.168.0.14','network','activity','#aa9deb'],['netalertx','NetAlertX','Devices on your network','http://192.168.0.13:20211','network','network','#a8d798'],['kuma','Uptime Kuma','Service availability','http://192.168.0.10:3001','network','activity','#9be4b5'],['wireguard_ssh','VPN host','Host presence · .30; logs','http://192.168.0.3:8999','network','shield','#d4a2be'],
@@ -63,7 +64,7 @@ function ActivityPanel({activity,ranges}){
 const gpuLabels={compute_pct:'Compute',render_pct:'Render',video_pct:'Video',copy_pct:'Copy',enhance_pct:'Video enhance',vram_used_mib:'VRAM used',temperature_c:'Temperature'};
 const gpuColors=['#7de5c0','#7dacf5','#c3a5f4','#f3c87b','#f49b99'];
 const modelProfiles={
- 'qwen2.5-coder-14b':{role:'Coding',speed:90.0},
+ 'gemma-4-26b-a4b':{role:'Chat',speed:null},
  'qwen3.6-35b-moe':{role:'General use',speed:86.1},
  'qwen3.8-27b':{role:'Reasoning',speed:16.3}
 };
@@ -79,7 +80,7 @@ function LocalAI({ai,compact=false,onOpen}){
   {compact?<div className="ai-summary"><span>{live?`${items.length} models · ${items.filter(m=>m.state==='loaded').length} loaded`:'Desktop models currently unavailable'}</span>{live&&items.filter(m=>m.state==='loaded').map(m=><a key={m.id} href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">{m.id} <Icon name="external" size={14}/></a>)}</div>:<>
    <div className="ai-model-grid">{items.map(m=>{const profile=modelProfiles[m.id];return <article className="panel ai-model" key={m.id}>
     <div className="ai-model-title"><div><h3>{m.id}</h3>{profile&&<p className="ai-role">{profile.role}</p>}</div><Badge state={live&&m.state==='loaded'?true:live&&m.state==='failed'?false:null} label={live?(labels[m.state]||'Unknown'):'Unavailable'}/></div>
-    {profile&&<div className="ai-benchmark"><strong>{profile.speed.toFixed(1)} <em>tok/s</em></strong><span>Recorded benchmark</span></div>}
+    {valid(profile?.speed)&&<div className="ai-benchmark"><strong>{profile.speed.toFixed(1)} <em>tok/s</em></strong><span>Recorded benchmark</span></div>}
     <div className="ai-context"><strong>{num(m.context_tokens)}</strong><span>tokens · context setting{!live&&valid(m.context_tokens)?' · last seen':''}</span></div>
     {ready?<a className="secondary-button" href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">Open chat <Icon name="external" size={16}/></a>:<button className="secondary-button" disabled>{live?'Web UI unavailable':'PC unavailable'}</button>}
    </article>})}</div>

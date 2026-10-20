@@ -212,3 +212,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\192.168.0.4\4TB\homel
 The execution-policy override applies only to that PowerShell process. After Ryan runs it and restarts the router, re-query authenticated `/v1/models` to confirm sleep-idle-seconds and sampling arguments, then observe actual idle memory release before claiming idle unload is active.
 
 Post-application verification, 19 October 2026 at approximately22:50UTC: Ryan reported the Windows command/restart complete. Fresh authenticated router reads confirm all three presets now include `--sleep-idle-seconds 300`;27B includes `--reasoning-effort medium`; MoE includes temperature1/top_p0.95/top_k20/min_p0/presence_penalty1.5/repeat_penalty1. Context/GPU/cache/Flash Attention settings remain as previously recorded. Router remains max_instances1/autoload enabled, and all three models report unloaded. No new model was loaded to test the timer, so native configuration is verified but a complete timed idle cycle and GPU memory release remain unobserved.
+
+### Memos — 19 October 2026
+
+Added Memos at `http://192.168.0.18:5230` (LXC113), bringing the catalog to28. Its tile uses the existing direct TCP reachability collector; the host inventory includes.18. Application login/CRUD checks are separate from this port check. Ryan requested no login: a LAN auto-login proxy grants the shared owner account; service description is simply “Notes.” Deployment backup `/opt/homelab-dashboard/backups/20261019T230212753372Z`. Full UI smoke and the new `memos-check.mjs` pass, including448px/1440px Memos layouts and the Homepage tile/status. Deployment/recovery details live in `../homelab-memos/README.md`.
+
+Read-only Open WebUI SSH diagnostics were also installed; see `../homelab-tools/README.md`. The A310 Homepage prompt is unchanged. A later router read at about23:04UTC observed27B in `sleeping` state; no GPU-memory measurement or full timed cycle was taken.
+
+### Gemma replacement — 20 October 2026
+
+Ryan's router now serves `gemma-4-26b-a4b` in place of Qwen Coder. Updated the saved/offline profile and chat link, and removed Coder's old 90 tok/s benchmark from the current UI. Gemma has no recorded benchmark yet. Live router arguments report 32,768 context, Q3_K_XL, requested GPU layers99, q8_0 caches, Flash Attention and idle sleep300s. Sampling was preserved. Deployment backup: `/opt/homelab-dashboard/backups/20261020T133708066394Z`.
+
+`ai-check.mjs` passed against the deployed page at360/448/1920/3440px, including model links, secret exclusion, offline/cold-start/stale/recovery states. Separate Open WebUI verification confirmed Gemma's read-only Unraid tool call and final response. The old Coder profile is inactive with history preserved; all three current presets have the diagnostic tool enabled.
