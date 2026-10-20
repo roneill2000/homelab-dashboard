@@ -11,14 +11,16 @@ try{
  await page.route('**/api/storage?*',r=>r.fulfill({json:data}));
  await page.goto(base);
  const card=page.locator('.recovery-card').filter({hasText:'Proxmox backup jobs'});
- await expect(card).toContainText('8 / 9 guests');await expect(card.locator('[role=alert]')).toContainText('kasm · 103 · running');
- await expect(card.locator('.backup-coverage ul')).not.toContainText('Kali');await expect(card).toContainText('Off, not in a backup job: Kali · 100, ubuntu · 101, VM 109');
+ await expect(card).toContainText('8 / 8 guests');await expect(card.locator('[role=alert]')).toHaveCount(0);
+ await expect(card.locator('.backup-coverage ul')).toHaveCount(0);await expect(card).toContainText('Not backed up by choice: kasm · 103, Kali · 100, ubuntu · 101, VM 109');
  await mkdir('.preview',{recursive:true});
  for(const width of [360,448,1920,3440]){
   await page.setViewportSize({width,height:1000});expect(await card.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);await card.screenshot({path:`.preview/coverage-${width}.png`});
  }
+ data.activity.recovery.backup.coverage.uncovered.push({vmid:120,name:'newbox',status:'running'});await page.getByRole('button',{name:'Refresh telemetry'}).click();
+ await expect(card.locator('[role=alert]')).toContainText('newbox · 120 · running');data.activity.recovery.backup.coverage.uncovered.pop();
  data.activity.recovery.backup.coverage={status:'checked',covered:9,total:13,uncovered:data.activity.recovery.backup.coverage.uncovered.filter(g=>g.status==='stopped')};await page.getByRole('button',{name:'Refresh telemetry'}).click();
- await expect(card).toContainText('9 / 9 guests');await expect(card.locator('[role=alert]')).toHaveCount(0);await expect(card).toContainText('Off, not in a backup job');
+ await expect(card).toContainText('9 / 9 guests');await expect(card.locator('[role=alert]')).toHaveCount(0);await expect(card).toContainText('Not backed up by choice');
  data.activity.recovery.backup.coverage={status:'unknown'};await page.getByRole('button',{name:'Refresh telemetry'}).click();
  await expect(card).toContainText('Backup coverage unknown');await expect(card.locator('[role=alert]')).toHaveCount(0);
  data.activity.recovery.backup.coverage={status:'checked',covered:13,total:13,uncovered:[]};await page.getByRole('button',{name:'Refresh telemetry'}).click();
