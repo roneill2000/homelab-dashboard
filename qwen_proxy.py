@@ -39,8 +39,8 @@ def handle(handler,post=False):
         try:response=urllib.request.urlopen(request,timeout=5)
         except urllib.error.HTTPError as exc:response=exc
         with response:
-            raw=response.read(32769);code=response.status
-        if len(raw)>32768:raise ValueError()
+            raw=response.read(131073);code=response.status
+        if len(raw)>131072:raise ValueError()
         reply(code,json.loads(raw))
     except Exception:
         reply(503,dict(status='failed',model='Qwen3.5-4B',error='Qwen is unavailable. Try again shortly.'))

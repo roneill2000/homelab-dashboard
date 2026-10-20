@@ -20,7 +20,7 @@ RECORDED = {
               'Desktop .12 is a gaming PC and is intentionally off sometimes; A310 is always available on Unraid.',
               'A310 Qwen3.5-4B Q4_K_M starts on demand; it is separate from Open WebUI desktop models.',
               'Cache guard checks every 5 minutes and starts mover at 70% used; stock daily mover is 03:40.',
-              'Cache pool reserve remains 30000000 KiB; proposed 100 GiB waits for an approved array restart.',
+              'Cache pool minimum-free reserve is 100 GiB, applied and checked on 2026-10-20.',
               'Home internet plan is 2.5 Gbps (user supplied); disk MB/s is not SMB or WAN throughput.',
               'Nightly review is scheduled 03:00 America/New_York, waiting for backups to finish.',
               'Proxmox nightly backup membership now includes 112 Open WebUI and 113 Memos; keep last 3.',
@@ -93,7 +93,7 @@ def build(prompt,storage,telemetry,snapshot,now,base,services=None):
         sections['services']['inventory']=[pick(x,'ip name role url') for x in t.get('ip_matrix',[])[:24]]
         sections['services']['notice']='TCP reachability alone does not prove application health.'
     recovery=a.get('recovery') or {}
-    sections['recovery']={name:observed(recovery.get(name),now,fields,ttl=180,stamp='observed_at') for name,fields in [('backup','running latest last_success'),('parity','array_state operation action last_started_at last_finished_at last_exit last_errors')]}
+    sections['recovery']={name:observed(recovery.get(name),now,fields,ttl=180,stamp='observed_at') for name,fields in [('backup','running latest last_success coverage'),('parity','array_state operation action last_started_at last_finished_at last_exit last_errors')]}
     sections['health']=observed(t.get('scrutiny'),now,'',ttl=180)
     if sections['health']['fresh']:sections['health']['drives']=[pick(x,'name model temp cap hours healthy') for x in t['scrutiny'].get('drives',[])[:10]]
     sections['downloads']={name:observed(data,now,'speed queue free_gb active_streams') for name,data in (t.get('media') or {}).items()}

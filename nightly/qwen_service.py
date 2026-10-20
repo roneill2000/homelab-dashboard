@@ -153,7 +153,7 @@ class Broker:
                 body=body_for(prompt,evidence)
                 template=r.fetch(r.API+'/apply-template',{'messages':body['messages'],'chat_template_kwargs':body['chat_template_kwargs']},timeout=10)['prompt']
                 count=len(r.fetch(r.API+'/tokenize',{'content':template,'add_special':True},timeout=10)['tokens'])
-                if count<=INPUT_BUDGET:break
+                if count<=INPUT_BUDGET and len(json.dumps(evidence).encode())<=24576:break
                 if not qwen_context.reduce_evidence(evidence):
                     raise ValueError('This question is too long with its observations. Please ask about one system at a time.')
             names=list(evidence['sources'])
@@ -162,7 +162,8 @@ class Broker:
             if omitted:note+=' Trimmed to fit: '+', '.join(dict.fromkeys(omitted))+'.'
             note+=' Sources include timestamps; unavailable readings stay unknown. No chat history or internet search.'
             self.update(status='generating',context_at=evidence['observed_at'],generation_started_at=int(time.time()),
-                        context_note=note,context_sources=names,context_omissions=omitted,input_tokens=count,context_limit=4096)
+                        context_note=note,context_sources=names,context_omissions=omitted,input_tokens=count,context_limit=4096,
+                        evidence=evidence)
             generation_started=time.monotonic()
             response=r.fetch(r.API+'/v1/chat/completions',body,timeout=180)
             choice=response['choices'][0];answer=choice['message'].get('content','').strip()

@@ -68,6 +68,8 @@ class QwenTests(unittest.TestCase):
         state,fetch=self.exercise()
         self.assertEqual(state['status'],'complete')
         self.assertEqual(state['context_at'],1000)
+        self.assertEqual(state['evidence']['observed_at'],1000)
+        self.assertIn('sources',state['evidence'])
         calls=[c.args[0] for c in fetch.call_args_list]
         self.assertEqual(calls.count('http://192.168.0.2/api/storage'),2)
         self.assertEqual(calls[-1],q.r.API+'/v1/chat/completions')
@@ -113,9 +115,9 @@ class QwenTests(unittest.TestCase):
         self.assertNotIn(q.r.API+'/v1/chat/completions',[c.args[0] for c in fetch.call_args_list])
 
     def test_expiration_discards_completed_question_and_answer(self):
-        broker=q.Broker();broker.job=dict(status='complete',updated_at=1,prompt='private',answer='private')
+        broker=q.Broker();broker.job=dict(status='complete',updated_at=1,prompt='private',answer='private',evidence={'sources':{'private':'private'}})
         with patch.object(q.time,'time',return_value=1000):state=broker.state()
-        self.assertEqual(state['status'],'idle');self.assertNotIn('prompt',state);self.assertNotIn('answer',state)
+        self.assertEqual(state['status'],'idle');self.assertNotIn('prompt',state);self.assertNotIn('answer',state);self.assertNotIn('evidence',state)
 
     def test_proxy_rejects_cross_origin_or_missing_custom_header(self):
         for headers in ({'Host':'192.168.0.2'},

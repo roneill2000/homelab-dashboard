@@ -2,6 +2,7 @@
 import argparse
 import configparser
 import json
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -41,6 +42,36 @@ def parity(root):
                 last_exit=number('sbsyncexit'), last_errors=number('sbsyncerrs'))
 
 
+def backup_coverage(guests, jobs):
+    """Evaluate enabled job membership, separately from job/archive success."""
+    if not isinstance(guests,list) or not guests or not isinstance(jobs,list):
+        raise ValueError('Guest inventory or job list unavailable')
+    inventory=[g for g in guests if g.get('type') in ('lxc','qemu') and not g.get('template')]
+    if not inventory or any(not isinstance(g.get('vmid'),int) for g in inventory):
+        raise ValueError('Guest inventory invalid')
+    def ids(value):
+        return {int(x) for x in re.split(r'[,;\s]+',str(value or '')) if x}
+    enabled=[j for j in jobs if str(j.get('enabled',1)).lower() not in ('0','false')]
+    covered=set()
+    for job in enabled:
+        if job.get('pool'):
+            raise ValueError('Pool-based backup selection requires a membership check')
+        selected=ids(job.get('vmid'))
+        all_guests=str(job.get('all',0)).lower() in ('1','true')
+        excluded=ids(job.get('exclude'))
+        if not all_guests and not selected:
+            raise ValueError('Unsupported backup selection')
+        for guest in inventory:
+            if job.get('node') and job['node']!=guest.get('node'):continue
+            if guest['vmid'] not in excluded and (all_guests or guest['vmid'] in selected):
+                covered.add(guest['vmid'])
+    missing=[dict(vmid=g['vmid'],name=g.get('name') or str(g['vmid']),status=g.get('status','unknown'))
+             for g in inventory if g['vmid'] not in covered]
+    missing.sort(key=lambda g:(g['status']!='running',g['vmid']))
+    return dict(status='checked',total=len(inventory),covered=len(covered),uncovered=missing,
+                enabled_jobs=len(enabled),notice='Enabled schedule membership only; does not prove a recent archive or restore.')
+
+
 def backup(cache=None):
     cache = cache or Path('/run/homelab-backup-status.json')
     try:
@@ -58,6 +89,12 @@ def backup(cache=None):
     data = dict(observed_at=int(time.time()), latest=slim(completed[0] if completed else None),
                 last_success=slim(next((t for t in completed if t.get('status') == 'OK'), None)),
                 running=bool(active))
+    try:
+        guests=json.loads(subprocess.check_output(['pvesh','get','/cluster/resources','--type','vm','--output-format','json'],timeout=8))
+        jobs=json.loads(subprocess.check_output(['pvesh','get','/cluster/backup','--output-format','json'],timeout=8))
+        data['coverage']=backup_coverage(guests,jobs)
+    except Exception:
+        data['coverage']=dict(status='unknown',notice='Could not verify enabled-job membership.')
     cache.write_text(json.dumps(data));cache.chmod(0o600)
     return data
 
