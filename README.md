@@ -280,3 +280,7 @@ The share sits on the same Proxmox host, so it is a convenience copy, not an ind
 ## Stale Unraid mount after array restart — 20 October 2026
 
 FileBrowser (LXC 102, 192.168.0.13:6501) returned `500: fstatat /mnt/UNRAID: stale file handle`. The CIFS mount `//192.168.0.4/4tb` in 102 had gone stale during the cache-reserve array stop/start. Fixed with `umount -l /mnt/UNRAID && mount /mnt/UNRAID` inside 102. FileBrowser runs natively in the same mount namespace, so it needed no restart. A scan of every running LXC's CIFS/NFS mounts found no other stale mount. `maintain_cache_reserve.py` does not remount client shares; after any future array stop, check and remount guest CIFS mounts.
+
+### Automatic remount (mount-heal)
+
+`mount-heal/` holds a systemd timer installed in LXC 102 (`/usr/local/sbin/mount-heal`, `mount-heal.{service,timer}`). Every 2 minutes it checks each uncommented CIFS/NFS entry in `/etc/fstab` (now `/mnt/NAS`, `/mnt/UNRAID`). A mounted share must fail `stat` and `ls` twice, 15 s apart, before it is lazily unmounted and remounted. A missing share is mounted. Each action logs to `journalctl -t mount-heal`. Tested in 102 against a temporary test mount of the same share: a missing mount was remounted and a healthy mount was left alone. The stale-handle branch could not be reproduced on demand, so it has not been exercised live. Uninstall: `systemctl disable --now mount-heal.timer`.

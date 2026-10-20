@@ -1,0 +1,8 @@
+[Unit]
+Description=Remount stale or missing network shares
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mount-heal
