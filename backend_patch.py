@@ -361,3 +361,18 @@ def patch_actions(source):
     source = source.replace('class DashboardHandler(', ACTION_GUARD + '\n' + marker + '\nclass DashboardHandler(', 1)
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_updates(source):
+    """Route /api/updates to update_proxy ahead of every other handler."""
+    marker = '# HOMELAB_UPDATES_V1'
+    if marker in source:
+        return source
+    for method in ('GET', 'POST'):
+        old = f'        import qwen_proxy\n        if qwen_proxy.handle(self, post={method == "POST"}): return\n'
+        if source.count(old) != 1:
+            raise ValueError('Expected Qwen route in do_' + method)
+        source = source.replace(old, old + f'        import update_proxy\n        if update_proxy.handle(self, post={method == "POST"}): return\n')
+    source += '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

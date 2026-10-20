@@ -14,6 +14,7 @@ A custom React dashboard and telemetry aggregator for homelab infrastructure. Pr
   - On-demand system queries using local Qwen models with verifiable system context evidence.
   - Integration with Open WebUI and local model routers.
   - Dedicated Arc A310 GPU monitoring (render, compute, VRAM, temperatures).
+- **Guarded Updates:** Check and apply `apt` upgrades in running Proxmox LXCs and image updates for Unraid Docker apps from the **Updates** page. Each LXC is snapshotted first, guests update one at a time, and the run stops at the first failure.
 - **Mount Healing:** Automated systemd timer (`mount-heal`) to detect and recover stale CIFS/NFS mounts after array or network interruptions.
 
 ---
@@ -81,6 +82,8 @@ python3 deploy.py
 | `activity_monitor.py` | Correlates download speeds (SABnzbd / RdtClient) with scratch disk I/O and PSI. |
 | `log_monitor.py` | Collects, deduplicates, and groups alerts from the syslog monitor. |
 | `cache_guard.py` | Monitors Unraid cache pool usage and triggers the mover at configurable thresholds. |
+| `updates/` | Proxmox-side update runner (`homelab-update`), reached only through a restricted forced-command SSH key; `install.py` installs it. |
+| `update_proxy.py` | Dashboard bridge for `/api/updates` (status, check, start). |
 | `mount-heal/` | Systemd service and timer to automatically remount stale network shares. |
 | `nightly/` | Local LLM runner, GPU probes (`gpu_probe.py`), and context builders for on-demand queries. |
 
@@ -90,6 +93,7 @@ python3 deploy.py
 
 - **Internal Only:** Designed to run strictly on the local private network (LAN/VPN) without public internet exposure.
 - **Action Guard:** Sensitive actions (e.g. Pi-hole pauses, log clears) require a custom `X-Dashboard-Action` header and strict same-origin verification (`same_origin`).
+- **Update Runner:** The dashboard holds one SSH key that Proxmox accepts only from the dashboard host and only for `status`, `check` and `start`. Runs refuse to start while a backup, parity check, mover or local model is busy.
 - **Credentials:** No secrets or credentials are stored in the git repository or exposed to client browsers. All remote integrations load tokens from root-restricted configuration files on the host.
 
 ---

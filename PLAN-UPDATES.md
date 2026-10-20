@@ -1,4 +1,4 @@
-# Update button — plan (20 October 2026)
+# Update button — plan (20 October 2026) — BUILT, see OPERATIONS.md "Updates page"
 
 Ryan's choices: running Proxmox LXCs plus Unraid Docker containers; snapshot first, one guest at a time, stop on first failure, no auto-reboot.
 
