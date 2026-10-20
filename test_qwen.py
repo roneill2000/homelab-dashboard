@@ -53,11 +53,11 @@ class QwenTests(unittest.TestCase):
         broker=q.Broker();broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000)
         lock=SimpleNamespace(close=unittest.mock.Mock())
         response={'choices':[{'finish_reason':'stop','message':{'content':'Measured cache space is available.'}}]}
-        values=[storage(),{'data':[{'id':q.r.MODEL}]},storage(),{'prompt':'template'},
+        values=[storage(),{'data':[{'id':q.r.MODEL}]},storage(),{}, {'prompt':'template'},
                 {'tokens':list(range(tokens))}]
-        if tokens<=850:values.append(response)
+        if tokens<=q.INPUT_BUDGET:values.append(response)
         cleanup=[None,RuntimeError('cleanup')] if cleanup_error else [None,None]
-        with patch.object(q.time,'time',return_value=1000),patch.object(q.r,'fetch',side_effect=values) as fetch,patch.object(q.r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(q.r,'stop_model',side_effect=cleanup) as stop,patch.object(q.subprocess,'run'):
+        with patch.object(q.time,'time',return_value=1000),patch.object(q.r,'fetch',side_effect=values) as fetch,patch.object(q.r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(q.r,'stop_model',side_effect=cleanup) as stop,patch.object(q.subprocess,'run'),patch.object(q.qwen_context,'reduce_evidence',return_value=False):
             broker.work(lock)
             state=broker.state()
         lock.close.assert_called_once()
@@ -79,7 +79,7 @@ class QwenTests(unittest.TestCase):
         self.assertIn('cleanup',state['error'])
 
     def test_token_limit_prevents_generation_and_still_cleans_up(self):
-        state,fetch=self.exercise(tokens=851)
+        state,fetch=self.exercise(tokens=q.INPUT_BUDGET+1)
         self.assertEqual(state['status'],'failed')
         self.assertIn('too long',state['error'])
         self.assertNotIn(q.r.API+'/v1/chat/completions',[c.args[0] for c in fetch.call_args_list])
@@ -104,7 +104,7 @@ class QwenTests(unittest.TestCase):
         lock=SimpleNamespace(close=unittest.mock.Mock())
         busy=storage();busy['activity']['recovery']['backup']['running']=True
         values=[storage(),{'data':[{'id':q.r.MODEL}]},busy]
-        with patch.object(q.time,'time',return_value=1000),patch.object(q.r,'fetch',side_effect=values) as fetch,patch.object(q.r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(q.r,'stop_model') as stop,patch.object(q.subprocess,'run'):
+        with patch.object(q.time,'time',return_value=1000),patch.object(q.r,'fetch',side_effect=values) as fetch,patch.object(q.r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(q.r,'stop_model') as stop,patch.object(q.subprocess,'run'),patch.object(q.qwen_context,'reduce_evidence',return_value=False):
             broker.work(lock)
             state=broker.state()
         self.assertEqual(state['status'],'failed')

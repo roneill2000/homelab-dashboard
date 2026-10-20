@@ -107,14 +107,14 @@ def checked_finding(group,content):
     return dict(group_id=group['id'],interpretation=content)
 
 
-def container_command():
+def container_command(context_size=2048):
     return ['docker','run','-d','--pull','never','--rm','--name',NAME,'--user','0:0','--memory','5g','--cpus','2',
             '--pids-limit','256',
             '--health-cmd','curl -fsS http://127.0.0.1:8000/health || exit 1','--health-start-period','15m',
             '--device','/dev/dri/renderD129','--cap-drop','ALL','--security-opt','no-new-privileges',
             '-p','127.0.0.1:11437:8000','-v',str(MODEL_ROOT)+':/models:ro',IMAGE,
             '--model','/models/'+MODEL_FILE,'--alias',MODEL,'--host','0.0.0.0','--port','8000',
-            '--device','Vulkan0','--gpu-layers','all','--fit','off','--ctx-size','2048','--parallel','1',
+            '--device','Vulkan0','--gpu-layers','all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
             '--batch-size','256','--ubatch-size','128','--threads','2','--threads-batch','2',
             '--jinja','--reasoning','on','--reasoning-budget','768','--no-context-shift']
 

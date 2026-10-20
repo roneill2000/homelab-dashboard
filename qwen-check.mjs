@@ -22,7 +22,7 @@ try{
   }
   return statusFailure?r.fulfill({status:503,json:{error:'fixture'}}):r.fulfill({json:job});
  });
- await page.goto(base);const panel=page.locator('.qwen-panel');const input=page.getByLabel('Question about your homelab');const ask=panel.getByRole('button',{name:'Ask Qwen',exact:true});
+ await page.goto(base);const panel=page.locator('.qwen-panel');const input=page.getByLabel('Your question');const ask=panel.getByRole('button',{name:'Ask Qwen',exact:true});
  await expect(ask).toBeDisabled();await input.fill('What do the latest readings show?');await expect(ask).toBeEnabled();await ask.click();await expect(panel).toContainText('Queued');await expect(input).toHaveValue('What do the latest readings show?');await expect(panel.getByRole('button',{name:'Please wait'})).toBeDisabled();expect(posts).toBe(1);
  job={...job,status:'loading'};await expect(panel).toContainText('Loading model',{timeout:6000});await expect(panel).toContainText('several minutes');job={...job,status:'generating'};await expect(panel).toContainText('Writing answer',{timeout:6000});
  const answer='<script>window.qwenInjected=true</script>\n'+('A_long_unbroken_model_word'.repeat(55));job={...job,status:'complete',answer,performance:{tokens_per_second:16.2,input_tokens:123,output_tokens:850,generation_seconds:52.5},load_seconds:24,total_seconds:80,context_at:Math.floor(Date.now()/1000)-180,context_note:'Readings may be unavailable.'};await expect(panel).toContainText(answer,{timeout:6000});expect(await page.evaluate(()=>window.qwenInjected)).toBeUndefined();await expect(panel).toContainText('Readings captured');await expect(panel).toContainText('16.2');await expect(panel).toContainText('850');await expect(panel).toContainText('tokens/s');
