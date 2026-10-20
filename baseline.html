@@ -1128,7 +1128,7 @@
       const med = (data && data.media) || { jellyfin: {}, sonarr: {}, radarr: {}, prowlarr: {}, sabnzbd: {} };
       const scr = (data && data.scrutiny && data.scrutiny.drives) || [];
       const wea = (data && data.weather) || { temp_f: 48, wind_mph: 6, desc: "Clear Sky" };
-      const wan = (data && data.wan) || { ip: "73.142.213.91" };
+      const wan = (data && data.wan) || { ip: "0.0.0.0" };
       const svcs = (data && data.services) || {};
 
       const isStale = data && data.updated_at ? (nowSec - data.updated_at > 15) : false;
