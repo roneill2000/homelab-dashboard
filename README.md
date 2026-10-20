@@ -276,3 +276,7 @@ ssh root@192.168.0.3 chown -R roneill /mnt/share/repos/homelab-dashboard
 ```
 
 The share sits on the same Proxmox host, so it is a convenience copy, not an independent backup.
+
+## Stale Unraid mount after array restart — 20 October 2026
+
+FileBrowser (LXC 102, 192.168.0.13:6501) returned `500: fstatat /mnt/UNRAID: stale file handle`. The CIFS mount `//192.168.0.4/4tb` in 102 had gone stale during the cache-reserve array stop/start. Fixed with `umount -l /mnt/UNRAID && mount /mnt/UNRAID` inside 102. FileBrowser runs natively in the same mount namespace, so it needed no restart. A scan of every running LXC's CIFS/NFS mounts found no other stale mount. `maintain_cache_reserve.py` does not remount client shares; after any future array stop, check and remount guest CIFS mounts.
