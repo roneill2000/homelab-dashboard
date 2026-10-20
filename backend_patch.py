@@ -306,3 +306,58 @@ def patch_memos(source):
     lines = source.splitlines(keepends=True)
     lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn))+'\n']
     return ''.join(lines)
+
+
+ACTION_GUARD = '''
+def _dashboard_action_allowed(handler):
+    import qwen_proxy
+    try:
+        length = int(handler.headers.get('Content-Length', '0'))
+    except ValueError:
+        length = -1
+    if not qwen_proxy.same_origin(handler, 'X-Dashboard-Action'):
+        code, message = 403, 'Use the homepage to run this action.'
+    elif not 0 <= length <= 8192:
+        code, message = 400, 'Invalid request body.'
+    else:
+        return True
+    raw = json.dumps({'ok': False, 'error': message}).encode('utf-8')
+    handler.send_response(code)
+    handler.send_header('Content-Type', 'application/json')
+    handler.send_header('Content-Length', str(len(raw)))
+    handler.end_headers()
+    handler.wfile.write(raw)
+    return False
+
+def _dashboard_timer(data):
+    try:
+        return max(1, min(3600, int(data.get('timer', 300))))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return 300
+'''
+
+
+def patch_actions(source):
+    """Same-origin guard for action POSTs, bounded DNS pause, same-origin telemetry."""
+    marker = '# HOMELAB_ACTION_GUARD_V1'
+    if marker in source:
+        return source
+    replacements = [
+        ('            self.send_header("Access-Control-Allow-Origin", "*")\n', ''),
+        ('        if self.path == "/api/action/pihole-toggle":\n',
+         '        if self.path.startswith("/api/action/") and not _dashboard_action_allowed(self): return\n'
+         '        if self.path == "/api/action/pihole-toggle":\n'),
+        ('            enable = bool(req_data.get("enable", True))\n',
+         '            enable = bool(req_data.get("enable", True)) if isinstance(req_data, dict) else True\n'),
+        ('            timer = int(req_data.get("timer", 300))\n',
+         '            timer = _dashboard_timer(req_data)\n'),
+        ('"timer": None if enable_bool else int(timer_sec)}',
+         '"timer": None if enable_bool else _dashboard_timer({"timer": timer_sec})}'),
+    ]
+    for old, new in replacements:
+        if source.count(old) != 1:
+            raise ValueError('Expected action handler not found: ' + old.strip()[:60])
+        source = source.replace(old, new)
+    source = source.replace('class DashboardHandler(', ACTION_GUARD + '\n' + marker + '\nclass DashboardHandler(', 1)
+    compile(source, '<dashboard>', 'exec')
+    return source

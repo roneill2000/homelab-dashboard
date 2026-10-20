@@ -6,6 +6,13 @@ import urllib.parse
 import urllib.request
 
 CONFIG=Path('/etc/homelab-dashboard/qwen.json')
+HOSTS={'192.168.0.2','192.168.0.2:80','127.0.0.1','localhost'}
+
+
+def same_origin(handler,header):
+    # A custom header requires CORS preflight; no cross-origin CORS is allowed.
+    host=handler.headers.get('Host','');origin=handler.headers.get('Origin')
+    return handler.headers.get(header)=='1' and host in HOSTS and (origin is None or origin=='http://'+host)
 
 
 def handle(handler,post=False):
@@ -16,11 +23,7 @@ def handle(handler,post=False):
         handler.send_header('Content-Length',str(len(raw)));handler.end_headers();handler.wfile.write(raw)
     body=None
     if post:
-        # A custom header requires CORS preflight; no cross-origin CORS is allowed.
-        origin=handler.headers.get('Origin')
-        host=handler.headers.get('Host','')
-        if (handler.headers.get('X-Qwen-Request')!='1' or host not in {'192.168.0.2','192.168.0.2:80','127.0.0.1','localhost'}
-                or (origin is not None and origin!='http://'+host)):
+        if not same_origin(handler,'X-Qwen-Request'):
             reply(403,dict(status='failed',error='Use the homepage to submit a question.'));return True
         try:
             length=int(handler.headers.get('Content-Length','0'))
