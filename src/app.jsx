@@ -64,7 +64,7 @@ function ActivityPanel({activity,ranges}){
 const gpuLabels={compute_pct:'Compute',render_pct:'Render',video_pct:'Video',copy_pct:'Copy',enhance_pct:'Video enhance',vram_used_mib:'VRAM used',temperature_c:'Temperature'};
 const gpuColors=['#7de5c0','#7dacf5','#c3a5f4','#f3c87b','#f49b99'];
 const modelProfiles={
- 'gemma-4-26b-a4b':{role:'Chat',speed:null},
+ 'gemma-4-26b-a4b':{role:'Chat',speed:163.1}, // measured 20 Oct 2026: median of 3 × 512-token runs
  'qwen3.6-35b-moe':{role:'General use',speed:86.1},
  'qwen3.8-27b':{role:'Reasoning',speed:16.3}
 };

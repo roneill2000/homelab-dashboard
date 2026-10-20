@@ -12,7 +12,7 @@ try{
  expect(JSON.stringify(data.ai)).not.toMatch(/preset|api.key|C:\\\\llm|--ctx-size/);
  await page.getByRole('button',{name:'Local AI',exact:true}).click();const panel=page.locator('.local-ai-section');
  await expect(panel.locator('.ai-model')).toHaveCount(3);
- await expect(panel.getByText('Recorded benchmark',{exact:true})).toHaveCount(2);
+ await expect(panel.getByText('Recorded benchmark',{exact:true})).toHaveCount(3);await expect(panel).toContainText('163.1');
  await expect(panel.locator('a[href*="192.168.0.12"]')).toHaveCount(0);
  await expect(panel).toContainText('32,768');await expect(panel).toContainText('16,384');
  for(const model of data.ai.desktop.models){
