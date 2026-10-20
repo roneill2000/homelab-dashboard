@@ -265,3 +265,14 @@ The DNS pause and log-clear actions now require the `X-Dashboard-Action: 1` head
 ## UI fixes — 20 October 2026
 
 From the read-only UI/UX review (`AUDIT-HOMEPAGE-2026-10-20.md`). Overview order is now status tiles, pinned services, Ask Qwen, then everything else. Ask Qwen collapses to one input row until focused, typed in, running or holding an answer (phone: 212 px collapsed, about 450 px before). Uncovered guests that are stopped no longer raise the backup alert. They are listed as "Off, not in a backup job", and the count excludes them (live: 8 / 9, with Kasm 103 the only gap). Stopped guests in Compute fleet show a grey badge and sort last. The light-theme clock uses `--muted`. Phone services are 66 px list rows (28 services about 2,450 px, about 5,000 before). Also fixed: "1 log group" singular, "VM 109 · 109" duplicate, truncated Hosts placeholder. Every browser check passed on the local preview (smoke, responsive at 8 sizes, accessibility, coverage, Qwen, content), and `coverage-check.mjs` covers the stopped-only case. Rollback: `/opt/homelab-dashboard/backups/20261020T163817343312Z`.
+
+## Copy on the n100 share
+
+`\\192.168.0.3\n100\repos\homelab-dashboard` (`/mnt/share/repos/homelab-dashboard` on Proxmox) is a git checkout of this folder with its full history (`git subtree split`), owned by `roneill`. It accepts pushes and updates its files in place (`receive.denyCurrentBranch updateInstead`). Refresh it from `~/ryan-tools`:
+
+```sh
+git subtree push -P dev-root/projects/homelab-dashboard ssh://root@192.168.0.3/mnt/share/repos/homelab-dashboard main
+ssh root@192.168.0.3 chown -R roneill /mnt/share/repos/homelab-dashboard
+```
+
+The share sits on the same Proxmox host, so it is a convenience copy, not an independent backup.
