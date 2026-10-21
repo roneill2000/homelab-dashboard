@@ -1,0 +1,9 @@
+[Unit]
+Description=Read-only network counters for Homepage (%i)
+After=network-online.target
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/netcounters.py %i 61209
+DynamicUser=yes
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target

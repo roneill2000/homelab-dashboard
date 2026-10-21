@@ -1,6 +1,7 @@
 """Read-only Glances collector with 24-hour, server-side disk history."""
 import activity_monitor
 import gpu_monitor
+import net_monitor
 import ai_monitor
 import concurrent.futures
 import json
@@ -34,6 +35,7 @@ def initialize():
 
     activity_monitor.initialize(connect)
     gpu_monitor.initialize(connect)
+    net_monitor.initialize(connect)
 
 def rates(previous, current, seconds):
     """Glances gauges are cumulative; never divide an already-normalized rate."""
@@ -191,7 +193,7 @@ def snapshot(window=3600):
         latest[key]['exhaustion'] = estimates[key]
         latest[key]['bucket_seconds'] = bucket
         latest[key]['history'] = histories.get(key, [])
-    return dict(ai=ai_monitor.snapshot(),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
+    return dict(ai=ai_monitor.snapshot(),network=net_monitor.snapshot(connect,window,bucket,aggregate_history),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
                 sample_seconds=10, bucket_seconds=bucket, retention_hours=24, source='Glances cumulative disk counters')
 
 def start():
@@ -208,3 +210,4 @@ def start():
                 print('Storage collector:', type(exc).__name__, flush=True)
             time.sleep(10)
     threading.Thread(target=loop, name='storage-history', daemon=True).start()
+    net_monitor.start(connect)
