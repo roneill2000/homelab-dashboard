@@ -84,6 +84,8 @@ python3 deploy.py
 | `cache_guard.py` | Monitors Unraid cache pool usage and triggers the mover at configurable thresholds. |
 | `updates/` | Proxmox-side update runner (`homelab-update`), reached only through a restricted forced-command SSH key; `install.py` installs it. |
 | `update_proxy.py` | Dashboard bridge for `/api/updates` (status, check, start). |
+| `tools/` | Read-only diagnostics broker and Open WebUI tool (`overview`, summary, storage, services, guests, warnings). |
+| `memos/` | Memos LXC setup and LAN proxy. |
 | `mount-heal/` | Systemd service and timer to automatically remount stale network shares. |
 | `nightly/` | Local LLM runner, GPU probes (`gpu_probe.py`), and context builders for on-demand queries. |
 

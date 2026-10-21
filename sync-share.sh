@@ -10,6 +10,13 @@ cd "$HERE"
 git ls-files | grep -vxE 'OPERATIONS.md' > "$TMP/files"
 find "$TMP/share" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 rsync -a --files-from="$TMP/files" ./ "$TMP/share/"
+# Sibling projects ride along as subfolders so the share has one homelab repo.
+for pair in homelab-tools:tools homelab-memos:memos; do
+  src="$HERE/../${pair%%:*}"; dst="$TMP/share/${pair##*:}"
+  [ -d "$src" ] || continue
+  mkdir -p "$dst"; (cd "$src" && git ls-files) > "$TMP/sib"
+  rsync -a --files-from="$TMP/sib" "$src/" "$dst/"
+done
 cd "$TMP/share"
 git add -A
 if git diff --cached --quiet; then echo "share already current"; exit 0; fi
