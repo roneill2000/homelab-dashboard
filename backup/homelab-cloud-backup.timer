@@ -1,7 +1,7 @@
 [Unit]
-Description=Daily off-site backup at 07:30 (after vzdump at 03:00 and Sunday parity)
+Description=Daily off-site backup at 02:00 (after the 01:00 Proxmox backups)
 [Timer]
-OnCalendar=*-*-* 07:30
+OnCalendar=*-*-* 02:00
 Persistent=true
 [Install]
 WantedBy=timers.target
