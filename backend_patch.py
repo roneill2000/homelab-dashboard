@@ -394,3 +394,32 @@ def patch_jellyfin_auth(source):
     source += '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_opencode(source):
+    """Add the OpenCode web UI (LXC 114) to the TCP monitor and host inventory, like patch_memos."""
+    tree = ast.parse(source)
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
+    found = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name == 'port_targets':
+                if 'opencode' not in [getattr(k, 'value', None) for k in node.value.keys]:
+                    node.value.keys.append(ast.Constant('opencode'))
+                    node.value.values.append(expression("('192.168.0.19', 4096)"))
+                found.add(name)
+            elif name == 'known':
+                if 19 not in [getattr(k, 'value', None) for k in node.value.keys]:
+                    node.value.keys.append(ast.Constant(19))
+                    node.value.values.append(expression("('OpenCode', 'LXC 114', 'http://192.168.0.19:4096', checks.get('opencode', False))"))
+                found.add(name)
+        if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
+            if 19 not in [getattr(v, 'value', None) for v in node.iter.elts]:
+                node.iter.elts.append(ast.Constant(19))
+                node.iter.elts.sort(key=lambda v: v.value)
+            found.add('matrix')
+    assert found == {'port_targets', 'known', 'matrix'}, found
+    lines = source.splitlines(keepends=True)
+    lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn))+'\n']
+    return ''.join(lines)

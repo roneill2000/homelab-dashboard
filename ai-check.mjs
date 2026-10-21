@@ -25,7 +25,7 @@ try{
   for(const card of await panel.locator('.ai-model,.ai-host').all())expect(await card.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);
   await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:`.preview/local-ai-${width}.png`,fullPage:true});
  }
- await page.setViewportSize({width:1920,height:1100});await page.getByRole('button',{name:'All services 28',exact:true}).click();
+ await page.setViewportSize({width:1920,height:1100});await page.getByRole('button',{name:'All services 29',exact:true}).click();
  await page.getByRole('textbox',{name:'Filter services',exact:true}).fill('Open WebUI');await expect(page.locator('.service-card')).toHaveCount(1);
  await expect(page.locator('.service-card .service-link')).toHaveAttribute('href','http://192.168.0.16:3000');
  await expect(page.locator('.service-card').getByRole('img',{name:'Online',exact:true})).toBeVisible();

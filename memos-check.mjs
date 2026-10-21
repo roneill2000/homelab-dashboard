@@ -14,7 +14,7 @@ try{
  }
  await page.setViewportSize({width:1440,height:1000});
  await page.goto('http://127.0.0.1:8802/');
- await page.getByRole('button',{name:'All services 28',exact:true}).click();
+ await page.getByRole('button',{name:'All services 29',exact:true}).click();
  const card=page.locator('.service-card').filter({hasText:'Memos'});
  await expect(card).toBeVisible();
  await expect(card.locator('a').first()).toHaveAttribute('href','http://192.168.0.18:5230');
