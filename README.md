@@ -2,6 +2,10 @@
 
 A custom React dashboard and telemetry aggregator for homelab infrastructure. Provides unified system status, real-time host and storage telemetry, service health catalogs, disk history, and local LLM integrations.
 
+> 📄 **Project Showcase PDF:** A 4-page presentation is available at [**`showcase/Homelab_Command_Center_Showcase.pdf`**](showcase/Homelab_Command_Center_Showcase.pdf) (also shared at `\\192.168.0.3\n100\Homelab_Command_Center_Showcase.pdf`).
+
+![Homelab Command Center Overview](showcase/overview.png)
+
 ---
 
 ## Features
@@ -21,15 +25,27 @@ A custom React dashboard and telemetry aggregator for homelab infrastructure. Pr
 
 ---
 
-## Project Showcase & Visual Tour
+## Visual Showcase
 
-A visual walkthrough document is available at [`showcase/Homelab_Command_Center_Showcase.pdf`](showcase/Homelab_Command_Center_Showcase.pdf) (also shared on the network at `\\192.168.0.3\n100\Homelab_Command_Center_Showcase.pdf`), featuring live screenshots with public WAN IPs sanitized:
+### Storage Telemetry & Contention Analysis
+Physical disk throughput, predictive cache exhaustion modeling, and I/O pressure tracking via Glances AMP probes:
+![Storage Telemetry](showcase/storage.png)
 
-- **Cover:** Highlights the 29 monitored applications and core infrastructure.
-- **Overview:** Demonstrates the top status line, one-tap mobile actions, Gaming PC Sleep/Wake power controls, and the slim Ask Qwen box. Showcases safe confirmation prompts and the "missing data stays missing" policy.
-- **Storage & GPU:** Details physical disk read/write metrics, predictive cache fill modeling, and the dedicated Intel Arc A310 telemetry panel.
-- **Local AI & Compute Fleet:** Covers multi-model benchmark tracking (Qwen 27B, Gemma 26B, MoE 35B), desktop power states, and container inventories across Proxmox and Unraid.
-- **Guarded Operations:** Walks through snapshot-first container upgrades and automated mount healing.
+### Local AI & Intel Arc A310 Acceleration
+Unified GPU silicon telemetry (Render, Compute, Video engines, and VRAM) alongside local LLM benchmarks (Qwen 27B, Gemma 26B, MoE 35B) and Gaming PC power controls:
+![Local AI & Arc A310](showcase/ai.png)
+
+### Guarded Updates & Fleet Management
+Inventory of 29 services, Proxmox LXCs/VMs, and Unraid Docker containers with snapshot-first apt upgrades:
+![Guarded Updates](showcase/updates.png)
+
+### Responsive Mobile Interface
+Optimized touch-friendly layouts for phones with one-tap quick actions, collapsible prompt drawer, and full update controls:
+<p align="center">
+  <img src="showcase/phone.png" width="45%" alt="Mobile Overview" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="showcase/phone-updates.png" width="45%" alt="Mobile Updates" />
+</p>
 
 ---
 
