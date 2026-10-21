@@ -23,13 +23,15 @@ STATE_DIR = Path('/var/lib/homelab-update')
 STATE = STATE_DIR / 'state.json'
 LOCK = Path('/run/homelab-update.lock')
 UNRAID = 'root@192.168.0.4'
+PI = 'root@192.168.0.10'  # Orange Pi Zero 2W: Pi-hole replica, Uptime Kuma, nebula-sync
+PI_ID = 'pi:orangepi'
 TEMPLATES = '/boot/config/plugins/dockerMan/templates-user'
 DOCKER_SCRIPTS = '/usr/local/emhttp/plugins/dynamix.docker.manager/scripts'
 UPDATE_STATUS = '/var/lib/docker/unraid-update-status.json'
 QWEN_CONTAINER = 'homelab-nightly-llm'
 # Lower runs first. DNS replica and the dashboard itself go last; Glances feeds
 # the dashboard's disk probes, so it is the last container.
-PRIORITY = {'lxc:106': 90, 'lxc:104': 99, 'docker:Glances': 95}
+PRIORITY = {'lxc:106': 90, 'pi:orangepi': 92, 'lxc:104': 99, 'docker:Glances': 95}
 SNAP_PREFIX = 'preupd_'
 APT_ENV = 'DEBIAN_FRONTEND=noninteractive'
 APT_UPGRADE = ('apt-get -y -o Dpkg::Options::=--force-confdef '
@@ -54,6 +56,10 @@ def sh(args, timeout=120, check=False):
 def unraid(command, timeout=120, check=False):
     return sh(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', UNRAID, command],
               timeout=timeout, check=check)
+
+
+def pi(command, timeout=120, check=False):
+    return sh(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', PI, command], timeout=timeout, check=check)
 
 
 def guest(vmid, command, timeout=120, check=False):
@@ -114,6 +120,29 @@ awk '$1 !~ /^#/ && $3 ~ /^(cifs|smb3|nfs|nfs4)$/ {print $2}' /etc/fstab 2>/dev/n
   awk -v m="$m" '$2==m{f=1} END{exit !f}' /proc/mounts || echo "M missing $m"
 done
 """
+
+
+PI_EXTRA_SH = r'''
+echo "S $(cut -d' ' -f1-3 /proc/loadavg)|$(free -m | awk '/Mem:/{printf "%d|%d",$3,$2}')|$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null)|$(df -P / | awk 'NR==2{print $5}' | tr -d %)|$(cut -d' ' -f1 /proc/uptime)|$(. /etc/os-release; echo $PRETTY_NAME)|$(uname -r)|$(systemctl is-active pihole-FTL)|$(nproc)"
+docker ps -a --format 'D {{.Names}}|{{.State}}|{{.Status}}|{{.Image}}' 2>/dev/null
+'''
+
+
+def parse_pi_extra(text):
+    info = {'containers': []}
+    for line in text.splitlines():
+        if line.startswith('S '):
+            f = (line[2:].split('|') + [''] * 10)[:10]
+            load, used, total, temp, disk, up, osname, kernel, ftl, cpus = f
+            num = lambda v, d=None: float(v) if v.replace('.', '', 1).isdigit() else d
+            info.update(load=[num(x) for x in load.split()][:3], ram_used_mb=num(used), ram_total_mb=num(total),
+                        ram_pct=round(100 * num(used, 0) / num(total), 1) if num(total) else None,
+                        temp_c=round(num(temp) / 1000, 1) if num(temp) else None, disk_pct=num(disk),
+                        uptime_s=num(up), os=osname or None, kernel=kernel or None, pihole=ftl or None, cpus=num(cpus))
+        elif line.startswith('D '):
+            name, state, status, image = (line[2:].split('|') + ['', '', '', ''])[:4]
+            info['containers'].append(dict(name=name, state=state, status=status, image=image))
+    return info
 
 
 def parse_guest_health(text):
@@ -197,6 +226,10 @@ def inventory():
                     state='skipped' if g['status'] != 'running' else 'unknown',
                     detail='Stopped' if g['status'] != 'running' else '', pending=None)
         items.append(item)
+    if pi('true', timeout=15)[0] == 0:
+        items.append(dict(id=PI_ID, name='orangepi', kind='Pi', state='unknown', detail='', pending=None))
+    else:
+        items.append(dict(id=PI_ID, name='orangepi', kind='Pi', state='skipped', detail='Unreachable', pending=None))
     code, text = unraid("docker ps -a --format '{{.Names}}|{{.Image}}|{{.State}}'", check=True)
     _, templates = unraid(f'ls {TEMPLATES}')
     for c in parse_docker_ps(text):
@@ -219,6 +252,19 @@ def check_lxc(item):
     else:
         item.update(pending=int(count), state='pending' if int(count) else 'current',
                     detail=f'{count} package{"s" if count != "1" else ""}' if int(count) else 'Up to date')
+
+
+def check_pi(item):
+    code, out = pi(f'{APT_ENV} apt-get update -qq >/dev/null 2>&1 || echo APTFAIL; '
+                   'apt-get -s upgrade 2>/dev/null | grep -c "^Inst" || true', timeout=300)
+    count = out.strip().splitlines()[-1] if out.strip() else ''
+    if code or 'APTFAIL' in out or not count.isdigit():
+        item.update(state='unknown', detail='Check failed', pending=None)
+        return
+    n = int(count)
+    # nebula-sync follows :latest via compose and is refreshed on every Pi update; Uptime Kuma is pinned (manual).
+    item.update(pending=n, state='pending' if n else 'current',
+                detail=(f'{n} package{"s" if n != 1 else ""}' if n else 'Up to date') + ' · Uptime Kuma pinned (update by hand)')
 
 
 def check_docker(items):
@@ -244,10 +290,10 @@ def run_check(run):
     run.state['items'] = items
     run.save()
     for item in items:
-        if item['kind'] == 'LXC' and item['state'] != 'skipped':
+        if item['kind'] in ('LXC', 'Pi') and item['state'] != 'skipped':
             item['state'] = 'checking'
             run.save()
-            check_lxc(item)
+            (check_pi if item['kind'] == 'Pi' else check_lxc)(item)
             run.log(f'{item["id"]}: {item["detail"]}')
             run.save()
     check_docker(items)
@@ -319,6 +365,43 @@ def rollback_names(name):
     return f'homelab-rollback-{slug}', f'homelab-rollback/{slug}:pre-update'
 
 
+def pi_failed_units():
+    code, out = pi('systemctl --failed --plain --no-legend 2>/dev/null | wc -l')
+    return int(out.split()[-1]) if code == 0 and out.split() and out.split()[-1].isdigit() else None
+
+
+def update_pi(run, item):
+    # The Pi is the DNS replica: never update it while the primary Pi-hole is down.
+    if sh(['dig', '+time=3', '+tries=2', '+short', '@192.168.0.11', 'google.com'], timeout=20)[0] != 0:
+        raise RuntimeError('primary Pi-hole (.11) is not answering DNS; not touching the replica')
+    before = pi_failed_units()
+    stamp = time.strftime('%Y%m%d%H%M')
+    item.update(state='snapshot', detail='Backing up Uptime Kuma data')
+    run.save()
+    pi(f'tar -czf /opt/uptime-kuma-backup-{stamp}.tgz -C /opt uptime-kuma && ls -1t /opt/uptime-kuma-backup-*.tgz | tail -n +4 | xargs -r rm -f', timeout=120, check=True)
+    item['snapshot'] = f'/opt/uptime-kuma-backup-{stamp}.tgz'
+    item.update(state='updating', detail='Upgrading packages and nebula-sync')
+    run.save()
+    code, out = pi(f'{APT_ENV} apt-get update -qq && {APT_ENV} {APT_UPGRADE} && cd /opt/nebula-sync && docker compose pull -q && docker compose up -d', timeout=1800)
+    run.log(f'{item["id"]}: exit {code}\n{out[-6000:]}')
+    if code:
+        raise RuntimeError(f'upgrade exited {code}')
+    item.update(state='verifying', detail='Checking DNS and containers')
+    run.save()
+    time.sleep(5)
+    if pi('dig +time=3 +tries=2 +short @127.0.0.1 google.com | grep -q .')[0] != 0:
+        raise RuntimeError('Pi-hole on the Pi is not answering DNS after the upgrade')
+    _, states = pi("docker ps -a --format '{{.Names}} {{.State}}'")
+    stopped = [l.split()[0] for l in states.splitlines() if l.split() and l.split()[-1] != 'running']
+    if stopped:
+        raise RuntimeError('containers not running: ' + ', '.join(stopped))
+    after = pi_failed_units()
+    if after is None or (before is not None and after > before):
+        raise RuntimeError(f'failed services went from {before} to {after}')
+    reboot = pi('test -f /var/run/reboot-required')[0] == 0
+    item.update(state='done', pending=0, reboot_required=reboot, detail='Updated' + (' · reboot needed' if reboot else ''))
+
+
 def update_docker(run, item):
     name = shlex.quote(item['name'])
     _, old = unraid(f"docker inspect -f '{{{{.Image}}}}' {name}", check=True)
@@ -370,10 +453,11 @@ def run_update(run):
         if reasons:
             raise Refused('Paused before ' + item['name'] + ': ' + '; '.join(reasons) + '.')
         try:
-            (update_lxc if item['kind'] == 'LXC' else update_docker)(run, item)
+            {'LXC': update_lxc, 'Pi': update_pi}.get(item['kind'], update_docker)(run, item)
             run.log(f'{item["id"]}: {item["detail"]}')
         except Exception as exc:
-            hint = (f'Roll back: pct rollback {item["vmid"]} {item["snapshot"]}' if item.get('snapshot')
+            hint = (f'Kuma data backed up at {item["snapshot"]} on the Pi' if item.get('kind') == 'Pi' and item.get('snapshot')
+                    else f'Roll back: pct rollback {item["vmid"]} {item["snapshot"]}' if item.get('snapshot')
                     else (f'Previous image kept as {item["rollback_image"]}. Roll back: Unraid → Docker → '
                           f'{item["name"]} → Edit → Repository = {item["rollback_image"]} → Apply')
                     if item.get('rollback_image') else '')
@@ -440,6 +524,11 @@ def health():
         out['guests'].append(entry)
     if code:
         out['guests'] = None
+    rc, probe = pi(HEALTH_SH + PI_EXTRA_SH, timeout=45)
+    if rc == 0:
+        out['pi'] = dict(name='orangepi', ip='192.168.0.10', online=True, **parse_guest_health(probe), **parse_pi_extra(probe))
+    else:
+        out['pi'] = dict(name='orangepi', ip='192.168.0.10', online=False, error='Probe failed')
     rc, text = unraid("docker ps -a --format '{{.Names}}|{{.State}}|{{.Status}}'", timeout=20)
     if rc == 0:
         out['containers'] = [dict(zip(('name', 'state', 'status'), (line.split('|') + ['', ''])[:3]))

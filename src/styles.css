@@ -76,3 +76,6 @@ body{font-size:16px}.sidebar{width:248px;padding-left:14px;padding-right:14px}.w
 .qwen-slim.qwen-collapsed .qwen-heading,.qwen-slim.qwen-collapsed .qwen-status,.qwen-slim.qwen-collapsed .qwen-gpu{display:none}.qwen-slim.qwen-collapsed{margin-bottom:16px}.qwen-slim.qwen-collapsed .qwen-panel{padding:8px}
 @media(max-width:600px){.quick-actions>button{flex:1 1 calc(50% - 5px)}.quick-actions .pc-power{flex:1 1 100%}}
 .speed-links{display:inline-flex;gap:14px}.text-button.inline{display:inline;padding:0;min-height:0;font:inherit;color:var(--accent);text-decoration:underline}
+
+.host-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}@media(max-width:1300px){.host-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:760px){.host-grid{grid-template-columns:1fr}}
+.pi-roles{list-style:none;padding:0;margin:12px 0 6px;display:grid;gap:6px}.pi-roles li{display:flex;justify-content:space-between;gap:12px;font-size:14px;color:var(--muted)}.pi-roles b{font-weight:600;color:var(--text);text-align:right}.pi-roles b.ok{color:var(--accent)}.pi-roles b.warn{color:#f3c87b}

@@ -23,5 +23,14 @@ class AlertTests(unittest.TestCase):
         self.assertNotIn('docker:zurg', c); self.assertTrue(c['docker:Jellyfin'][0])
         self.assertTrue(c['mount:utilities:/mnt/UNRAID'][0]); self.assertIn('pct rollback', c['updates-failed'][2])
 
+class PiAlertTests(unittest.TestCase):
+    def test_pi_checks(self):
+        f = {'pi': {'online': True, 'failed_units': [], 'pihole': 'inactive', 'disk_pct': 90, 'temp_c': 50,
+                    'containers': [{'name': 'uptime-kuma', 'state': 'exited', 'status': 'Exited (1)'}]}}
+        c = a.checks(None, None, f, 0)
+        self.assertTrue(c['pi-pihole'][0]); self.assertTrue(c['pi-disk'][0]); self.assertFalse(c['pi-temp'][0])
+        self.assertTrue(c['pi-docker:uptime-kuma'][0]); self.assertFalse(c['pi-reachable'][0])
+
+
 if __name__ == '__main__':
     unittest.main()

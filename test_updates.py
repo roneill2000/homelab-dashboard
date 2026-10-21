@@ -115,6 +115,22 @@ class SleepTests(unittest.TestCase):
         codes, s = self.post(ok, b'{"force": "yes"}'); s.assert_called_once_with(force=False)
 
 
+class PiTests(unittest.TestCase):
+    def test_parse_pi_extra(self):
+        info = u.parse_pi_extra('S 1.15 1.09 1.04|484|981|51092|5|600000|Ubuntu 26.04.1 LTS|6.1.31-sun50iw9|active|4\n'
+                                'D uptime-kuma|running|Up 6 days (healthy)|louislam/uptime-kuma:2.5.0\nD nebula-sync|exited|Exited (1)|x')
+        self.assertEqual(info['ram_pct'], 49.3); self.assertEqual(info['temp_c'], 51.1); self.assertEqual(info['disk_pct'], 5)
+        self.assertEqual(info['pihole'], 'active'); self.assertEqual(info['load'], [1.15, 1.09, 1.04])
+        self.assertEqual([c['state'] for c in info['containers']], ['running', 'exited'])
+
+    def test_pi_update_refused_when_primary_dns_down(self):
+        run = SimpleNamespace(save=lambda: None, log=lambda t: None)
+        with patch.object(u, 'sh', return_value=(9, 'timed out')), patch.object(u, 'pi') as pi:
+            with self.assertRaises(RuntimeError):
+                u.update_pi(run, dict(id=u.PI_ID, name='orangepi', kind='Pi'))
+            pi.assert_not_called()
+
+
 class SshGateTests(unittest.TestCase):
     def test_only_three_commands_reach_the_runner(self):
         for cmd in ('run-update', 'status; rm -rf /', 'bash', '', 'health; id'):

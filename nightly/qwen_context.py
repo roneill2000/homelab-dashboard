@@ -43,7 +43,7 @@ RECORDED = {
 
 KEYWORDS = {
     'storage': r'disk|cache|scratch|smb|space|full|storag|read|write|mover|slow|latency|speed|usage',
-    'hosts': r'host|proxmox|unraid|cpu|ram|memory|load|container|docker|guest|vm|system',
+    'hosts': r'host|proxmox|unraid|cpu|ram|memory|load|container|docker|guest|vm|system|orange|\bpi\b|kuma|nebula|replica',
     'services': r'service|online|offline|down|reach|memos|homepage|where|address|port|url|inventory',
     'recovery': r'\b(?:backups?|restores?|parity|raid|mover|cache)\b',
     'health': r'smart|health|temperature|hot|drive|disk|fail|error',
@@ -159,6 +159,9 @@ def build(prompt,storage,telemetry,snapshot,now,base,services=None,fleet=None):
     sections['units']=fleet_source('guests','Failed systemd units per running LXC. Some .mount/.timer failures are normal in unprivileged containers and do not mean the app is down.')
     if sections['units']['fresh']:
         sections['units']['guests']=[dict(vmid=g['vmid'],name=g['name'],status=g['status'],failed_units=g.get('failed_units'),error=g.get('error')) for g in guests]
+    if fleet_ok and isinstance(f.get('pi'),dict):
+        sections['hosts']['orangepi']=pick(f['pi'],'online ip os kernel cpus load ram_pct temp_c disk_pct uptime_s pihole failed_units containers')
+        sections['hosts']['orangepi']['role']='Orange Pi Zero 2W at 192.168.0.10: Pi-hole replica (second DNS), Uptime Kuma, nebula-sync copying Pi-hole settings from .11.'
     sections['containers']=fleet_source('containers','All Unraid Docker containers, including stopped ones.')
     if sections['containers']['fresh']:sections['containers']['unraid']=f['containers'][:30]
     sections['updates']=fleet_source('updates','From the last Updates-page check; not a live package query.')

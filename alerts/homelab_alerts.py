@@ -66,6 +66,19 @@ def checks(t, s, f, now):
             if c['name'] in INTENTIONALLY_STOPPED:
                 continue
             out[f"docker:{c['name']}"] = (c['state'] != 'running', f"Docker app {c['name']} stopped", f"{c['name']}: {c.get('status') or c['state']}", 4)
+        pi = f.get('pi')
+        if pi is not None:
+            out['pi-reachable'] = (pi.get('online') is False, 'Orange Pi unreachable', 'Proxmox could not run its health probe on 192.168.0.10.', 4)
+            if pi.get('online'):
+                if pi.get('failed_units') is not None:
+                    out['pi-units'] = (bool(pi['failed_units']), 'Failed services on the Orange Pi', ', '.join(pi['failed_units']) or 'none', 3)
+                out['pi-pihole'] = (pi.get('pihole') != 'active', 'Pi-hole replica not running', f"pihole-FTL is {pi.get('pihole')} on the Orange Pi.", 4)
+                for c in pi.get('containers') or []:
+                    out[f"pi-docker:{c['name']}"] = (c['state'] != 'running', f"{c['name']} stopped on the Orange Pi", c.get('status') or c['state'], 4)
+                if isinstance(pi.get('disk_pct'), (int, float)):
+                    out['pi-disk'] = (pi['disk_pct'] >= 85, 'Orange Pi SD card filling', f"{pi['disk_pct']}% used.", 3)
+                if isinstance(pi.get('temp_c'), (int, float)):
+                    out['pi-temp'] = (pi['temp_c'] >= 75, 'Orange Pi running hot', f"{pi['temp_c']} °C.", 3)
         upd = f.get('updates') or {}
         failed = upd.get('failed') or []
         out['updates-failed'] = (bool(failed), 'Update run failed',
