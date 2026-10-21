@@ -45,6 +45,37 @@ class HealthParseTests(unittest.TestCase):
         self.assertIsNone(u.parse_guest_health('garbage')['failed_units'])
 
 
+class DockerRollbackTests(unittest.TestCase):
+    def test_pull_happens_before_update_container_so_old_image_survives(self):
+        calls = []
+        def fake(cmd, timeout=120, check=False):
+            calls.append(cmd)
+            if cmd.startswith("docker inspect -f '{{.Image}}'"):
+                return 0, 'sha256:old\n'
+            if cmd.startswith("docker inspect"):
+                return 0, 'true||sha256:new'
+            return 0, ''
+        run = SimpleNamespace(save=lambda: None, log=lambda t: None)
+        item = dict(id='docker:Jellyfin', name='Jellyfin', kind='Docker', image='jellyfin/jellyfin:latest')
+        with patch.object(u, 'unraid', side_effect=fake):
+            u.update_docker(run, item)
+        i_tag = next(i for i, c in enumerate(calls) if c.startswith('docker tag sha256:old homelab-rollback/jellyfin:pre-update'))
+        i_pull = next(i for i, c in enumerate(calls) if c.startswith('docker pull jellyfin/jellyfin:latest'))
+        i_update = next(i for i, c in enumerate(calls) if 'update_container' in c)
+        self.assertLess(i_tag, i_pull); self.assertLess(i_pull, i_update)
+        self.assertEqual(item['detail'], 'Updated · previous image kept')
+
+    def test_failed_pull_stops_before_recreate(self):
+        def fake(cmd, timeout=120, check=False):
+            if cmd.startswith('docker pull'): return 1, 'denied'
+            return 0, 'sha256:old'
+        item = dict(id='docker:X', name='X', kind='Docker', image='x:latest')
+        with patch.object(u, 'unraid', side_effect=fake) as un:
+            with self.assertRaises(RuntimeError):
+                u.update_docker(SimpleNamespace(save=lambda: None, log=lambda t: None), item)
+        self.assertFalse(any('update_container' in c.args[0] for c in un.call_args_list))
+
+
 class SshGateTests(unittest.TestCase):
     def test_only_three_commands_reach_the_runner(self):
         for cmd in ('run-update', 'status; rm -rf /', 'bash', '', 'health; id'):

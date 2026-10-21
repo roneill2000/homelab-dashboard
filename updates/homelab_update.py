@@ -314,18 +314,31 @@ def update_lxc(run, item):
                 detail='Updated' + (' · reboot needed' if reboot else ''))
 
 
+def rollback_names(name):
+    slug = re.sub(r'[^a-z0-9_.-]', '-', name.lower())
+    return f'homelab-rollback-{slug}', f'homelab-rollback/{slug}:pre-update'
+
+
 def update_docker(run, item):
     name = shlex.quote(item['name'])
     _, old = unraid(f"docker inspect -f '{{{{.Image}}}}' {name}", check=True)
     old = old.strip()
-    tag = shlex.quote(f'homelab-rollback/{item["name"].lower()}:pre-update')
-    unraid(f'docker tag {shlex.quote(old)} {tag}', check=True)
-    item.update(state='updating', detail='Pulling and recreating', rollback_image=f'homelab-rollback/{item["name"].lower()}:pre-update')
+    _, tag = rollback_names(item['name'])
+    unraid(f'docker tag {shlex.quote(old)} {shlex.quote(tag)}', check=True)
+    # update_container records the image ID *before* its own pull and deletes that ID afterwards
+    # (forced, so tags and stopped containers don't protect it). Pulling first makes its "old" ID the
+    # new image, so nothing is deleted and the previous image survives under the rollback tag.
+    code, out = unraid(f'docker pull {shlex.quote(item["image"])}', timeout=1800)
+    if code:
+        raise RuntimeError('docker pull failed: ' + out[-200:])
+    item.update(state='updating', detail='Pulling and recreating', rollback_image=tag)
     run.save()
     # update_container is what the Unraid Update button runs: pull, then recreate from the template.
-    # Its attempt to delete the old image fails while the rollback tag holds it.
     code, out = unraid(f'{DOCKER_SCRIPTS}/update_container {name}', timeout=1800)
     run.log(f'{item["id"]}: update_container exit {code}\n{re.sub(r"<[^>]+>", " ", out)[-4000:]}')
+    if unraid(f'docker image inspect {shlex.quote(tag)} >/dev/null')[0]:
+        run.log(f'{item["id"]}: rollback image {tag} missing after update')
+        tag = None
     item.update(state='verifying', detail='Waiting for container')
     run.save()
     deadline = time.time() + 180
@@ -339,7 +352,7 @@ def update_docker(run, item):
         time.sleep(5)
     if not image or image == old:
         raise RuntimeError('image did not change; the pull may have failed')
-    item.update(state='done', pending=0, detail='Updated')
+    item.update(state='done', pending=0, detail='Updated · previous image kept' if tag else 'Updated · previous image NOT kept', rollback_image=tag)
 
 
 def run_update(run):
@@ -361,7 +374,9 @@ def run_update(run):
             run.log(f'{item["id"]}: {item["detail"]}')
         except Exception as exc:
             hint = (f'Roll back: pct rollback {item["vmid"]} {item["snapshot"]}' if item.get('snapshot')
-                    else f'Previous image kept as {item["rollback_image"]}' if item.get('rollback_image') else '')
+                    else (f'Previous image kept as {item["rollback_image"]}. Roll back: Unraid → Docker → '
+                          f'{item["name"]} → Edit → Repository = {item["rollback_image"]} → Apply')
+                    if item.get('rollback_image') else '')
             item.update(state='failed', detail=str(exc)[:300], rollback=hint)
             for rest in queue[n + 1:]:
                 rest.update(state='not started', detail='Stopped after a failure')
