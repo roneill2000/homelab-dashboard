@@ -71,6 +71,12 @@ const modelProfiles={
  'qwen3.6-35b-moe':{role:'General use',speed:59.0}, // Ryan 20 Oct 2026: 54.8–63.1 tok/s at 32K context (86.1 was at 16K)
  'qwen3.8-27b':{role:'Reasoning',speed:16.3}
 };
+function WakePcButton(){
+ const [state,setState]=useState('idle');
+ async function wake(){setState('sending');try{const r=await fetch('/api/action/wake-pc',{method:'POST',headers:{'Content-Type':'application/json','X-Dashboard-Action':'1'},body:'{}'});const d=await r.json();setState(r.ok&&d.ok?'sent':'failed')}catch{setState('failed')}}
+ return <div className="wake-pc"><button className="secondary-button" disabled={state==='sending'} onClick={wake}><Icon name="arrow" size={16}/>{state==='sending'?'Sending…':'Wake PC'}</button>
+  {state==='sent'&&<p className="source-note">Wake signal sent. From sleep the models return in about 30 s. From a full shutdown the PC stops at the login screen until someone signs in.</p>}
+  {state==='failed'&&<p className="source-note error">The wake signal could not be sent.</p>}</div>}
 function LocalAI({ai,compact=false,onOpen}){
  const web=ai?.webui||{},pc=ai?.desktop||{},live=sourceFresh(pc),webLive=sourceFresh(web),ready=live&&webLive,items=pc.models||(live?[]:Object.keys(modelProfiles).map(id=>({id,state:'unknown',context_tokens:null})));
  const pcStatus=pc.online===false?'Gaming PC unavailable':'Waiting for gaming PC status';
@@ -79,7 +85,7 @@ function LocalAI({ai,compact=false,onOpen}){
   <div className="section-heading"><h2>{compact?'Local AI':'Chat'}</h2>{compact&&<button className="text-button" onClick={onOpen}>View models <Icon name="arrow" size={16}/></button>}</div>
   <a className="panel ai-host ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer"><div><h3>Open WebUI <Icon name="external" size={20}/></h3><p>Chat with your desktop models</p><p className="mono">192.168.0.16:3000</p></div><SourceBadge source={web} onlineLabel="Web UI online"/></a>
   <SourceNote source={web}/>
-  {!live&&<div className="ai-offline" role="status"><strong>{pcStatus}</strong><p>The PC may be off, asleep, or its model server stopped. Desktop chat will be available when it reconnects. Status checks resume automatically.</p>{webLive&&<p>Open WebUI is still available. The A310 prompt on Homepage runs separately on Unraid.</p>}</div>}
+  {!live&&<div className="ai-offline" role="status"><strong>{pcStatus}</strong><p>The PC may be off, asleep, or its model server stopped. Desktop chat will be available when it reconnects. Status checks resume automatically.</p><WakePcButton/>{webLive&&<p>Open WebUI is still available. The A310 prompt on Homepage runs separately on Unraid.</p>}</div>}
   {compact?<div className="ai-summary"><span>{live?`${items.length} models · ${items.filter(m=>m.state==='loaded').length} loaded`:'Desktop models currently unavailable'}</span>{live&&items.filter(m=>m.state==='loaded').map(m=><a key={m.id} href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">{m.id} <Icon name="external" size={14}/></a>)}</div>:<>
    <div className="ai-model-grid">{items.map(m=>{const profile=modelProfiles[m.id];return <article className="panel ai-model" key={m.id}>
     <div className="ai-model-title"><div><h3>{m.id}</h3>{profile&&<p className="ai-role">{profile.role}</p>}</div><Badge state={live&&m.state==='loaded'?true:live&&m.state==='failed'?false:null} label={live?(labels[m.state]||'Unknown'):'Unavailable'}/></div>

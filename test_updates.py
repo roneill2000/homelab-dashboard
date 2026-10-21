@@ -76,6 +76,28 @@ class DockerRollbackTests(unittest.TestCase):
         self.assertFalse(any('update_container' in c.args[0] for c in un.call_args_list))
 
 
+class WakeTests(unittest.TestCase):
+    def test_magic_packet_and_guard(self):
+        sent = []
+        class Sock:
+            def __init__(self, *a): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+            def setsockopt(self, *a): pass
+            def sendto(self, data, addr): sent.append((data, addr))
+        with patch.object(proxy.socket, 'socket', Sock):
+            proxy.wake_pc()
+        self.assertEqual(len(sent[0][0]), 102)
+        self.assertEqual(sent[0][0][:6], b'\xff' * 6)
+        self.assertEqual(sent[0][0][6:12], bytes.fromhex('345a6001a19a'))
+        codes = []
+        h = SimpleNamespace(path='/api/action/wake-pc', headers={'Host': '192.168.0.2'}, wfile=io.BytesIO(),
+                            send_response=codes.append, send_header=lambda *a: None, end_headers=lambda: None)
+        with patch.object(proxy, 'wake_pc') as w:
+            self.assertTrue(proxy.handle(h, post=True))
+        self.assertEqual(codes, [403]); w.assert_not_called()
+
+
 class SshGateTests(unittest.TestCase):
     def test_only_three_commands_reach_the_runner(self):
         for cmd in ('run-update', 'status; rm -rf /', 'bash', '', 'health; id'):

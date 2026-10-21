@@ -3,6 +3,7 @@ import json
 import subprocess
 import threading
 import time
+import socket
 import urllib.parse
 
 import qwen_proxy
@@ -35,8 +36,30 @@ def fleet():
         body=remote('health',timeout=90);FLEET.update(at=time.time(),body=body);return body
 
 
+PC_MAC='34:5a:60:01:a1:9a'  # gaming PC, Realtek 5GbE (Wake on Magic Packet + Shutdown WoL enabled)
+
+
+def wake_pc():
+    """Send a Wake-on-LAN magic packet for the gaming PC to the LAN broadcast addresses."""
+    payload=b'\xff'*6+bytes.fromhex(PC_MAC.replace(':',''))*16
+    with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1)
+        for target in ('192.168.0.255','255.255.255.255'):
+            for port in (9,7):sock.sendto(payload,(target,port))
+
+
 def handle(handler,post=False):
     path=urllib.parse.urlparse(handler.path).path
+    if path=='/api/action/wake-pc' and post:
+        def answer(code,data):
+            raw=json.dumps(data).encode();handler.send_response(code)
+            handler.send_header('Content-Type','application/json');handler.send_header('Content-Length',str(len(raw)))
+            handler.end_headers();handler.wfile.write(raw)
+        if not qwen_proxy.same_origin(handler,'X-Dashboard-Action'):
+            answer(403,dict(ok=False,error='Use the homepage to run this action.'));return True
+        try:wake_pc();answer(200,dict(ok=True))
+        except OSError:answer(503,dict(ok=False,error='Could not send the wake signal.'))
+        return True
     if path=='/api/fleet' and not post:
         raw=b''
         try:raw=json.dumps(fleet()).encode();code=200
