@@ -31,15 +31,9 @@ def checks(t, s, f, now):
     if t is not None:
         age = now - (t.get('updated_at') or 0)
         out['homepage-stale'] = (age > 300, 'Homepage data is stale', f'Telemetry last updated {int(age // 60)} min ago.', 4)
-        u = t.get('unraid') or {}
-        if u.get('online') and isinstance(u.get('cache_pct'), (int, float)):
-            out['cache-full'] = (u['cache_pct'] >= 85, 'Unraid cache filling', f"Cache {u['cache_pct']}% used.", 4)
-        if u.get('online') and isinstance(u.get('array_pct'), (int, float)):
-            out['array-full'] = (u['array_pct'] >= 90, 'Unraid array filling', f"Array {u['array_pct']}% used.", 4)
-        drives = (t.get('scrutiny') or {}).get('drives') or []
-        if (t.get('scrutiny') or {}).get('online'):
-            bad = [d.get('name') for d in drives if d.get('healthy') is False]
-            out['drives'] = (bool(bad), 'Drive health warning', 'Scrutiny reports unhealthy: ' + ', '.join(map(str, bad)) if bad else 'All drives healthy.', 5)
+        # Not checked here, because another sender already alerts on them (see alerts/SENDERS.md):
+        # Unraid disk usage 70/90% and temperatures (Unraid ntfy agent), drive failures (Scrutiny),
+        # Proxmox backup results (Proxmox notification webhook).
         st = t.get('speedtest') or {}
         tested = st.get('tested_at')
         if tested:
@@ -49,11 +43,6 @@ def checks(t, s, f, now):
                 out['speedtest-stale'] = (hours > 12, 'Speed tests failing', f'Last completed test was {int(hours)} h ago.', 3)
             except ValueError:
                 pass
-    if s is not None:
-        b = ((s.get('activity') or {}).get('recovery') or {}).get('backup') or {}
-        latest = (b.get('latest') or {}).get('status')
-        if latest:
-            out['backup'] = (latest != 'OK', 'Proxmox backup job failed', f'Latest backup job status: {latest}.', 4)
     if f is not None:
         guests = f.get('guests') or []
         for g in guests:

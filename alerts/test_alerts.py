@@ -23,6 +23,13 @@ class AlertTests(unittest.TestCase):
         self.assertNotIn('docker:zurg', c); self.assertTrue(c['docker:Jellyfin'][0])
         self.assertTrue(c['mount:utilities:/mnt/UNRAID'][0]); self.assertIn('pct rollback', c['updates-failed'][2])
 
+    def test_duplicates_of_other_senders_are_not_checked(self):
+        t = {'updated_at': 0, 'unraid': {'online': True, 'cache_pct': 99, 'array_pct': 99}, 'scrutiny': {'online': True, 'drives': [{'name': 'sdb', 'healthy': False}]}}
+        s = {'activity': {'recovery': {'backup': {'latest': {'status': 'error'}}}}}
+        c = a.checks(t, s, None, 0)
+        for k in ('cache-full', 'array-full', 'drives', 'backup'):
+            self.assertNotIn(k, c)
+
 class PiAlertTests(unittest.TestCase):
     def test_pi_checks(self):
         f = {'pi': {'online': True, 'failed_units': [], 'pihole': 'inactive', 'disk_pct': 90, 'temp_c': 50,
