@@ -25,11 +25,16 @@ flock -n 9 || { echo "already running"; exit 0; }
 
 restic cat config >/dev/null 2>&1 || restic init
 
+# Full speed for the very first upload; after that cap at ~200 Mbps (24414 KiB/s) so ~100 Mbps of the
+# 300 Mbps uplink stays free (Ryan, 21 Oct 2026).
+LIMIT=()
+restic snapshots --tag photos --json 2>/dev/null | grep -q '"id"' && LIMIT=(--limit-upload 24414)
+
 # Photos: refuse to run against an empty or missing mount (would look like everything was deleted).
 for d in "${PHOTOS[@]}"; do
   timeout 60 test -n "$(timeout 60 ls -A "$d" 2>/dev/null | head -1)" || { echo "photo source missing or empty: $d"; false; }
 done
-restic backup --tag photos --host homelab "${PHOTOS[@]}"
+restic backup "${LIMIT[@]}" --tag photos --host homelab "${PHOTOS[@]}"
 
 # Proxmox: newest archive (+ its .log/.notes) per guest.
 LIST=$(mktemp)
@@ -39,14 +44,14 @@ for id in $(ls "$DUMP" | sed -nE 's/^vzdump-(lxc|qemu)-([0-9]+)-.*\.(tar|vma)\.z
   for f in "$newest" "$newest.notes" "$base.log"; do [ -f "$f" ] && echo "$f"; done
 done > "$LIST"
 test -s "$LIST"
-restic backup --tag proxmox --host homelab --files-from-verbatim "$LIST"
+restic backup "${LIMIT[@]}" --tag proxmox --host homelab --files-from-verbatim "$LIST"
 rm -f "$LIST"
 
 restic forget --tag photos --host homelab --keep-daily 7 --keep-weekly 4 --keep-monthly 12
 restic forget --tag proxmox --host homelab --keep-daily 7 --keep-weekly 4
 
 if [ "$(date +%u)" = 7 ]; then          # Sundays: reclaim space and prove the data is readable
-  restic prune
+  restic prune "${LIMIT[@]}"
   restic check --read-data-subset=2%
 fi
 
