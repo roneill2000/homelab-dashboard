@@ -160,7 +160,7 @@ def build(prompt,storage,telemetry,snapshot,now,base,services=None,fleet=None):
     if sections['units']['fresh']:
         sections['units']['guests']=[dict(vmid=g['vmid'],name=g['name'],status=g['status'],failed_units=g.get('failed_units'),error=g.get('error')) for g in guests]
     if fleet_ok and isinstance(f.get('pi'),dict):
-        sections['hosts']['orangepi']=pick(f['pi'],'online ip os kernel cpus load ram_pct temp_c disk_pct uptime_s pihole failed_units containers')
+        sections['hosts']['orangepi']=pick(f['pi'],'online ip os kernel cpus cpu load ram_pct temp_c disk_pct uptime_s pihole failed_units containers')
         sections['hosts']['orangepi']['role']='Orange Pi Zero 2W at 192.168.0.10: Pi-hole replica (second DNS), Uptime Kuma, nebula-sync copying Pi-hole settings from .11.'
     sections['containers']=fleet_source('containers','All Unraid Docker containers, including stopped ones.')
     if sections['containers']['fresh']:sections['containers']['unraid']=f['containers'][:30]

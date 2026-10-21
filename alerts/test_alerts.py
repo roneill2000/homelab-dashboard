@@ -28,8 +28,8 @@ class PiAlertTests(unittest.TestCase):
         f = {'pi': {'online': True, 'failed_units': [], 'pihole': 'inactive', 'disk_pct': 90, 'temp_c': 50,
                     'containers': [{'name': 'uptime-kuma', 'state': 'exited', 'status': 'Exited (1)'}]}}
         c = a.checks(None, None, f, 0)
-        self.assertTrue(c['pi-pihole'][0]); self.assertTrue(c['pi-disk'][0]); self.assertFalse(c['pi-temp'][0])
-        self.assertTrue(c['pi-docker:uptime-kuma'][0]); self.assertFalse(c['pi-reachable'][0])
+        self.assertNotIn('pi-pihole', c); self.assertTrue(c['pi-disk'][0]); self.assertFalse(c['pi-temp'][0])
+        self.assertTrue(c['pi-docker:uptime-kuma'][0]); self.assertNotIn('pi-reachable', c)
 
 
 if __name__ == '__main__':

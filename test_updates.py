@@ -117,10 +117,10 @@ class SleepTests(unittest.TestCase):
 
 class PiTests(unittest.TestCase):
     def test_parse_pi_extra(self):
-        info = u.parse_pi_extra('S 1.15 1.09 1.04|484|981|51092|5|600000|Ubuntu 26.04.1 LTS|6.1.31-sun50iw9|active|4\n'
+        info = u.parse_pi_extra('C 123\nS 1.15 1.09 1.04|484|981|51092|5|600000|Ubuntu 26.04.1 LTS|6.1.31-sun50iw9|active|4\n'
                                 'D uptime-kuma|running|Up 6 days (healthy)|louislam/uptime-kuma:2.5.0\nD nebula-sync|exited|Exited (1)|x')
         self.assertEqual(info['ram_pct'], 49.3); self.assertEqual(info['temp_c'], 51.1); self.assertEqual(info['disk_pct'], 5)
-        self.assertEqual(info['pihole'], 'active'); self.assertEqual(info['load'], [1.15, 1.09, 1.04])
+        self.assertEqual(info['pihole'], 'active'); self.assertEqual(info['cpu'], 12.3); self.assertEqual(info['load'], [1.15, 1.09, 1.04])
         self.assertEqual([c['state'] for c in info['containers']], ['running', 'exited'])
 
     def test_pi_update_refused_when_primary_dns_down(self):

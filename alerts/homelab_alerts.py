@@ -68,11 +68,10 @@ def checks(t, s, f, now):
             out[f"docker:{c['name']}"] = (c['state'] != 'running', f"Docker app {c['name']} stopped", f"{c['name']}: {c.get('status') or c['state']}", 4)
         pi = f.get('pi')
         if pi is not None:
-            out['pi-reachable'] = (pi.get('online') is False, 'Orange Pi unreachable', 'Proxmox could not run its health probe on 192.168.0.10.', 4)
+            # Pi unreachable / Pi-hole replica down: already alerted by homelab-health-watchdog ('Secondary Pi-hole (Orange Pi)').
             if pi.get('online'):
                 if pi.get('failed_units') is not None:
                     out['pi-units'] = (bool(pi['failed_units']), 'Failed services on the Orange Pi', ', '.join(pi['failed_units']) or 'none', 3)
-                out['pi-pihole'] = (pi.get('pihole') != 'active', 'Pi-hole replica not running', f"pihole-FTL is {pi.get('pihole')} on the Orange Pi.", 4)
                 for c in pi.get('containers') or []:
                     out[f"pi-docker:{c['name']}"] = (c['state'] != 'running', f"{c['name']} stopped on the Orange Pi", c.get('status') or c['state'], 4)
                 if isinstance(pi.get('disk_pct'), (int, float)):

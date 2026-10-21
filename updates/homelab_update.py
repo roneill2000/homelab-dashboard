@@ -123,6 +123,8 @@ done
 
 
 PI_EXTRA_SH = r'''
+read -r _ a1 b1 c1 d1 e1 f1 g1 h1 _ < /proc/stat; sleep 1; read -r _ a2 b2 c2 d2 e2 f2 g2 h2 _ < /proc/stat
+echo "C $(( ( (a2+b2+c2+f2+g2+h2) - (a1+b1+c1+f1+g1+h1) ) * 1000 / ( (a2+b2+c2+d2+e2+f2+g2+h2) - (a1+b1+c1+d1+e1+f1+g1+h1) + 1 ) ))"
 echo "S $(cut -d' ' -f1-3 /proc/loadavg)|$(free -m | awk '/Mem:/{printf "%d|%d",$3,$2}')|$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null)|$(df -P / | awk 'NR==2{print $5}' | tr -d %)|$(cut -d' ' -f1 /proc/uptime)|$(. /etc/os-release; echo $PRETTY_NAME)|$(uname -r)|$(systemctl is-active pihole-FTL)|$(nproc)"
 docker ps -a --format 'D {{.Names}}|{{.State}}|{{.Status}}|{{.Image}}' 2>/dev/null
 '''
@@ -131,7 +133,9 @@ docker ps -a --format 'D {{.Names}}|{{.State}}|{{.Status}}|{{.Image}}' 2>/dev/nu
 def parse_pi_extra(text):
     info = {'containers': []}
     for line in text.splitlines():
-        if line.startswith('S '):
+        if line.startswith('C ') and line[2:].strip().isdigit():
+            info['cpu'] = round(int(line[2:]) / 10, 1)  # busy share over a 1 s sample, like the Proxmox/Unraid CPU %
+        elif line.startswith('S '):
             f = (line[2:].split('|') + [''] * 10)[:10]
             load, used, total, temp, disk, up, osname, kernel, ftl, cpus = f
             num = lambda v, d=None: float(v) if v.replace('.', '', 1).isdigit() else d
