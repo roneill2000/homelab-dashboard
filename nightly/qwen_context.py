@@ -34,7 +34,11 @@ RECORDED = {
               'OpenCode CLI is installed on the gaming PC and uses the local router (default model qwen3.6-35b-moe; bash/edit actions ask first).',
               'OpenCode web UI runs in LXC 114 at http://192.168.0.19:4096 (no login, by Ryan\'s choice); it can SSH to Proxmox and, through it, Unraid, and asks before running commands. It needs the gaming PC on for models.',
               'Zurg (Real-Debrid) is disabled since 2026-10-20 after its rclone mount hung twice; Jellyfin uses local 4TB folders and TorBox only.',
-              'Jellyfin is 12.2.0 at 192.168.0.17:8096 with legacy token authorization re-enabled for older clients.'],
+              'Jellyfin is 12.2.0 at 192.168.0.17:8096 with legacy token authorization re-enabled for older clients.',
+              'Homepage Local AI has Wake PC (Wake-on-LAN magic packet) and Sleep PC (SSH forced command, 60 s on-screen warning, refuses if GPU >= 30% unless forced; cancel with C:/llm/cancel-sleep.cmd). Wake from sleep restores the router; from full shutdown the PC stops at the login screen.',
+              'Phone alerts go to ntfy.sh: Proxmox homelab-alerts (every 5 min: container mounts, failed units, stopped Docker apps, failed updates, speedtest older than 12 h, cache >= 85%, array >= 90%, drives, backups), plus the older watchdog, Uptime Kuma on .10 and NetAlertX.',
+              'Speedtest Tracker auto-selects the nearest Ookla server with Hostinger (73570) blocked; it was pinned to Comcast 1774, which dropped out of Ookla rotation on 20-21 Oct and caused NoServersException failures.',
+              'OpenCode (LXC 114) asks before commands; an approver plugin auto-allows read-only commands, blocks destructive ones and asks the loaded model about the rest. Log: /var/log/opencode-approver.log.'],
     'notice': 'Recorded configuration, not a live configuration check.'}
 
 KEYWORDS = {

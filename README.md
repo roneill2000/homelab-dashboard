@@ -15,6 +15,8 @@ A custom React dashboard and telemetry aggregator for homelab infrastructure. Pr
   - Integration with Open WebUI and local model routers.
   - Dedicated Arc A310 GPU monitoring (render, compute, VRAM, temperatures).
 - **Guarded Updates:** Check and apply `apt` upgrades in running Proxmox LXCs and image updates for Unraid Docker apps from the **Updates** page. Each LXC is snapshotted first, guests update one at a time, and the run stops at the first failure.
+- **Gaming PC Power:** Wake PC (Wake-on-LAN) and Sleep PC buttons in Local AI. Sleep goes through a single-purpose SSH key, shows a 60-second warning, and refuses while the GPU is busy unless confirmed.
+- **Phone Alerts:** ntfy push notifications for stale shares, failed services, stopped Docker apps, failed updates, stale speed tests, filling storage, drive health and backups.
 - **Mount Healing:** Automated systemd timer (`mount-heal`) to detect and recover stale CIFS/NFS mounts after array or network interruptions.
 
 ---

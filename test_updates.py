@@ -98,6 +98,23 @@ class WakeTests(unittest.TestCase):
         self.assertEqual(codes, [403]); w.assert_not_called()
 
 
+class SleepTests(unittest.TestCase):
+    def post(self, headers, body=b'{}'):
+        codes = []
+        h = SimpleNamespace(path='/api/action/sleep-pc', headers={'Content-Length': str(len(body)), **headers}, rfile=io.BytesIO(body),
+                            wfile=io.BytesIO(), send_response=codes.append, send_header=lambda *a: None, end_headers=lambda: None)
+        with patch.object(proxy, 'sleep_pc', return_value={'ok': True}) as s:
+            self.assertTrue(proxy.handle(h, post=True))
+        return codes, s
+
+    def test_guard_and_force_flag(self):
+        codes, s = self.post({'Host': '192.168.0.2'}); self.assertEqual(codes, [403]); s.assert_not_called()
+        ok = {'Host': '192.168.0.2', 'X-Dashboard-Action': '1'}
+        codes, s = self.post(ok); self.assertEqual(codes, [200]); s.assert_called_once_with(force=False)
+        codes, s = self.post(ok, b'{"force": true}'); s.assert_called_once_with(force=True)
+        codes, s = self.post(ok, b'{"force": "yes"}'); s.assert_called_once_with(force=False)
+
+
 class SshGateTests(unittest.TestCase):
     def test_only_three_commands_reach_the_runner(self):
         for cmd in ('run-update', 'status; rm -rf /', 'bash', '', 'health; id'):

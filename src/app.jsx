@@ -71,6 +71,16 @@ const modelProfiles={
  'qwen3.6-35b-moe':{role:'General use',speed:59.0}, // Ryan 20 Oct 2026: 54.8–63.1 tok/s at 32K context (86.1 was at 16K)
  'qwen3.8-27b':{role:'Reasoning',speed:16.3}
 };
+function SleepPcButton(){
+ const [state,setState]=useState('idle'),[msg,setMsg]=useState('');
+ async function send(force){setState('sending');try{const r=await fetch('/api/action/sleep-pc',{method:'POST',headers:{'Content-Type':'application/json','X-Dashboard-Action':'1'},body:JSON.stringify({force})});const d=await r.json();
+  if(r.ok&&d.ok){setState('sent');setMsg('The PC shows a 60-second warning, then sleeps. Use Wake PC to bring it back.')}
+  else if(d.busy){setState('busy');setMsg(`The GPU is busy (${d.gpu}%). A game or model may be running.`)}
+  else{setState('failed');setMsg(d.error||'The PC did not accept the request.')}}catch{setState('failed');setMsg('Could not reach the gaming PC.')}}
+ return <div className="wake-pc">{state==='confirm'?<div className="sleep-confirm"><span>Put the gaming PC to sleep?</span><button className="secondary-button" onClick={()=>setState('idle')}>Cancel</button><button className="primary-button" onClick={()=>send(false)}>Sleep</button></div>
+  :state==='busy'?<div className="sleep-confirm"><span>{msg}</span><button className="secondary-button" onClick={()=>setState('idle')}>Cancel</button><button className="primary-button" onClick={()=>send(true)}>Sleep anyway</button></div>
+  :<button className="secondary-button" disabled={state==='sending'} onClick={()=>setState('confirm')}><Icon name="moon" size={16}/>{state==='sending'?'Sending…':'Sleep PC'}</button>}
+  {(state==='sent'||state==='failed')&&<p className={'source-note'+(state==='failed'?' error':'')}>{msg}</p>}</div>}
 function WakePcButton(){
  const [state,setState]=useState('idle');
  async function wake(){setState('sending');try{const r=await fetch('/api/action/wake-pc',{method:'POST',headers:{'Content-Type':'application/json','X-Dashboard-Action':'1'},body:'{}'});const d=await r.json();setState(r.ok&&d.ok?'sent':'failed')}catch{setState('failed')}}
@@ -85,7 +95,7 @@ function LocalAI({ai,compact=false,onOpen}){
   <div className="section-heading"><h2>{compact?'Local AI':'Chat'}</h2>{compact&&<button className="text-button" onClick={onOpen}>View models <Icon name="arrow" size={16}/></button>}</div>
   <a className="panel ai-host ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer"><div><h3>Open WebUI <Icon name="external" size={20}/></h3><p>Chat with your desktop models</p><p className="mono">192.168.0.16:3000</p></div><SourceBadge source={web} onlineLabel="Web UI online"/></a>
   <SourceNote source={web}/>
-  {!live&&<div className="ai-offline" role="status"><strong>{pcStatus}</strong><p>The PC may be off, asleep, or its model server stopped. Desktop chat will be available when it reconnects. Status checks resume automatically.</p><WakePcButton/>{webLive&&<p>Open WebUI is still available. The A310 prompt on Homepage runs separately on Unraid.</p>}</div>}
+  {live&&!compact&&<SleepPcButton/>}{!live&&<div className="ai-offline" role="status"><strong>{pcStatus}</strong><p>The PC may be off, asleep, or its model server stopped. Desktop chat will be available when it reconnects. Status checks resume automatically.</p><WakePcButton/>{webLive&&<p>Open WebUI is still available. The A310 prompt on Homepage runs separately on Unraid.</p>}</div>}
   {compact?<div className="ai-summary"><span>{live?`${items.length} models · ${items.filter(m=>m.state==='loaded').length} loaded`:'Desktop models currently unavailable'}</span>{live&&items.filter(m=>m.state==='loaded').map(m=><a key={m.id} href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">{m.id} <Icon name="external" size={14}/></a>)}</div>:<>
    <div className="ai-model-grid">{items.map(m=>{const profile=modelProfiles[m.id];return <article className="panel ai-model" key={m.id}>
     <div className="ai-model-title"><div><h3>{m.id}</h3>{profile&&<p className="ai-role">{profile.role}</p>}</div><Badge state={live&&m.state==='loaded'?true:live&&m.state==='failed'?false:null} label={live?(labels[m.state]||'Unknown'):'Unavailable'}/></div>
