@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend, patch_jellyfin_auth
+from backend_patch import patch_backend, patch_jellyfin_auth, patch_speedtest_latest_completed
 
 FIXTURE = '''
 import time
@@ -139,6 +139,22 @@ class JellyfinAuthTests(unittest.TestCase):
         self.assertEqual(patch_jellyfin_auth(out), out)
         with self.assertRaises(ValueError):
             patch_jellyfin_auth('def task_jellyfin(): pass\n')
+
+
+class SpeedtestTests(unittest.TestCase):
+    SRC = ("def poll():\n    try:\n        st = fetch_json('http://192.168.0.14/api/v1/results/latest', headers={'Authorization': 'Bearer x', 'Accept': 'application/json'}).get('data', {})\n"
+           "        return st.get('download_bits')\n    except Exception:\n        return 'unavailable'\n")
+
+    def run_with(self, results):
+        ns = {'fetch_json': lambda url, headers=None: {'data': results}}
+        exec(compile(patch_speedtest_latest_completed(self.SRC), 't', 'exec'), ns)
+        return ns['poll']()
+
+    def test_skips_failed_and_never_invents_zero(self):
+        self.assertEqual(self.run_with([{'status': 'failed'}, {'status': 'completed', 'download_bits': 2343}]), 2343)
+        self.assertEqual(self.run_with([{'status': 'failed'}]), 'unavailable')
+        out = patch_speedtest_latest_completed(self.SRC)
+        self.assertEqual(patch_speedtest_latest_completed(out), out)
 
 
 if __name__ == '__main__':

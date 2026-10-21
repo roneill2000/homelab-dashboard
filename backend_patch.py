@@ -423,3 +423,18 @@ def patch_opencode(source):
     lines = source.splitlines(keepends=True)
     lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn))+'\n']
     return ''.join(lines)
+
+
+def patch_speedtest_latest_completed(source):
+    """Show the newest *completed* Speedtest Tracker result; one failed run (e.g. Ookla NoServersException) used to blank the card."""
+    import re
+    marker = '# HOMELAB_SPEEDTEST_COMPLETED_V1'
+    if marker in source:
+        return source
+    pattern = re.compile(r"st = fetch_json\('http://192\.168\.0\.14/api/v1/results/latest', headers=(\{[^}]*\})\)\.get\('data', \{\}\)")
+    if len(pattern.findall(source)) != 1:
+        raise ValueError('Expected one Speedtest Tracker fetch')
+    source = pattern.sub(lambda m: "st = next((r for r in fetch_json('http://192.168.0.14/api/v1/results?page[size]=10&sort=-created_at', headers=" + m.group(1) + ").get('data', []) if r.get('status') == 'completed'), None)", source)  # None -> AttributeError -> card shows unavailable, never zeros
+    source += '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source
