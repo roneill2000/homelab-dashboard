@@ -79,3 +79,4 @@ body{font-size:16px}.sidebar{width:248px;padding-left:14px;padding-right:14px}.w
 
 .host-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}@media(max-width:1300px){.host-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:760px){.host-grid{grid-template-columns:1fr}}
 .pi-roles{list-style:none;padding:0;margin:12px 0 6px;display:grid;gap:6px}.pi-roles li{display:flex;justify-content:space-between;gap:12px;font-size:14px;color:var(--muted)}.pi-roles b{font-weight:600;color:var(--text);text-align:right}.pi-roles b.ok{color:var(--accent)}.pi-roles b.warn{color:#f3c87b}
+.offsite-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin:-8px 0 28px}@media(max-width:760px){.offsite-row{grid-template-columns:1fr}}

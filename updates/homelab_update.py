@@ -516,6 +516,27 @@ def run_job(kind):
             run.finish('failed', str(exc)[:300])
 
 
+def cloud_backup_status():
+    """Off-site restic backup to Google Drive (homelab-cloud-backup.service)."""
+    state = Path('/var/lib/homelab-cloud-backup')
+    try:
+        last = int((state / 'last_success').read_text().strip())
+    except (OSError, ValueError):
+        last = None
+    _, active = sh(['systemctl', 'is-active', 'homelab-cloud-backup.service'], timeout=10)
+    _, nxt = sh(['systemctl', 'show', 'homelab-cloud-backup.timer', '-p', 'NextElapseUSecRealtime', '--value'], timeout=10)
+    failed = None
+    try:
+        lines = [l for l in (state / 'run.log').read_text(errors='replace').splitlines() if l.strip()]
+        starts = [i for i, l in enumerate(lines) if l.startswith('=== ') and l.endswith(' start')]
+        if starts and not any(l.endswith(' done') for l in lines[starts[-1]:]) and active.strip() != 'activating':
+            failed = lines[starts[-1]][4:29]
+    except OSError:
+        pass
+    return dict(last_success=last, running=active.strip() in ('activating', 'active'), next_run=nxt.strip() or None,
+                last_failed_start=failed, destination='Google Drive (restic, encrypted)', scope='Photos + newest Proxmox backups')
+
+
 def health():
     now = int(time.time())
     out = dict(observed_at=now, guests=[], containers=None, updates=update_summary(read_state()))
@@ -533,6 +554,7 @@ def health():
         out['pi'] = dict(name='orangepi', ip='192.168.0.10', online=True, **parse_guest_health(probe), **parse_pi_extra(probe))
     else:
         out['pi'] = dict(name='orangepi', ip='192.168.0.10', online=False, error='Probe failed')
+    out['cloud_backup'] = cloud_backup_status()
     rc, text = unraid("docker ps -a --format '{{.Names}}|{{.State}}|{{.Status}}'", timeout=20)
     if rc == 0:
         out['containers'] = [dict(zip(('name', 'state', 'status'), (line.split('|') + ['', ''])[:3]))
