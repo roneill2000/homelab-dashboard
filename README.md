@@ -6,18 +6,30 @@ A custom React dashboard and telemetry aggregator for homelab infrastructure. Pr
 
 ## Features
 
-- **Unified Overview:** Real-time host metrics (CPU, RAM, temperatures), active VM/LXC counts, and customizable quick-access services.
+- **Unified Overview:** Real-time host metrics (CPU, RAM, thermals), status line, active VM/LXC counts, quick actions, and customizable quick-access pinned services. Unmonitored or failed sensors remain explicit unknowns ("missing data stays missing") rather than fabricated zeroes.
 - **Storage & Disk Telemetry:** Tracks physical disk read/write throughput, Unraid array & cache status, cache fill forecasting, and disk I/O pressure via Glances AMP probes.
-- **Service Catalog & Health:** Centralized catalog of running applications with real-time port/HTTP reachability checks and status badges.
+- **Service Catalog & Health:** Centralized catalog of 29 self-hosted services with real-time port/HTTP reachability checks and status badges.
 - **Log Aggregator:** Groups recent syslog events by host, severity, and message, with inline expansion for long entries and automatic deduplication.
 - **Local AI Integration:**
-  - On-demand system queries using local Qwen models with verifiable system context evidence.
+  - On-demand system queries using local Qwen models with verifiable system context evidence, presented in a slim, collapsible query box.
   - Integration with Open WebUI and local model routers.
-  - Dedicated Arc A310 GPU monitoring (render, compute, VRAM, temperatures).
+  - Dedicated Arc A310 GPU monitoring (render, compute, VRAM, temperatures) folded directly into the Local AI view.
 - **Guarded Updates:** Check and apply `apt` upgrades in running Proxmox LXCs and image updates for Unraid Docker apps from the **Updates** page. Each LXC is snapshotted first, guests update one at a time, and the run stops at the first failure.
-- **Gaming PC Power:** Wake PC (Wake-on-LAN) and Sleep PC buttons in Local AI. Sleep goes through a single-purpose SSH key, shows a 60-second warning, and refuses while the GPU is busy unless confirmed.
-- **Phone Alerts:** ntfy push notifications for stale shares, failed services, stopped Docker apps, failed updates, stale speed tests, filling storage, drive health and backups.
+- **Gaming PC Power:** Wake PC (Wake-on-LAN) and Sleep PC controls in Local AI. Sleep uses a single-purpose SSH key, displays a 60-second warning, and refuses while the GPU is active unless confirmed.
+- **Phone Alerts:** ntfy push notifications for stale shares, failed services, stopped Docker apps, failed updates, stale speed tests, filling storage, drive health, and backups.
 - **Mount Healing:** Automated systemd timer (`mount-heal`) to detect and recover stale CIFS/NFS mounts after array or network interruptions.
+
+---
+
+## Project Showcase & Visual Tour
+
+A visual walkthrough document is available at [`showcase/Homelab_Command_Center_Showcase.pdf`](showcase/Homelab_Command_Center_Showcase.pdf) (also shared on the network at `\\192.168.0.3\n100\Homelab_Command_Center_Showcase.pdf`), featuring live screenshots with public WAN IPs sanitized:
+
+- **Cover:** Highlights the 29 monitored applications and core infrastructure.
+- **Overview:** Demonstrates the top status line, one-tap mobile actions, Gaming PC Sleep/Wake power controls, and the slim Ask Qwen box. Showcases safe confirmation prompts and the "missing data stays missing" policy.
+- **Storage & GPU:** Details physical disk read/write metrics, predictive cache fill modeling, and the dedicated Intel Arc A310 telemetry panel.
+- **Local AI & Compute Fleet:** Covers multi-model benchmark tracking (Qwen 27B, Gemma 26B, MoE 35B), desktop power states, and container inventories across Proxmox and Unraid.
+- **Guarded Operations:** Walks through snapshot-first container upgrades and automated mount healing.
 
 ---
 
