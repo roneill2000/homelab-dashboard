@@ -1,0 +1,25 @@
+$ docker ps --filter name=zurg --format '{{.Status}}'
+Up 31 minutes (healthy)
+
+$ curl -s -X PROPFIND -H Depth:1 http://127.0.0.1:9999/dav/movies/ | grep -c '<d:href>'
+79
+
+$ rclone lsd zurg:
+          -1 2026-10-20 19:57:04        -1 __all__
+          -1 2026-10-20 19:57:04        -1 movies
+          -1 2026-10-20 19:57:04        -1 shows
+
+$ ls /mnt/addons/debrid/zurg/
+ls: cannot access '/mnt/addons/debrid/zurg/': Transport endpoint is not connected
+
+$ ps -eo pid,lstart,args | grep '[r]clone mount zurg'
+1417639 Tue Oct 20 19:25:10 2026 /usr/bin/rclone mount zurg: /mnt/addons/debrid/zurg --allow-other --read-only --dir-cache-time 10s --vfs-cache-mode full --daemon
+
+$ grep -A3 '# 2. Mount Zurg' /boot/config/plugins/user.scripts/scripts/mount-debrid/script
+# 2. Mount Zurg
+if ! mountpoint -q /mnt/addons/debrid/zurg; then
+  fusermount3 -uz /mnt/addons/debrid/zurg 2>/dev/null || true
+  rclone mount zurg: /mnt/addons/debrid/zurg ... --daemon
+
+Jellyfin log: [ERR] Error in Directory watcher for: "/data/debrid/zurg/movies"
+Jellyfin library: /data/debrid/zurg/movies is bind-mounted from /mnt/addons/debrid/zurg/movies
