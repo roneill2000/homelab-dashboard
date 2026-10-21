@@ -2,7 +2,7 @@
 
 A custom React dashboard and telemetry aggregator for homelab infrastructure. Provides unified system status, real-time host and storage telemetry, service health catalogs, disk history, and local LLM integrations.
 
-> 📄 **Project Showcase PDF:** A 4-page presentation is available at [**`showcase/Homelab_Command_Center_Showcase.pdf`**](showcase/Homelab_Command_Center_Showcase.pdf) (also shared at `\\192.168.0.3\n100\Homelab_Command_Center_Showcase.pdf`).
+> 📄 **Project Showcase PDF:** A 4-page presentation is available at [**`showcase/Homelab_Command_Center_Showcase.pdf`**](showcase/Homelab_Command_Center_Showcase.pdf)
 
 ![Homelab Command Center Overview](showcase/overview.png)
 
