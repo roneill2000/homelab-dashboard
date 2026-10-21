@@ -5,7 +5,7 @@ const browser=await chromium.launch({channel:'chrome',headless:true});
 try{
  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/api/action/**',r=>r.abort());await page.route('**/api/qwen',r=>r.request().method()==='POST'?r.abort():r.continue());
- await page.goto(base);await page.getByRole('button',{name:'Arc A310',exact:true}).click();
+ await page.goto(base);await page.getByRole('button',{name:'Local AI',exact:true}).click();
  const panel=page.locator('.gpu-panel');await expect(panel).toBeVisible();await expect(panel).toContainText('Live');
  const real=await(await page.request.get(base+'/api/storage')).json();expect(real.gpu.latest.online).toBe(true);expect(real.gpu.latest.pci).toBe('0000:03:00.0');expect(real.gpu.latest.vram_total_mib).toBeGreaterThan(3000);
  await mkdir('.preview',{recursive:true});
