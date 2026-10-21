@@ -516,6 +516,67 @@ def run_job(kind):
             run.finish('failed', str(exc)[:300])
 
 
+def backup_progress(state):
+    """Percent, bytes and ETA for the running upload: restic's own JSON status when available,
+    otherwise bytes read by the restic process against the size of its sources (first runs only)."""
+    try:
+        j = json.loads((state / 'progress.json').read_text())
+        if time.time() - (state / 'progress.json').stat().st_mtime < 120:
+            phase = (state / 'phase').read_text().strip() if (state / 'phase').exists() else None
+            return dict(source='restic', phase=phase, percent=round(100 * (j.get('percent_done') or 0), 1),
+                        bytes_done=j.get('bytes_done'), bytes_total=j.get('total_bytes'), eta_s=j.get('seconds_remaining'))
+    except (OSError, ValueError):
+        pass
+    code, pid = sh(['pgrep', '-f', '^restic backup'], timeout=5)
+    if code or not pid.split():
+        return None
+    pid = pid.split()[0]
+    try:
+        args = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+    except OSError:
+        return None
+    tag = args[args.index(b'--tag') + 1].decode() if b'--tag' in args else None
+    sources = [a.decode() for a in args if a.startswith(b'/mnt/')]
+    if not sources:
+        return dict(source='estimate', phase=tag)
+    # Total = size of what is being backed up (cached 6 h); done = bytes already stored on Drive (sampled every 3 min).
+    cache = state / f'total-{tag}.json'
+    try:
+        total = json.loads(cache.read_text())
+        if total.get('sources') != sources or time.time() - total['at'] > 6 * 3600:
+            raise ValueError
+    except (OSError, ValueError, KeyError):
+        code, out = sh(['timeout', '120', 'du', '-sbc', *sources], timeout=130)
+        last = out.strip().splitlines()[-1].split() if out.strip() else []
+        if not last or not last[0].isdigit():
+            return dict(source='estimate', phase=tag)
+        total = dict(sources=sources, bytes=int(last[0]), at=time.time())
+        cache.write_text(json.dumps(total))
+    sample = state / 'repo-size.json'
+    try:
+        samples = json.loads(sample.read_text())
+    except (OSError, ValueError):
+        samples = []
+    now = time.time()
+    if not samples or now - samples[-1]['t'] > 180:
+        code, out = sh(['timeout', '60', 'rclone', 'size', 'gdrive:homelab-restic', '--json'], timeout=70)
+        try:
+            samples = (samples + [dict(t=now, bytes=json.loads(out)['bytes'])])[-12:]
+            sample.write_text(json.dumps(samples))
+        except (ValueError, KeyError):
+            pass
+    if not samples:
+        return dict(source='estimate', phase=tag)
+    done = samples[-1]['bytes']; eta = None
+    old = [x for x in samples if samples[-1]['t'] - x['t'] >= 300]
+    if old:
+        rate = (done - old[-1]['bytes']) / (samples[-1]['t'] - old[-1]['t'])
+        if rate > 0:
+            eta = int(max(0, total['bytes'] - done) / rate)
+    return dict(source='estimate', phase=tag, percent=min(99.9, round(100 * done / total['bytes'], 1)),
+                bytes_done=min(done, total['bytes']), bytes_total=total['bytes'], eta_s=eta)
+
+
 def cloud_backup_status():
     """Off-site restic backup to Google Drive (homelab-cloud-backup.service)."""
     state = Path('/var/lib/homelab-cloud-backup')
@@ -533,7 +594,9 @@ def cloud_backup_status():
             failed = lines[starts[-1]][4:29]
     except OSError:
         pass
-    return dict(last_success=last, running=active.strip() in ('activating', 'active'), next_run=nxt.strip() or None,
+    running = active.strip() in ('activating', 'active')
+    progress = backup_progress(state) if running else None
+    return dict(last_success=last, running=running, progress=progress, next_run=nxt.strip() or None,
                 last_failed_start=failed, destination='Google Drive (restic, encrypted)', scope='Photos + newest Proxmox backups')
 
 

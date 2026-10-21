@@ -7,12 +7,28 @@ set -euo pipefail
 export RESTIC_REPOSITORY=rclone:gdrive:homelab-restic
 export RESTIC_PASSWORD_FILE=/root/.config/restic/gdrive.pass
 export RESTIC_CACHE_DIR=/var/cache/restic
+# Google Drive is slow at creating many small files: 64 MiB packs (4x fewer files) and more parallel connections.
+export RESTIC_PACK_SIZE=64
+export RCLONE_DRIVE_CHUNK_SIZE=64M   # one request per 64 MiB pack instead of 8 MiB slices
+RCLONE_OPTS=(-o rclone.connections=8)
 STATE=/var/lib/homelab-cloud-backup
 DUMP=/mnt/pve/unraid/dump
 PHOTOS=(/mnt/unraid/Photos /mnt/share/pics)
 mkdir -p "$STATE"
 exec > >(tee -a "$STATE/run.log") 2>&1
 echo "=== $(date -Is) start"
+
+export RESTIC_PROGRESS_FPS=0.2   # one JSON status line every 5 s
+backup_tagged() {  # backup_tagged <tag> <restic args...>: keeps $STATE/progress.json current for Homepage
+  local tag=$1; shift
+  echo "$tag" > "$STATE/phase"
+  restic backup --json "$@" | while IFS= read -r line; do
+    case "$line" in
+      *'"message_type":"status"'*) printf '%s\n' "$line" > "$STATE/progress.json.tmp" && mv -f "$STATE/progress.json.tmp" "$STATE/progress.json" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done
+}
 
 notify() {  # topic lives only in the watchdog script
   local topic; topic=$(grep -oP '^TOPIC="\K[^"]+' /usr/local/bin/homelab-health-watchdog.sh) || return 0
@@ -34,7 +50,7 @@ restic snapshots --tag photos --json 2>/dev/null | grep -q '"id"' && LIMIT=(--li
 for d in "${PHOTOS[@]}"; do
   timeout 60 test -n "$(timeout 60 ls -A "$d" 2>/dev/null | head -1)" || { echo "photo source missing or empty: $d"; false; }
 done
-restic backup "${LIMIT[@]}" --tag photos --host homelab "${PHOTOS[@]}"
+backup_tagged photos "${RCLONE_OPTS[@]}" "${LIMIT[@]}" --tag photos --host homelab "${PHOTOS[@]}"
 
 # Proxmox: newest archive (+ its .log/.notes) per guest.
 LIST=$(mktemp)
@@ -44,7 +60,7 @@ for id in $(ls "$DUMP" | sed -nE 's/^vzdump-(lxc|qemu)-([0-9]+)-.*\.(tar|vma)\.z
   for f in "$newest" "$newest.notes" "$base.log"; do [ -f "$f" ] && echo "$f"; done
 done > "$LIST"
 test -s "$LIST"
-restic backup "${LIMIT[@]}" --tag proxmox --host homelab --files-from-verbatim "$LIST"
+backup_tagged proxmox "${RCLONE_OPTS[@]}" "${LIMIT[@]}" --tag proxmox --host homelab --files-from-verbatim "$LIST"
 rm -f "$LIST"
 
 restic forget --tag photos --host homelab --keep-daily 7 --keep-weekly 4 --keep-monthly 12
@@ -55,5 +71,6 @@ if [ "$(date +%u)" = 7 ]; then          # Sundays: reclaim space and prove the d
   restic check --read-data-subset=2%
 fi
 
+rm -f "$STATE/progress.json" "$STATE/phase"
 date +%s > "$STATE/last_success"
 echo "=== $(date -Is) done"
