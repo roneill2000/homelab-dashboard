@@ -39,5 +39,16 @@ class PiAlertTests(unittest.TestCase):
         self.assertTrue(c['pi-docker:uptime-kuma'][0]); self.assertNotIn('pi-reachable', c)
 
 
+class CloudBackupTests(unittest.TestCase):
+    def test_stale_after_36h_and_silent_before_first_run(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'last_success'
+            self.assertEqual(a.cloud_backup_check(1000, f), {})
+            f.write_text('0')
+            self.assertFalse(a.cloud_backup_check(35 * 3600, f)['cloud-backup'][0])
+            self.assertTrue(a.cloud_backup_check(37 * 3600, f)['cloud-backup'][0])
+
+
 if __name__ == '__main__':
     unittest.main()

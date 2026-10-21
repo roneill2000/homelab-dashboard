@@ -74,6 +74,16 @@ def checks(t, s, f, now):
     return out
 
 
+def cloud_backup_check(now, path=Path('/var/lib/homelab-cloud-backup/last_success')):
+    """Off-site backup freshness. Silent until the first successful run exists."""
+    try:
+        last = int(path.read_text().strip())
+    except (OSError, ValueError):
+        return {}
+    hours = (now - last) / 3600
+    return {'cloud-backup': (hours > 36, 'Cloud backup is stale', f'Last successful Google Drive backup was {int(hours)} h ago.', 4)}
+
+
 def transitions(prev, current):
     """Yield (key, kind, title, detail, priority) to send, and the new state."""
     sends, state = [], {}
@@ -120,7 +130,9 @@ def main(argv):
     if t is None:  # Homepage unreachable: Uptime Kuma already watches it; record only
         pass
     prev = json.loads(STATE.read_text()) if STATE.exists() else {}
-    sends, state = transitions(prev, checks(t, s, f, now))
+    current = checks(t, s, f, now)
+    current.update(cloud_backup_check(now))
+    sends, state = transitions(prev, current)
     for key, kind, title, detail, prio in sends:
         try:
             send(kind, title, detail, prio)

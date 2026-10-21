@@ -1,0 +1,10 @@
+[Unit]
+Description=Encrypted off-site backup to Google Drive (photos + Proxmox backups)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/local/sbin/homelab-cloud-backup
+TimeoutStartSec=infinity
