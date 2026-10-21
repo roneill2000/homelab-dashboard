@@ -438,3 +438,17 @@ def patch_speedtest_latest_completed(source):
     source += '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_speedtest_time(source):
+    """Expose when the shown Speedtest result ran, so an old result can't pass as current."""
+    marker = '# HOMELAB_SPEEDTEST_TIME_V1'
+    if marker in source:
+        return source
+    old = "'server': st.get('data', {}).get('server', {}).get('name', 'Comcast')}"
+    if source.count(old) != 1:
+        raise ValueError('Expected one Speedtest result dict')
+    source = source.replace(old, "'server': st.get('data', {}).get('server', {}).get('name', 'Comcast'), 'tested_at': st.get('created_at')}")
+    source += '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

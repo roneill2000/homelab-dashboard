@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend, patch_jellyfin_auth, patch_speedtest_latest_completed
+from backend_patch import patch_backend, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -155,6 +155,14 @@ class SpeedtestTests(unittest.TestCase):
         self.assertEqual(self.run_with([{'status': 'failed'}]), 'unavailable')
         out = patch_speedtest_latest_completed(self.SRC)
         self.assertEqual(patch_speedtest_latest_completed(out), out)
+
+
+class SpeedtestTimeTests(unittest.TestCase):
+    def test_tested_at_added_once(self):
+        src = "x = {'server': st.get('data', {}).get('server', {}).get('name', 'Comcast')}\n"
+        out = patch_speedtest_time(src)
+        self.assertIn("'tested_at': st.get('created_at')", out)
+        self.assertEqual(patch_speedtest_time(out), out)
 
 
 if __name__ == '__main__':
