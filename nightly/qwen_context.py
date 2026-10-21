@@ -32,7 +32,7 @@ RECORDED = {
               'The Homepage Updates page snapshots each LXC before apt upgrade and updates one guest at a time; it never reboots.',
               'Desktop router (RTX 5070 Ti, 16 GB): qwen3.6-35b-moe now 32,768 context, 54.8-63.1 tok/s; gemma-4-26b-a4b about 163 tok/s; one model loaded at a time.',
               'OpenCode CLI is installed on the gaming PC and uses the local router (default model qwen3.6-35b-moe; bash/edit actions ask first).',
-              'OpenCode web UI runs in LXC 114 at http://192.168.0.19:4096 (no login, by Ryan's choice); it can SSH to Proxmox and, through it, Unraid, and asks before running commands. It needs the gaming PC on for models.',
+              'OpenCode web UI runs in LXC 114 at http://192.168.0.19:4096 (no login, by Ryan\'s choice); it can SSH to Proxmox and, through it, Unraid, and asks before running commands. It needs the gaming PC on for models.',
               'Zurg (Real-Debrid) is disabled since 2026-10-20 after its rclone mount hung twice; Jellyfin uses local 4TB folders and TorBox only.',
               'Jellyfin is 12.2.0 at 192.168.0.17:8096 with legacy token authorization re-enabled for older clients.'],
     'notice': 'Recorded configuration, not a live configuration check.'}
