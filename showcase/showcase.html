@@ -30,7 +30,7 @@ h2{font:700 21pt/1.15 Inter;letter-spacing:-.02em;margin:2mm 0 2mm}
  <div>
   <div class="eyebrow">Homelab · October 2026</div>
   <h1>Homelab<br>Command Center</h1>
-  <p class="lede">One dashboard for a Proxmox and Unraid homelab: live host and disk telemetry, service health, a local AI assistant with auditable evidence, and guarded one-click updates.</p>
+  <p class="lede">A dashboard for a Proxmox and Unraid homelab. It shows host and disk activity as it happens, checks every service, answers questions with a local AI model, and runs updates safely.</p>
   <div class="chips"><span class="chip">React 18</span><span class="chip">Python backend</span><span class="chip">Proxmox VE</span><span class="chip">Unraid</span><span class="chip">Intel Arc A310</span><span class="chip">llama.cpp</span></div>
   <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:10mm">
    <div><div class="stat">28<small>services monitored</small></div></div>
@@ -39,63 +39,69 @@ h2{font:700 21pt/1.15 Inter;letter-spacing:-.02em;margin:2mm 0 2mm}
   </div>
  </div>
  <div class="shot"><img src="overview.png"></div>
- <div class="foot"><span>Homelab Command Center</span><span>1 / 5</span></div>
+ <div class="foot"><span>Homelab Command Center</span><span>1 / 6</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">01 · Overview</div><h2>Everything that matters, at a glance</h2>
- <p class="sub">Status tiles answer “is anything wrong?” in three seconds. Pinned services sit right below, with the local Qwen assistant one tap away.</p>
+ <div class="eyebrow">01 · Overview</div><h2>See what needs attention first</h2>
+ <p class="sub">The four tiles at the top show whether anything is down. Pinned services come next, then a box for asking the local Qwen model a question.</p>
  <div class="grid" style="grid-template-columns:2.3fr 1fr;margin-top:6mm;align-items:start">
   <div class="shot"><img src="overview.png"></div>
   <div class="grid" style="gap:4mm">
-   <div class="feat"><b><i class="dot" style="background:var(--mint)"></i>Honest status</b><span>Every source carries a freshness timestamp. Missing readings show as “—”, never a fake zero.</span></div>
-   <div class="feat"><b><i class="dot" style="background:var(--blue)"></i>Action guard</b><span>DNS pause, log clear and updates require a same-origin custom header, so other websites can’t trigger them.</span></div>
-   <div class="feat"><b><i class="dot" style="background:var(--violet)"></i>Phone-first</b><span>44 px touch targets and no overflow from 360 px phones to 3440 px ultrawides.</span></div>
+   <div class="feat"><b><i class="dot" style="background:var(--mint)"></i>Missing data stays missing</b><span>Each reading has a timestamp. If a source stops answering, the tile shows “—” instead of zero.</span></div>
+   <div class="feat"><b><i class="dot" style="background:var(--blue)"></i>Buttons only work from the dashboard</b><span>Pausing DNS, clearing logs and starting updates need a header that only this page sends.</span></div>
+   <div class="feat"><b><i class="dot" style="background:var(--violet)"></i>Works on a phone</b><span>Tested from 360 px phones up to 3440 px ultrawide screens.</span></div>
   </div>
  </div>
- <div class="foot"><span>Homelab Command Center · Overview</span><span>2 / 5</span></div>
+ <div class="foot"><span>Homelab Command Center · Overview</span><span>2 / 6</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">02 · Storage &amp; GPU</div><h2>Disk activity and the Arc A310, measured not guessed</h2>
- <p class="sub">Physical disk throughput, busy time, latency and queue depth from cumulative kernel counters, plus live render, compute and VRAM on the Arc GPU.</p>
+ <div class="eyebrow">02 · Storage &amp; GPU</div><h2>Disk activity and the Arc A310 GPU</h2>
+ <p class="sub">Read and write speed, busy time and latency for each disk, taken from the Linux kernel’s counters. The GPU view shows render, compute and VRAM use.</p>
  <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:6mm">
   <div class="shot"><img src="storage.png"></div>
   <div class="shot"><img src="gpu.png"></div>
  </div>
  <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:6mm">
-  <div class="feat"><b>Cache fill forecast</b><span>Projects when the Unraid cache fills and starts the mover before it does.</span></div>
-  <div class="feat"><b>Self-healing mounts</b><span>A watchdog remounts stale network shares within about two minutes.</span></div>
-  <div class="feat"><b>Gaps stay gaps</b><span>Reboots and counter resets break the chart instead of inventing data.</span></div>
+  <div class="feat"><b>Cache forecast</b><span>Estimates when the Unraid cache will fill and starts the mover before it does.</span></div>
+  <div class="feat"><b>Shares remount themselves</b><span>A timer checks network shares every two minutes and remounts any that stop responding.</span></div>
+  <div class="feat"><b>Gaps in the chart</b><span>After a reboot the chart shows a gap. It doesn’t fill in made-up numbers.</span></div>
  </div>
- <div class="foot"><span>Homelab Command Center · Storage &amp; GPU</span><span>3 / 5</span></div>
+ <div class="foot"><span>Homelab Command Center · Storage &amp; GPU</span><span>3 / 6</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">03 · Local AI</div><h2>Private models, with receipts</h2>
- <p class="sub">Desktop models on an RTX 5070 Ti through llama.cpp, plus an on-demand Qwen on the Arc A310 that answers from live homelab data and shows exactly what it was given.</p>
+ <div class="eyebrow">03 · Local AI</div><h2>AI models that run at home</h2>
+ <p class="sub">Three models run on an RTX 5070 Ti through llama.cpp. A small Qwen model on the Arc A310 answers questions about the homelab and shows the data it used.</p>
  <div class="grid" style="grid-template-columns:1.6fr 1fr;margin-top:6mm;align-items:start">
   <div class="shot"><img src="ai.png"></div>
   <div class="grid" style="gap:4mm">
    <div class="feat"><b>Measured speeds</b><span class="mono" style="font-size:8.5pt;line-height:1.8">Gemma 4 26B&nbsp;&nbsp;163 tok/s<br>Qwen 3.6 35B MoE&nbsp;&nbsp;59 tok/s · 32K<br>Qwen 3.8 27B&nbsp;&nbsp;16 tok/s</span></div>
-   <div class="feat"><b>Evidence view</b><span>Every answer lists the exact observations, capture time and omitted sources.</span></div>
-   <div class="feat"><b>Read-only tools</b><span>Open WebUI models check hosts through a fixed-command SSH broker. No arbitrary shell.</span></div>
+   <div class="feat"><b>Shows its sources</b><span>Each answer lists the readings it was given, when they were taken, and what was left out.</span></div>
+   <div class="feat"><b>Read-only tools</b><span>Models in Open WebUI can check the servers through a fixed set of SSH commands. They can’t run anything else.</span></div>
   </div>
  </div>
- <div class="foot"><span>Homelab Command Center · Local AI</span><span>4 / 5</span></div>
+ <div class="foot"><span>Homelab Command Center · Local AI</span><span>4 / 6</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">04 · Operations</div><h2>Guarded updates and the whole fleet</h2>
- <p class="sub">Snapshot first, one guest at a time, stop at the first failure. The fleet view lists every VM, LXC and Docker app with live CPU and memory.</p>
- <div class="grid" style="grid-template-columns:1fr .36fr;margin-top:5mm;align-items:start;width:205mm">
-  <div class="grid" style="grid-template-columns:1fr 1fr;gap:5mm">
-   <div class="shot"><img src="updates.png"></div><div class="shot"><img src="fleet.png"></div>
-   <div class="feat"><b>Snapshot-first updates</b><span>Each LXC is snapshotted before apt upgrade; Docker apps update through Unraid’s own updater. Runs wait while backups, parity checks or the local model are busy.</span></div>
-   <div class="feat"><b>Locked-down access</b><span>The dashboard reaches Proxmox through one SSH key that only accepts status, health, check and start.</span></div>
-  </div>
+ <div class="eyebrow">04 · Updates</div><h2>Updates run one guest at a time</h2>
+ <p class="sub">Each Proxmox container gets a snapshot before <span class="mono">apt upgrade</span>. Docker apps update through Unraid’s own updater. The run stops at the first failure and shows the rollback command.</p>
+ <div class="grid" style="grid-template-columns:1fr 56mm;gap:6mm;margin-top:5mm;align-items:start">
+  <div class="shot"><img src="updates.png"></div>
+  <div class="shot" style="border-radius:16px"><img src="phone-updates.png"></div>
+ </div>
+ <div class="foot"><span>Homelab Command Center · Updates</span><span>5 / 6</span></div>
+</section>
+
+<section class="page">
+ <div class="eyebrow">05 · Fleet</div><h2>Every VM, container and Docker app in one list</h2>
+ <p class="sub">CPU, memory and state for each guest on Proxmox and Unraid. Machines that are off on purpose show in grey and sort to the bottom.</p>
+ <div class="grid" style="grid-template-columns:1fr 56mm;gap:6mm;margin-top:5mm;align-items:start">
+  <div class="shot"><img src="fleet.png"></div>
   <div class="shot" style="border-radius:16px"><img src="phone.png"></div>
  </div>
- <div class="foot"><span>Homelab Command Center · Operations</span><span>5 / 5</span></div>
+ <div class="foot"><span>Homelab Command Center · Fleet</span><span>6 / 6</span></div>
 </section>
 </body></html>
