@@ -65,7 +65,7 @@ const gpuLabels={compute_pct:'Compute',render_pct:'Render',video_pct:'Video',cop
 const gpuColors=['#7de5c0','#7dacf5','#c3a5f4','#f3c87b','#f49b99'];
 const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat',speed:163.1}, // measured 20 Oct 2026: median of 3 × 512-token runs
- 'qwen3.6-35b-moe':{role:'General use',speed:86.1},
+ 'qwen3.6-35b-moe':{role:'General use',speed:59.0}, // Ryan 20 Oct 2026: 54.8–63.1 tok/s at 32K context (86.1 was at 16K)
  'qwen3.8-27b':{role:'Reasoning',speed:16.3}
 };
 function LocalAI({ai,compact=false,onOpen}){

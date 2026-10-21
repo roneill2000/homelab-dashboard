@@ -29,7 +29,11 @@ RECORDED = {
               'FileBrowser runs natively in LXC 102 utilities (192.168.0.13:6501), not on Unraid. It serves /mnt, including /mnt/UNRAID (CIFS from the Unraid 4tb share) and /mnt/NAS.',
               'mount-heal in LXC 102 checks fstab CIFS/NFS mounts every 2 minutes and remounts stale or missing ones.',
               'Kasm 103 and stopped VMs 100, 101, 109, 110 are intentionally not backed up.',
-              'The Homepage Updates page snapshots each LXC before apt upgrade and updates one guest at a time; it never reboots.'],
+              'The Homepage Updates page snapshots each LXC before apt upgrade and updates one guest at a time; it never reboots.',
+              'Desktop router (RTX 5070 Ti, 16 GB): qwen3.6-35b-moe now 32,768 context, 54.8-63.1 tok/s; gemma-4-26b-a4b about 163 tok/s; one model loaded at a time.',
+              'OpenCode CLI is installed on the gaming PC and uses the local router (default model qwen3.6-35b-moe; bash/edit actions ask first).',
+              'Zurg (Real-Debrid) is disabled since 2026-10-20 after its rclone mount hung twice; Jellyfin uses local 4TB folders and TorBox only.',
+              'Jellyfin is 12.2.0 at 192.168.0.17:8096 with legacy token authorization re-enabled for older clients.'],
     'notice': 'Recorded configuration, not a live configuration check.'}
 
 KEYWORDS = {

@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend
+from backend_patch import patch_backend, patch_jellyfin_auth
 
 FIXTURE = '''
 import time
@@ -128,6 +128,17 @@ class BackendPatchTests(unittest.TestCase):
     def test_source_shape_drift_fails_before_mutation(self):
         with self.assertRaises(ValueError):
             patch_backend('def poll_proxmox(): pass\n')
+
+
+class JellyfinAuthTests(unittest.TestCase):
+    def test_header_rewritten_once_and_idempotent(self):
+        src = "def task_jellyfin():\n    jf_hdr = {'X-Emby-Token': '" + 'a' * 32 + "'}\n"
+        out = patch_jellyfin_auth(src)
+        self.assertIn("{'Authorization': 'MediaBrowser Token=\"" + 'a' * 32 + "\"'}", out)
+        self.assertNotIn('X-Emby-Token', out)
+        self.assertEqual(patch_jellyfin_auth(out), out)
+        with self.assertRaises(ValueError):
+            patch_jellyfin_auth('def task_jellyfin(): pass\n')
 
 
 if __name__ == '__main__':

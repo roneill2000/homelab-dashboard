@@ -376,3 +376,21 @@ def patch_updates(source):
     source += '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_jellyfin_auth(source):
+    """Jellyfin 12 rejects the legacy X-Emby-Token header; send the token as an Authorization header instead.
+
+    The token value stays where it already is on the server; only the header shape changes.
+    """
+    import re
+    marker = '# HOMELAB_JELLYFIN_AUTH_V1'
+    if marker in source:
+        return source
+    pattern = re.compile(r"\{'X-Emby-Token': '([0-9a-f]{32})'\}")
+    if len(pattern.findall(source)) != 1:
+        raise ValueError('Expected one Jellyfin token header')
+    source = pattern.sub(lambda m: "{'Authorization': 'MediaBrowser Token=\"%s\"'}" % m.group(1), source)
+    source += '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

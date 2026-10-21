@@ -14,7 +14,7 @@ try{
  await expect(panel.locator('.ai-model')).toHaveCount(3);
  await expect(panel.getByText('Recorded benchmark',{exact:true})).toHaveCount(3);await expect(panel).toContainText('163.1');
  await expect(panel.locator('a[href*="192.168.0.12"]')).toHaveCount(0);
- await expect(panel).toContainText('32,768');await expect(panel).toContainText('16,384');
+ await expect(panel).toContainText('32,768');await expect(panel).toContainText('32,768');
  for(const model of data.ai.desktop.models){
   const card=panel.locator('.ai-model').filter({has:page.getByRole('heading',{name:model.id,exact:true})});
   await expect(card.getByRole('link',{name:'Open chat'})).toHaveAttribute('href',`http://192.168.0.16:3000/?model=${encodeURIComponent(model.id)}`);
