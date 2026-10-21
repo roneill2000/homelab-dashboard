@@ -12,6 +12,7 @@ HOSTS = (  # id, name, source url, kind
 _lock = threading.Lock()
 _latest = {}
 _prev = {}
+_recent = {}  # last 3 rate samples per host, so the live number is a 15 s average like Task Manager
 
 
 def initialize(connect):
@@ -53,8 +54,12 @@ def sample(connect, now):
         rx, tx = rates(prev[1] if prev else None, cur, now - prev[0] if prev else 0) if ok else (None, None)
         if ok:
             _prev[key] = (now, cur)
+        if rx is not None:
+            _recent.setdefault(key, []).append((rx, tx)); _recent[key] = _recent[key][-3:]
+        recent = _recent.get(key) or []
+        avg = lambda i: sum(r[i] for r in recent if r[i] is not None) / max(1, sum(r[i] is not None for r in recent)) if recent else None
         with _lock:
-            _latest[key] = dict(id=key, name=name, online=ok, rx_bps=rx, tx_bps=tx, link_mbps=cur.get('speed_mbps'), sampled_at=now if ok else _latest.get(key, {}).get('sampled_at'))
+            _latest[key] = dict(id=key, name=name, online=ok, rx_bps=avg(0) if ok else None, tx_bps=avg(1) if ok else None, link_mbps=cur.get('speed_mbps'), sampled_at=now if ok else _latest.get(key, {}).get('sampled_at'))
         if rx is not None:
             rows.append((key, int(now), rx, tx))
     with connect() as db:
