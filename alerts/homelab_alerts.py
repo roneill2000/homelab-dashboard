@@ -7,7 +7,9 @@ bad on two consecutive runs before alerting, except failed update runs, which al
 The ntfy topic is read from the existing watchdog so it lives in one place.
 """
 import json
+import os
 import re
+import subprocess
 import sys
 import time
 import urllib.request
@@ -18,6 +20,10 @@ WATCHDOG = Path('/usr/local/bin/homelab-health-watchdog.sh')
 STATE = Path('/var/lib/homelab-alerts/state.json')
 INTENTIONALLY_STOPPED = {'zurg', 'Transcoding-GPU-Benchmark'}
 CONSECUTIVE = 2
+SNAPSHOTS = Path('/var/lib/homelab-cloud-backup/snapshots.json')
+SUMMARY_SENT = Path('/var/lib/homelab-alerts/summary-day')
+SOURCES = {'photos': ('Photos', 36), 'proxmox': ('Proxmox', 36), 'unraid': ('Unraid', 30)}  # tag: (label, stale after h)
+SUMMARY_HOUR = 7
 
 
 def fetch(path, timeout=60):
@@ -84,6 +90,77 @@ def cloud_backup_check(now, path=Path('/var/lib/homelab-cloud-backup/last_succes
     return {'cloud-backup': (hours > 36, 'Cloud backup is stale', f'Last successful Google Drive backup was {int(hours)} h ago.', 4)}
 
 
+def refresh_snapshots(now, path=SNAPSHOTS, every=1800):
+    """Cache the newest Google Drive snapshot per tag. Proxmox and Unraid each run their own job into the
+    same repository, so the repository is the one place that sees both."""
+    try:
+        if now - json.loads(path.read_text())['checked_at'] < every:
+            return
+    except (OSError, ValueError, KeyError):
+        pass
+    env = dict(os.environ, RESTIC_REPOSITORY='rclone:gdrive:homelab-restic',
+               RESTIC_PASSWORD_FILE='/root/.config/restic/gdrive.pass')
+    try:
+        r = subprocess.run(['restic', 'snapshots', '--no-lock', '--json'], env=env, capture_output=True, text=True, timeout=180)
+        snaps = json.loads(r.stdout) if r.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        snaps = None
+    if snaps is None:  # unreachable is not stale; keep the old cache
+        return
+    tmp = path.with_suffix('.new')
+    tmp.write_text(json.dumps({'checked_at': now, 'latest': latest_by_tag(snaps)}))
+    tmp.replace(path)
+
+
+def latest_by_tag(snaps):
+    from datetime import datetime
+    latest = {}
+    for snap in snaps:
+        ts = datetime.fromisoformat(re.sub(r'\.(\d+)', lambda m: '.' + (m.group(1) + '000000')[:6], snap['time']).replace('Z', '+00:00')).timestamp()
+        for tag in snap.get('tags') or []:
+            latest[tag] = max(latest.get(tag, 0), int(ts))
+    return latest
+
+
+def read_latest(path=SNAPSHOTS):
+    try:
+        return json.loads(path.read_text())['latest']
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def unraid_backup_check(now, latest):
+    """Unraid's own job (unraid-restic container, 04:00). Photos and Proxmox are covered by cloud_backup_check."""
+    if not latest or 'unraid' not in latest:
+        return {}
+    hours = (now - latest['unraid']) / 3600
+    return {'cloud-unraid': (hours > SOURCES['unraid'][1], 'Unraid cloud backup is stale',
+                             f'Newest Unraid snapshot on Google Drive is {int(hours)} h old. Check the unraid-restic container.', 4)}
+
+
+def daily_summary(now, latest, sent_path=SUMMARY_SENT):
+    """One quiet morning message listing each off-site backup. Returns (title, body, priority) or None."""
+    day = time.strftime('%Y-%m-%d', time.localtime(now))
+    if time.localtime(now).tm_hour < SUMMARY_HOUR or not latest:
+        return None
+    try:
+        if sent_path.read_text().strip() == day:
+            return None
+    except OSError:
+        pass
+    lines, stale = [], []
+    for tag, (label, limit) in SOURCES.items():
+        ts = latest.get(tag)
+        if ts is None:
+            lines.append(f'{label}: no snapshot yet'); stale.append(label); continue
+        old = (now - ts) / 3600 > limit
+        lines.append(f"{label}: {time.strftime('%a %-I:%M %p', time.localtime(ts))}" + (' (stale)' if old else ''))
+        if old:
+            stale.append(label)
+    title = 'Backups OK' if not stale else 'Backups: ' + ', '.join(stale) + ' stale'
+    return title, '\n'.join(lines), 2 if not stale else 3
+
+
 def transitions(prev, current):
     """Yield (key, kind, title, detail, priority) to send, and the new state."""
     sends, state = [], {}
@@ -111,8 +188,9 @@ def topic():
 
 def send(kind, title, detail, prio):
     head = ('RECOVERED: ' if kind == 'up' else '') + title
+    tags = {'up': 'white_check_mark', 'info': 'floppy_disk'}.get(kind, 'warning')
     req = urllib.request.Request('https://ntfy.sh/' + topic(), data=detail.encode(), method='POST', headers={
-        'Title': head, 'Priority': str(prio), 'Tags': 'white_check_mark' if kind == 'up' else 'warning'})
+        'Title': head, 'Priority': str(prio), 'Tags': tags})
     urllib.request.urlopen(req, timeout=15).read()
 
 
@@ -132,6 +210,9 @@ def main(argv):
     prev = json.loads(STATE.read_text()) if STATE.exists() else {}
     current = checks(t, s, f, now)
     current.update(cloud_backup_check(now))
+    refresh_snapshots(now)
+    latest = read_latest()
+    current.update(unraid_backup_check(now, latest))
     sends, state = transitions(prev, current)
     for key, kind, title, detail, prio in sends:
         try:
@@ -140,6 +221,13 @@ def main(argv):
             state[key]['alerted'] = not state[key]['alerted']  # retry next run
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(state))
+    summary = daily_summary(now, latest)
+    if summary and '--dry-run' not in argv:
+        try:
+            send('info', *summary)
+            SUMMARY_SENT.write_text(time.strftime('%Y-%m-%d', time.localtime(now)))
+        except Exception:
+            pass  # try again next run
     if '--dry-run' in argv:
         print(json.dumps({k: v[0] for k, v in checks(t, s, f, now).items()}, indent=1))
     return 0

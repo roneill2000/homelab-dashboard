@@ -50,5 +50,35 @@ class CloudBackupTests(unittest.TestCase):
             self.assertTrue(a.cloud_backup_check(37 * 3600, f)['cloud-backup'][0])
 
 
+    def test_unraid_stale_after_30h_and_silent_without_data(self):
+        self.assertEqual(a.unraid_backup_check(1000, None), {})
+        self.assertEqual(a.unraid_backup_check(1000, {'photos': 1}), {})
+        self.assertFalse(a.unraid_backup_check(29 * 3600, {'unraid': 0})['cloud-unraid'][0])
+        self.assertTrue(a.unraid_backup_check(31 * 3600, {'unraid': 0})['cloud-unraid'][0])
+
+    def test_latest_by_tag_reads_restic_times(self):
+        snaps = [{'time': '2026-10-22T08:08:32.123456789-04:00', 'tags': ['unraid']},
+                 {'time': '2026-10-21T23:25:40.5-04:00', 'tags': ['unraid']},
+                 {'time': '2026-10-22T06:00:12Z', 'tags': ['photos']}]
+        latest = a.latest_by_tag(snaps)
+        self.assertEqual(latest['unraid'], 1792670912)
+        self.assertEqual(latest['photos'], 1792648812)
+
+    def test_daily_summary_once_after_7am(self):
+        import tempfile, time as t
+        with tempfile.TemporaryDirectory() as d:
+            sent = Path(d) / 'day'
+            base = t.mktime((2026, 10, 22, 6, 30, 0, 0, 0, -1))
+            fresh = {'photos': base - 3600, 'proxmox': base - 3600, 'unraid': base - 3600}
+            self.assertIsNone(a.daily_summary(base, fresh, sent))
+            title, body, prio = a.daily_summary(base + 3600, fresh, sent)
+            self.assertEqual((title, prio), ('Backups OK', 2))
+            self.assertEqual(body.count('\n'), 2)
+            sent.write_text(t.strftime('%Y-%m-%d', t.localtime(base)))
+            self.assertIsNone(a.daily_summary(base + 3600, fresh, sent))
+            sent.unlink()
+            title, _, prio = a.daily_summary(base + 3600, dict(fresh, unraid=base - 40 * 3600), sent)
+            self.assertEqual((title, prio), ('Backups: Unraid stale', 3))
+
 if __name__ == '__main__':
     unittest.main()
