@@ -130,23 +130,33 @@ def acquire_run_lock(lock,scheduled=False,timeout=1200):
             time.sleep(min(1,max(0,deadline-time.monotonic())))
 
 
-def _model_stopped():
+def _model_gone():
+    # A stopped --rm container keeps its name until Docker finishes removing it; starting the next
+    # one before then fails with a name conflict, so cleanup waits for the container to disappear.
     result=subprocess.run(['docker','inspect','--format','{{.State.Running}}',NAME],
                           capture_output=True,text=True,timeout=15)
-    if result.returncode==0:return result.stdout.strip()=='false'
+    if result.returncode==0:return False
     if 'no such object' in result.stderr.lower() or 'no such container' in result.stderr.lower():return True
     raise RuntimeError('Could not verify model container cleanup')
 
 
+def _wait_gone(seconds):
+    deadline=time.monotonic()+seconds
+    while not _model_gone():
+        if time.monotonic()>=deadline:return False
+        time.sleep(0.5)
+    return True
+
+
 def stop_model():
-    """Release our dedicated container; raise if shutdown cannot be verified."""
+    """Release our dedicated container; raise if removal cannot be verified."""
     try:
         subprocess.run(['docker','stop','--time','10',NAME],capture_output=True,text=True,timeout=30)
-        if _model_stopped():return
+        if _wait_gone(15):return
     except (subprocess.SubprocessError,RuntimeError):pass
     try:
         subprocess.run(['docker','rm','-f',NAME],capture_output=True,text=True,timeout=30)
-        if _model_stopped():return
+        if _wait_gone(10):return
     except (subprocess.SubprocessError,RuntimeError):pass
     raise RuntimeError('Model container cleanup failed; GPU release is unverified')
 

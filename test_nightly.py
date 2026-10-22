@@ -87,12 +87,16 @@ class RunnerTests(unittest.TestCase):
    self.assertNotIn('Private speculation',raw);self.assertEqual(saved['usage']['completion_tokens'],20)
    self.assertIn('load_seconds',saved);self.assertIn('generation_seconds',saved)
    stop.assert_called_once()
- def test_stop_model_verifies_stop_and_falls_back_to_remove(self):
+ def test_stop_model_waits_for_removal_and_falls_back_to_remove(self):
   result=lambda code=0,out='',err='':SimpleNamespace(returncode=code,stdout=out,stderr=err)
-  with patch.object(r.subprocess,'run',side_effect=[result(),result(out='false')]) as run:
+  gone=result(1,err='Error: No such object: '+r.NAME)
+  with patch.object(r.subprocess,'run',side_effect=[result(),gone]) as run:
    r.stop_model();self.assertEqual(run.call_count,2)
-  with patch.object(r.subprocess,'run',side_effect=[result(1),result(out='true'),result(),result(1,err='Error: No such object: '+r.NAME)]) as run:
-   r.stop_model();self.assertEqual(run.call_args_list[2].args[0][:3],['docker','rm','-f'])
+  # stopped but not yet removed by --rm: keep waiting, never start a new one over it
+  with patch.object(r.subprocess,'run',side_effect=[result(),result(out='false'),result(out='false'),gone]) as run,patch.object(r.time,'sleep'):
+   r.stop_model();self.assertEqual(run.call_count,4);self.assertNotIn(['docker','rm','-f',r.NAME],[c.args[0] for c in run.call_args_list])
+  with patch.object(r,'_wait_gone',side_effect=[False,True]),patch.object(r.subprocess,'run',return_value=result()) as run:
+   r.stop_model();self.assertEqual(run.call_args_list[1].args[0][:3],['docker','rm','-f'])
   with patch.object(r.subprocess,'run',side_effect=[result(1),result(1,err='daemon unavailable'),result(1),result(1,err='daemon unavailable')]):
    with self.assertRaisesRegex(RuntimeError,'cleanup failed'):r.stop_model()
  def test_lock_contention_manual_returns_and_scheduled_retries(self):
