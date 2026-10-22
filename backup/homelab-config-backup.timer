@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly homelab config backup at 00:45
+
+[Timer]
+OnCalendar=*-*-* 00:45
+Persistent=true
+
+[Install]
+WantedBy=timers.target

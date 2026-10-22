@@ -1,0 +1,11 @@
+[Unit]
+Description=Ask Qwen why: answers the ntfy alert button (port 8997)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/homelab-alerts --serve-why
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

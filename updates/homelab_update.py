@@ -599,13 +599,13 @@ def cloud_backup_status():
     try:  # newest snapshot per tag, cached every 30 min by homelab-alerts; includes Unraid's own job
         snaps = json.loads((state / 'snapshots.json').read_text())
         sources = [dict(tag=t, label=l, last=snaps['latest'].get(t), stale_h=h)
-                   for t, l, h in (('photos', 'Photos', 36), ('proxmox', 'Proxmox', 36), ('unraid', 'Unraid', 30))]
+                   for t, l, h in (('photos', 'Photos', 36), ('proxmox', 'Proxmox', 36), ('unraid', 'Unraid', 30), ('configs', 'Configs', 36))]
         checked = snaps['checked_at']
     except (OSError, ValueError, KeyError):
         sources, checked = None, None
     return dict(last_success=last, running=running, progress=progress, next_run=nxt.strip() or None,
                 last_failed_start=failed, destination='Google Drive (restic, encrypted)',
-                scope='Photos, Proxmox backups, Unraid appdata + flash', sources=sources, sources_checked_at=checked)
+                scope='Photos, Proxmox backups, Unraid appdata + flash, router + host configs', sources=sources, sources_checked_at=checked)
 
 
 def health():
@@ -630,6 +630,11 @@ def health():
     if rc == 0:
         out['containers'] = [dict(zip(('name', 'state', 'status'), (line.split('|') + ['', ''])[:3]))
                              for line in text.splitlines() if line]
+    rc, text = unraid('/usr/bin/python3 /mnt/disk1/.homelab-smart/homelab_smart.py status', timeout=60)
+    try:
+        out['smart'] = json.loads(text) if rc == 0 else None
+    except ValueError:
+        out['smart'] = None
     return out
 
 

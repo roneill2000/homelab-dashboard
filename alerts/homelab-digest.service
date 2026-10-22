@@ -1,0 +1,8 @@
+[Unit]
+Description=Homelab morning digest to ntfy
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/homelab-alerts --digest
+TimeoutStartSec=15min

@@ -1,0 +1,9 @@
+[Unit]
+Description=Homelab morning digest at 07:00
+
+[Timer]
+OnCalendar=*-*-* 07:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -64,21 +64,42 @@ class CloudBackupTests(unittest.TestCase):
         self.assertEqual(latest['unraid'], 1792670912)
         self.assertEqual(latest['photos'], 1792648812)
 
-    def test_daily_summary_once_after_7am(self):
-        import tempfile, time as t
+    def test_digest_lists_backups_and_flags_problems(self):
+        now = 1792700000
+        fresh = {k: now - 3600 for k in a.SOURCES}
+        t = {'unraid': {'cache_pct': 21.1, 'array_pct': 68.8}, 'syslog': {'online': True, 'errors_24h': 0, 'warnings_24h': 2, 'hosts_reporting': 14},
+             'speedtest': {'dl': 2342.8, 'ul': 298.0}}
+        f = {'updates': {'pending': [{'name': 'kasm'}]}, 'smart': {'disks': [{'role': 'parity', 'attrs': {'pending': 0}, 'running_remaining_pct': 40}]}}
+        title, body, problems = a.digest_text(now, t, f, fresh, [])
+        self.assertEqual((title, problems), ('Homelab: all good', []))
+        for text in ('Backups: Photos', 'cache 21.1%', '2 warnings', '2343 down', 'Updates waiting: 1 (kasm)', 'Self-test running on parity (40% left)'):
+            self.assertIn(text, body)
+        f['smart']['disks'][0]['attrs'] = {'pending': 3}
+        title, body, problems = a.digest_text(now, t, f, dict(fresh, unraid=now - 40 * 3600), ['Orange Pi running hot'])
+        self.assertEqual(title, 'Homelab: 3 things to check')
+        self.assertTrue(body.startswith('Needs attention: Unraid backup stale; parity disk: 3 pending; Active alert: Orange Pi running hot'))
+        self.assertIn('unknown', a.digest_text(now, None, None, None, [])[1])
+
+    def test_smart_checks_failed_test_and_overdue_only_after_settling(self):
+        now = 1792700000
+        disk = {'device': 'sdb', 'role': 'parity', 'model': 'HGST', 'rotational': True, 'running_remaining_pct': None,
+                'last_extended': {'result': 'Completed: read failure', 'at_hours': 100, 'hours_ago': 6500}}
+        new = a.smart_checks({'scheduler_installed_at': now - 3600, 'disks': [disk]}, now)
+        self.assertTrue(new['smart-test:sdb'][0]); self.assertNotIn('smart-overdue:sdb', new)
+        old = a.smart_checks({'scheduler_installed_at': now - 10 * 86400, 'disks': [dict(disk, last_extended=dict(disk['last_extended'], result='Completed without error'))]}, now)
+        self.assertFalse(old['smart-test:sdb'][0]); self.assertTrue(old['smart-overdue:sdb'][0])
+        self.assertEqual(a.smart_checks(None, now), {})
+
+    def test_config_backup_check_and_header_encoding(self):
+        import tempfile
         with tempfile.TemporaryDirectory() as d:
-            sent = Path(d) / 'day'
-            base = t.mktime((2026, 10, 22, 6, 30, 0, 0, 0, -1))
-            fresh = {'photos': base - 3600, 'proxmox': base - 3600, 'unraid': base - 3600}
-            self.assertIsNone(a.daily_summary(base, fresh, sent))
-            title, body, prio = a.daily_summary(base + 3600, fresh, sent)
-            self.assertEqual((title, prio), ('Backups OK', 2))
-            self.assertEqual(body.count('\n'), 2)
-            sent.write_text(t.strftime('%Y-%m-%d', t.localtime(base)))
-            self.assertIsNone(a.daily_summary(base + 3600, fresh, sent))
-            sent.unlink()
-            title, _, prio = a.daily_summary(base + 3600, dict(fresh, unraid=base - 40 * 3600), sent)
-            self.assertEqual((title, prio), ('Backups: Unraid stale', 3))
+            f = Path(d) / 'last'
+            self.assertEqual(a.config_backup_check(1000, f), {})
+            f.write_text('0')
+            self.assertTrue(a.config_backup_check(37 * 3600, f)['config-backup'][0])
+        self.assertEqual(a.header_text('Plain title'), 'Plain title')
+        self.assertTrue(a.header_text('Orange Pi 75 °C · hot').startswith('=?UTF-8?B?'))
+        self.assertIn('120 words', a.why_prompt('Disk full', '97% used'))
 
 if __name__ == '__main__':
     unittest.main()
