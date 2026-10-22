@@ -6,3 +6,4 @@ __pycache__/
 OPERATIONS.md
 node_modules/
 .preview/
+diagrams/raw/
