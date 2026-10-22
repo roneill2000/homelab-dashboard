@@ -8,7 +8,7 @@ REMOTE = r"""
 import ast, datetime, hashlib, json, os, pathlib, shutil, subprocess, time, urllib.request
 payload = json.loads(PAYLOAD)
 backend = pathlib.Path('/usr/local/bin/homelab-dashboard.py')
-source = backend.read_text()
+source = backend.read_text(encoding='utf-8')
 original_sha = hashlib.sha256(source.encode()).hexdigest()
 node = next(n for n in ast.parse(source).body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'INDEX_HTML' for t in n.targets))
 lines = source.splitlines(keepends=True)
@@ -101,6 +101,6 @@ print(json.dumps({'backup':str(backup),'status':'healthy','backend_sha256':hashl
 """
 
 if __name__ == '__main__':
-    data = {name:(ROOT/name).read_text() for name in ('index.html','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','net_monitor.py','ai_monitor.py')}
+    data = {name:(ROOT/name).read_text(encoding='utf-8') for name in ('index.html','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','net_monitor.py','ai_monitor.py')}
     script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
     subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)

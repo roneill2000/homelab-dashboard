@@ -14,7 +14,7 @@ deploy_lock=open(root/'run.lock','a')
 try:fcntl.flock(deploy_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
 except BlockingIOError:raise RuntimeError('Model is in use; retry installation afterward')
 tokenfile=root/'qwen-token'
-token=tokenfile.read_text().strip() if tokenfile.exists() else secrets.token_urlsafe(48)
+token=tokenfile.read_text(encoding='utf-8').strip() if tokenfile.exists() else secrets.token_urlsafe(48)
 # Refuse replacement while an existing question owns the GPU.
 try:
  req=urllib.request.Request('http://192.168.0.4:11438/job',headers={'Authorization':'Bearer '+token})
@@ -65,7 +65,7 @@ os.chmod(stage,0o600);os.replace(stage,path)
 print('Dashboard Qwen credential installed (private)')
 '''
 if __name__=='__main__':
- payload={name:(ROOT/name).read_text() for name in ('qwen_service.py','qwen_context.py','runner.py','log_snapshot.py','gpu_probe.py')}
+ payload={name:(ROOT/name).read_text(encoding='utf-8') for name in ('qwen_service.py','qwen_context.py','runner.py','log_snapshot.py','gpu_probe.py')}
  script=REMOTE.replace('json.loads(PAYLOAD)','json.loads('+repr(json.dumps(payload))+')')
  result=subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.4','python3','-'],input=script,text=True,capture_output=True)
  if result.returncode:raise RuntimeError('Broker installation failed: '+result.stderr[-1500:])
