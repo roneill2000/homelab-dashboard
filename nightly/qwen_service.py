@@ -26,7 +26,7 @@ PC_API = 'http://192.168.0.12:8080'
 PC_MODEL = 'qwen3.8-27b'
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Qwen3.8-27B · gaming PC'
-A310_LABEL = 'Qwen3.5-4B · A310'
+A310_LABEL = 'Gemma 4 E4B · A310'
 A310_THINKING = 256  # tokens; halves answer time vs 768 with the same accuracy (evals/ask-qwen-2026-10-22/THINK-CAP.md)
 SYSTEM = ('Answer the user directly. You may explain general topics using your learned knowledge; '
           'you have no internet search and may not know recent facts. Use only supplied observations for claims about this homelab. '

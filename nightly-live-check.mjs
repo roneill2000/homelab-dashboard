@@ -12,14 +12,14 @@ try {
     const data = await (await page.request.get(base+'/api/storage')).json();
     const report = data.activity?.nightly;
     return data.activity?.nightly_source_available === true &&
-      report?.status === 'complete' && report.model === 'Qwen3.5-4B-Q4_K_M' &&
+      report?.status === 'complete' && report.model === 'gemma-4-E4B-it-Q4_K_M' &&
       Date.now()/1000-report.completed_at < 3600 && report.findings?.length > 0;
   }, {timeout:60000,intervals:[2000]}).toBe(true);
   await page.goto(base);
   const panel = page.locator('.nightly-panel').first();
   await expect(panel.locator('.badge')).toHaveText('Reviewed');
   await panel.getByRole('button',{name:'Read report'}).click();
-  await expect(panel).toContainText('Qwen3.5-4B-Q4_K_M');
+  await expect(panel).toContainText('gemma-4-E4B-it-Q4_K_M');
   await mkdir('.preview',{recursive:true});
   for (const width of [360,448,1920,3440]) {
     await page.setViewportSize({width,height:1100});
