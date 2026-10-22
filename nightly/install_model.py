@@ -7,7 +7,7 @@ import subprocess
 REMOTE = r'''
 import hashlib,json,pathlib,subprocess,urllib.request
 p=json.loads(PAYLOAD)
-root=pathlib.Path('/mnt/disk1/.homelab-nightly-models')
+root=pathlib.Path('/mnt/cache/appdata/homelab-models')
 root.mkdir(mode=0o700,exist_ok=True)
 target=root/p['MODEL_FILE'];target.parent.mkdir(mode=0o700,exist_ok=True)
 def digest(path):

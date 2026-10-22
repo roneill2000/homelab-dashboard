@@ -14,12 +14,13 @@ import urllib.request
 from log_monitor import service_state
 
 ROOT=Path('/mnt/disk1/.homelab-nightly')
-MODEL_ROOT=Path('/mnt/disk1/.homelab-nightly-models')
-MODEL='Qwen3.5-4B-Q4_K_M'
-MODEL_FILE='Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf'
-MODEL_REPO='unsloth/Qwen3.5-4B-GGUF'
-MODEL_REVISION='e87f176479d0855a907a41277aca2f8ee7a09523'
-MODEL_SHA256='00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4'
+MODEL_ROOT=Path('/mnt/cache/appdata/homelab-models')  # cache SSD (appdata is cache-only): 14 s cold load vs 41 s from the array HDD
+# Gemma 4 E4B replaced Qwen3.5-4B on 22 Oct 2026: same accuracy, no confidently wrong answers (evals/ask-qwen-2026-10-22/GEMMA-E4B.md)
+MODEL='gemma-4-E4B-it-Q4_K_M'
+MODEL_FILE='gemma-4-E4B-it-GGUF/gemma-4-E4B-it-Q4_K_M.gguf'
+MODEL_REPO='unsloth/gemma-4-E4B-it-GGUF'
+MODEL_REVISION='bfc15c382204943c3a8fff0c750b94ae2364d7a3'
+MODEL_SHA256='85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87'
 # llama.cpp b11804 SYCL with libggml-sycl.so built ahead of time for the A310 (acm-g11); local to Unraid,
 # rebuilt by evals/a310-backends-2026-10-22/build_aot.sh. 18 tok/s vs 12.6 on Vulkan, 4-21 s load.
 IMAGE='homelab/llama-sycl-a310:b11804'
@@ -119,7 +120,9 @@ def container_command(context_size=2048, reasoning_budget=768):
             '--model','/models/'+MODEL_FILE,'--alias',MODEL,'--host','0.0.0.0','--port','8000',
             '--gpu-layers','all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
             '--batch-size','256','--ubatch-size','128','--threads','2','--threads-batch','2',
-            '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift']
+            '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift',
+            # Gemma's per-layer embedding tables (~1.8 GB) stay in system RAM so the rest fits the 4 GB A310 (3.2 GB used)
+            '--override-tensor','per_layer_token_embd=CPU']
 
 
 def acquire_run_lock(lock,scheduled=False,timeout=1200):
