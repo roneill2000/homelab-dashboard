@@ -211,3 +211,4 @@ def start():
             time.sleep(10)
     threading.Thread(target=loop, name='storage-history', daemon=True).start()
     net_monitor.start(connect)
+    ai_monitor.start()

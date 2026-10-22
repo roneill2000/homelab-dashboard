@@ -103,9 +103,9 @@ function ActivityPanel({activity,ranges}){
 const gpuLabels={compute_pct:'Compute',render_pct:'Render',video_pct:'Video',copy_pct:'Copy',enhance_pct:'Video enhance',vram_used_mib:'VRAM used',temperature_c:'Temperature'};
 const gpuColors=['#7de5c0','#7dacf5','#c3a5f4','#f3c87b','#f49b99'];
 const modelProfiles={
- 'gemma-4-26b-a4b':{role:'Chat',speed:163.1}, // measured 20 Oct 2026: median of 3 × 512-token runs
- 'qwen3.6-35b-moe':{role:'General use',speed:59.0}, // Ryan 20 Oct 2026: 54.8–63.1 tok/s at 32K context (86.1 was at 16K)
- 'qwen3.8-27b':{role:'Reasoning',speed:16.3}
+ 'gemma-4-26b-a4b':{role:'Chat',speed:168.3}, // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
+ 'qwen3.6-35b-moe':{role:'General use',speed:82.1}, // measured 22 Oct 2026: 48K context, 100% CUDA0
+ 'qwen3.8-27b':{role:'Reasoning',speed:54.6} // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
 };
 function inlineMd(text,key){
  const out=[];const re=/\*\*([^*\n]+?)\*\*|`([^`\n]+)`/g;let last=0,m,i=0;
@@ -149,15 +149,15 @@ function LocalAI({ai,compact=false,onOpen,power}){
   <a className="panel ai-host ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer"><div><h3>Open WebUI <Icon name="external" size={20}/></h3><p>Chat with your desktop models</p><p className="mono">192.168.0.16:3000</p></div><SourceBadge source={web} onlineLabel="Web UI online"/></a>
   <SourceNote source={web}/>
   {!live&&<div className="ai-offline" role="status"><strong>{pcStatus}</strong><p>The PC may be off, asleep, or its model server stopped. Desktop chat will be available when it reconnects. Status checks resume automatically.</p>{webLive&&<p>Open WebUI is still available. The A310 prompt on Homepage runs separately on Unraid.</p>}</div>}
-  {compact?<div className="ai-summary"><span>{live?`${items.length} models · ${items.filter(m=>m.state==='loaded').length} loaded`:'Desktop models currently unavailable'}</span>{live&&items.filter(m=>m.state==='loaded').map(m=><a key={m.id} href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">{m.id} <Icon name="external" size={14}/></a>)}</div>:<>
-   <div className="ai-model-grid">{items.map(m=>{const profile=modelProfiles[m.id];return <article className="panel ai-model" key={m.id}>
+  {compact?<div className="ai-summary"><span>{live?`${items.length} models · ${items.filter(m=>m.state==='loaded').length} loaded`:'Desktop models currently unavailable'}</span>{live&&items.filter(m=>m.state==='loaded').map(m=>{const profile=modelProfiles[m.id];const isLiveGen=pc?.is_active&&pc?.active_model===m.id&&valid(pc?.active_speed);const isRecent=pc?.is_recent;return <span key={m.id} className="ai-summary-model"><a href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">{m.id} <Icon name="external" size={14}/></a>{isLiveGen?<span className={`ai-badge-live ${isRecent?'recent':'active'}`}><i/>{pc.active_speed.toFixed(1)} tok/s {isRecent?'recent':'live'}</span>:valid(profile?.speed)&&<span className="ai-badge-benchmark">{profile.speed.toFixed(1)} tok/s</span>}</span>})}</div>:<>
+   <div className="ai-model-grid">{items.map(m=>{const profile=modelProfiles[m.id];const isLiveGen=pc?.is_active&&pc?.active_model===m.id&&valid(pc?.active_speed);const isRecent=pc?.is_recent;return <article className="panel ai-model" key={m.id}>
     <div className="ai-model-title"><div><h3>{m.id}</h3>{profile&&<p className="ai-role">{profile.role}</p>}</div><Badge state={live&&m.state==='loaded'?true:live&&m.state==='failed'?false:null} label={live?(labels[m.state]||'Unknown'):'Unavailable'}/></div>
-    {valid(profile?.speed)&&<div className="ai-benchmark"><strong>{profile.speed.toFixed(1)} <em>tok/s</em></strong><span>Recorded benchmark</span></div>}
+    {isLiveGen?<div className={`ai-benchmark live-speed ${isRecent?'recent':'active'}`}><strong>{pc.active_speed.toFixed(1)} <em>tok/s</em></strong><span>{isRecent?'Recent live speed':'Live 5s speed'}</span></div>:valid(profile?.speed)&&<div className="ai-benchmark"><strong>{profile.speed.toFixed(1)} <em>tok/s</em></strong><span>Recorded benchmark</span></div>}
     <div className="ai-context"><strong>{num(m.context_tokens)}</strong><span>tokens · context setting{!live&&valid(m.context_tokens)?' · last seen':''}</span></div>
     {ready?<a className="secondary-button" href={`http://192.168.0.16:3000/?model=${encodeURIComponent(m.id)}`} target="_blank" rel="noreferrer">Open chat <Icon name="external" size={16}/></a>:<button className="secondary-button" disabled>{live?'Web UI unavailable':'PC unavailable'}</button>}
    </article>})}</div>
    {!items.length&&<div className="panel ai-empty">{live?'No models reported.':'Waiting for model status.'}</div>}
-   <p className="source-note">Recorded speeds are your previous benchmarks, not live readings. Actual speed varies with the prompt and context.</p>
+   <p className="source-note">Live speeds reflect a rolling 5-second average during active token generation. Recorded speeds are your previous benchmarks when idle.</p>
    <p className="source-note">One desktop model loads at a time. Choose a model in Open WebUI to switch.</p>
    <details className="storage-explainer"><summary>Connection details</summary><p>Model status: 192.168.0.12:8080 · llama.cpp · {live?'Online':'Unavailable'}. {pc.last_success_at?`Last read ${new Date(pc.last_success_at*1000).toLocaleTimeString()}.`:''} Context values show server settings.</p><SourceNote source={pc}/></details>
    <div className="panel ai-local-model"><div><h3>Qwen3.5-4B · A310</h3><p>Unraid · Homepage prompts and nightly log review</p></div><button className="secondary-button" onClick={onOpen}>Ask on Homepage <Icon name="arrow" size={16}/></button></div>
