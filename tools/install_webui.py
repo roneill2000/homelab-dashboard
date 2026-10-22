@@ -4,7 +4,7 @@ import subprocess
 import sys
 # --update replaces an existing tool's code; without it a changed tool is refused for review.
 UPDATE=('--update' in sys.argv[1:])
-source=(Path(__file__).parent/'openwebui_tool.py').read_text()
+source=(Path(__file__).parent/'openwebui_tool.py').read_text(encoding='utf-8')
 inner=r'''
 import asyncio,json,logging,os
 from pathlib import Path
@@ -73,7 +73,7 @@ os.umask(0o077)
 backup=pathlib.Path('/opt/open-webui/backups')/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 backup.mkdir(parents=True,mode=0o700)
 a=sqlite3.connect('file:/var/lib/docker/volumes/open-webui_open-webui/_data/webui.db?mode=ro',uri=True);b=sqlite3.connect(str(backup/'webui.db'));a.backup(b);b.close();a.close()
-script=INNER.replace('__BROKER_SECRET__',repr(pathlib.Path('/var/lib/homelab-tools/token').read_text().strip()))
+script=INNER.replace('__BROKER_SECRET__',repr(pathlib.Path('/var/lib/homelab-tools/token').read_text(encoding='utf-8').strip()))
 r=subprocess.run(['docker','exec','-i','-w','/app/backend','open-webui','python','-'],input=script,text=True,capture_output=True,timeout=90)
 result=[l for l in r.stdout.splitlines() if l.startswith('VERIFIED_JSON=')]
 if r.returncode or not result:

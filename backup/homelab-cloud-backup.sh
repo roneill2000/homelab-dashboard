@@ -50,7 +50,7 @@ restic snapshots --tag photos --json 2>/dev/null | grep -q '"id"' && LIMIT=(--li
 for d in "${PHOTOS[@]}"; do
   timeout 60 test -n "$(timeout 60 ls -A "$d" 2>/dev/null | head -1)" || { echo "photo source missing or empty: $d"; false; }
 done
-backup_tagged photos "${RCLONE_OPTS[@]}" "${LIMIT[@]}" --tag photos --host homelab "${PHOTOS[@]}"
+backup_tagged photos "${RCLONE_OPTS[@]}" "${LIMIT[@]}" --ignore-inode --tag photos --host homelab "${PHOTOS[@]}"
 
 # Proxmox: newest archive (+ its .log/.notes) per guest.
 LIST=$(mktemp)

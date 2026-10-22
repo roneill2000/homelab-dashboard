@@ -24,13 +24,13 @@ known=[]
 for ip,role,path in [('192.168.0.3','proxmox','/usr/local/libexec/homelab-diagnostics.sh'),('192.168.0.4','unraid','/boot/config/homelab-tools/diagnostics.sh')]:
     pub=run(ip,'cat /etc/ssh/ssh_host_ed25519_key.pub').split()
     known.append(ip+' '+pub[0]+' '+pub[1])
-    payload={'path':path,'source':(ROOT/'diagnostics.sh').read_text(),'entry':f'from="192.168.0.16",restrict,command="/usr/bin/timeout 15 /bin/bash {path} {role}" '+key}
+    payload={'path':path,'source':(ROOT/'diagnostics.sh').read_text(encoding='utf-8'),'entry':f'from="192.168.0.16",restrict,command="/usr/bin/timeout 15 /bin/bash {path} {role}" '+key}
     if role=='proxmox':
         script="""import pathlib,json
 p=PAYLOAD
 f=pathlib.Path(p['path']);f.parent.mkdir(parents=True,exist_ok=True);f.write_text(p['source']);f.chmod(0o755)
 a=pathlib.Path('/root/.ssh/authorized_keys')
-existing=a.read_text()
+existing=a.read_text(encoding='utf-8')
 if p['entry'] not in existing:
  with a.open('a') as out: out.write('\\n'+p['entry']+'\\n')
 print('Restricted diagnostic key installed on Proxmox')
@@ -42,7 +42,7 @@ print('Restricted diagnostic key installed on Proxmox')
 p=PAYLOAD
 f=pathlib.Path(p['path']);f.parent.mkdir(parents=True,exist_ok=True);f.write_text(p['source']);f.chmod(0o755)
 a=pathlib.Path('/root/.ssh/authorized_keys')
-existing=a.read_text()
+existing=a.read_text(encoding='utf-8')
 if p['entry'] not in existing:
  with a.open('a') as out: out.write('\\n'+p['entry']+'\\n')
 print('Restricted diagnostic key installed persistently on Unraid')
@@ -67,7 +67,7 @@ ProtectSystem=strict
 [Install]
 WantedBy=multi-user.target
 '''
-payload={'broker':(ROOT/'broker.py').read_text(),'known':'\n'.join(known)+'\n','unit':unit}
+payload={'broker':(ROOT/'broker.py').read_text(encoding='utf-8'),'known':'\n'.join(known)+'\n','unit':unit}
 script="""import pathlib,os,pwd,subprocess
 p=PAYLOAD
 f=pathlib.Path('/usr/local/bin/homelab-tools.py');f.write_text(p['broker']);f.chmod(0o755)
