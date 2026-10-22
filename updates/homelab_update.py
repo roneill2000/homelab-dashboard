@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import time
@@ -603,7 +604,17 @@ def cloud_backup_status():
         checked = snaps['checked_at']
     except (OSError, ValueError, KeyError):
         sources, checked = None, None
+    try:
+        restore = json.loads((state / 'restore-test.json').read_text())
+    except (OSError, ValueError):
+        restore = None
+    try:
+        configs_local = int(Path('/var/backups/homelab-configs/last_success').read_text().strip())
+    except (OSError, ValueError):
+        configs_local = None
+    _, rnext = sh(['systemctl', 'show', 'homelab-restore-test.timer', '-p', 'NextElapseUSecRealtime', '--value'], timeout=10)
     return dict(last_success=last, running=running, progress=progress, next_run=nxt.strip() or None,
+                restore_test=restore, restore_next=rnext.strip() or None, configs_local=configs_local,
                 last_failed_start=failed, destination='Google Drive (restic, encrypted)',
                 scope='Photos, Proxmox backups, Unraid appdata + flash, router + host configs', sources=sources, sources_checked_at=checked)
 
@@ -638,6 +649,159 @@ def health():
     return out
 
 
+# ---------- what changed (timeline) ----------
+
+EVENT_DAYS = 7
+TASK_KINDS = {  # Proxmox task type -> (timeline kind, verb)
+    'vzdump': ('backup', 'Local backup'), 'vzstart': ('power', 'Started'), 'qmstart': ('power', 'Started'),
+    'vzshutdown': ('power', 'Shut down'), 'qmshutdown': ('power', 'Shut down'), 'vzstop': ('power', 'Stopped'),
+    'qmstop': ('power', 'Stopped'), 'vzreboot': ('power', 'Rebooted'), 'qmreboot': ('power', 'Rebooted'),
+    'vzcreate': ('change', 'Created'), 'qmcreate': ('change', 'Created'), 'vzdestroy': ('change', 'Removed'),
+    'qmdestroy': ('change', 'Removed'), 'vzrestore': ('change', 'Restored from backup'), 'qmrestore': ('change', 'Restored from backup'),
+    'resize': ('change', 'Disk resized'),
+}
+
+
+def _iso(text):
+    import datetime
+    try:
+        return datetime.datetime.fromisoformat(text.replace('Z', '+00:00')).timestamp()
+    except ValueError:
+        return None
+
+
+def _stamp(name, fmt):
+    import calendar
+    try:
+        return calendar.timegm(time.strptime(name, fmt))
+    except ValueError:
+        return None
+
+
+def events(days=EVENT_DAYS, now=None):
+    """Recent changes from records that already exist. Correlation only: nothing here claims a cause."""
+    now = now or time.time(); since = now - days * 86400; out = []
+
+    def add(ts, kind, title, detail='', ok=True, source=''):
+        if ts and since <= ts <= now + 300:
+            out.append(dict(ts=int(ts), kind=kind, title=title, detail=detail, ok=ok, source=source))
+
+    names = {}
+    for cmd in (['pct', 'list'], ['qm', 'list']):
+        code, text = sh(cmd, timeout=20)
+        for line in text.splitlines()[1:] if code == 0 else []:
+            parts = line.split()
+            if parts and parts[0].isdigit():
+                names[parts[0]] = parts[-1] if cmd[0] == 'pct' else parts[1]
+    code, text = sh(['pvesh', 'get', f'/nodes/{socket.gethostname()}/tasks', '--limit', '500', '--since', str(int(since)),
+                     '--output-format', 'json'], timeout=30)
+    try:
+        tasks = json.loads(text) if code == 0 else []
+    except ValueError:
+        tasks = []
+    for t in tasks:
+        kind = TASK_KINDS.get(t.get('type'))
+        if not kind:
+            continue
+        gid = str(t.get('id') or '')
+        who = f"{names.get(gid, 'guest')} ({gid})" if gid else 'all scheduled guests'
+        status = t.get('status') or 'running'
+        add(t.get('endtime') or t.get('starttime'), kind[0], f'{kind[1]}: {who}', '' if status == 'OK' else status,
+            ok=status == 'OK' or None if status == 'running' else status == 'OK', source='Proxmox tasks')
+
+    for log in sorted((STATE_DIR / 'logs').glob('*-update.log')):
+        ts = _stamp(log.name[:15], '%Y%m%dT%H%M%S') or log.stat().st_mtime
+        ts = ts - time.localtime(ts).tm_gmtoff if ts else ts  # log names are local time
+        done, failed = [], []
+        for line in log.read_text(errors='replace').splitlines():
+            m = re.match(r'\[[\d:]+\] (\S+): (Updated|Failed.*|Rolled back.*)$', line)
+            if m:
+                (done if m[2] == 'Updated' else failed).append(m[1] + ('' if m[2] == 'Updated' else f' ({m[2]})'))
+        if done or failed:
+            add(log.stat().st_mtime, 'update', f"Updates applied to {len(done)} item{'s' if len(done) != 1 else ''}" + (f', {len(failed)} failed' if failed else ''),
+                ', '.join(done + failed)[:400], ok=not failed, source='homelab-update')
+
+    cb = Path('/var/lib/homelab-cloud-backup')
+    try:
+        lines = [l for l in (cb / 'run.log').read_text(errors='replace').splitlines() if l.startswith('=== ')]
+    except OSError:
+        lines = []
+    for i, l in enumerate(lines):
+        if l.endswith(' start'):
+            started = _iso(l[4:-6]); nxt = lines[i + 1] if i + 1 < len(lines) else ''
+            if nxt.endswith(' done'):
+                add(_iso(nxt[4:-5]), 'backup', 'Cloud backup finished (photos, Proxmox, configs)', '', True, 'homelab-cloud-backup')
+            elif i + 1 < len(lines):
+                add(started, 'backup', 'Cloud backup did not finish', 'See run.log on Proxmox', False, 'homelab-cloud-backup')
+    try:
+        for line in (cb / 'restore-tests.jsonl').read_text().splitlines():
+            r = json.loads(line)
+            add(r.get('finished_at'), 'backup', 'Off-site restore test ' + ('passed' if r.get('ok') else 'failed' if r.get('ok') is False else 'incomplete'),
+                '; '.join(f"{c.get('label')}: {c.get('detail')}" for c in r.get('checks', []))[:400], r.get('ok'), 'homelab-restore-test')
+    except (OSError, ValueError):
+        pass
+    try:
+        snaps = json.loads((cb / 'snapshots.json').read_text()).get('recent', {})
+        for ts in snaps.get('unraid', []):
+            add(ts, 'backup', 'Unraid cloud backup (appdata + flash)', '', True, 'restic snapshots')
+    except (OSError, ValueError):
+        pass
+
+    code, text = sh(['journalctl', '-u', 'homelab-config-backup.service', '--since', f'@{int(since)}', '-o', 'json', '--no-pager'], timeout=20)
+    for line in text.splitlines() if code == 0 else []:
+        try:
+            j = json.loads(line); msg = j.get('MESSAGE', '')
+        except ValueError:
+            continue
+        if isinstance(msg, str) and (msg.startswith('Finished ') or 'Failed with result' in msg):
+            add(int(j['__REALTIME_TIMESTAMP']) / 1e6, 'backup', 'Config backup ' + ('saved' if msg.startswith('Finished') else 'failed'),
+                'router, Proxmox host, Orange Pi', msg.startswith('Finished'), 'homelab-config-backup')
+    code, text = sh(['journalctl', '-t', 'unraid-mount', '--since', f'@{int(since)}', '-o', 'json', '--no-pager'], timeout=20)
+    for line in text.splitlines() if code == 0 else []:
+        try:
+            j = json.loads(line)
+        except ValueError:
+            continue
+        add(int(j['__REALTIME_TIMESTAMP']) / 1e6, 'repair', 'Proxmox backup share remounted', str(j.get('MESSAGE', ''))[:200], True, 'fix-unraid-mount')
+    for vmid, name in names.items():
+        code, text = sh(['pct', 'exec', vmid, '--', 'journalctl', '-t', 'mount-heal', '--since', f'@{int(since)}', '-o', 'json', '--no-pager'], timeout=20)
+        for line in text.splitlines() if code == 0 else []:
+            try:
+                j = json.loads(line); msg = str(j.get('MESSAGE', ''))
+            except ValueError:
+                continue
+            add(int(j['__REALTIME_TIMESTAMP']) / 1e6, 'repair', f'Share repaired in {name} ({vmid})', msg[:200], 'failed' not in msg, 'mount-heal')
+
+    code, text = sh(['pct', 'exec', '104', '--', 'ls', '/opt/homelab-dashboard/backups'], timeout=20)
+    for n in text.split() if code == 0 else []:
+        add(_stamp(n[:15], '%Y%m%dT%H%M%S'), 'deploy', 'Homepage deployed', '', True, 'deploy.py')
+    try:
+        for line in (Path('/var/lib/homelab-alerts/events.jsonl')).read_text().splitlines()[-500:]:
+            e = json.loads(line); add(e.get('ts'), 'alert', e.get('title', ''), e.get('detail', ''), e.get('ok'), 'homelab-alerts')
+    except (OSError, ValueError):
+        pass
+
+    code, text = unraid(f"""ls /mnt/disk1/.homelab-nightly/backups 2>/dev/null | sed 's/^/NIGHTLY /'
+cat /mnt/disk1/.homelab-smart/schedule.log 2>/dev/null | sed 's/^/SMART /'
+docker ps -a --format 'DOCKER {{{{.Names}}}}|{{{{.Image}}}}|{{{{.CreatedAt}}}}'""", timeout=30)
+    for line in text.splitlines() if code == 0 else []:
+        tag, _, rest = line.partition(' ')
+        if tag == 'NIGHTLY':
+            add(_stamp(rest[:15], '%Y%m%dT%H%M%S'), 'deploy', 'Ask Qwen / nightly review updated on Unraid', '', True, 'nightly installers')
+        elif tag == 'SMART':
+            ts = time.mktime(time.strptime(rest[:16], '%Y-%m-%d %H:%M')) if re.match(r'\d{4}-\d\d-\d\d \d\d:\d\d', rest) else None
+            add(ts, 'disk', 'Drive self-tests started', rest[17:], 'FAILED' not in rest, 'homelab-smart')
+        elif tag == 'DOCKER':
+            name, image, created = (rest.split('|') + ['', ''])[:3]
+            m = re.match(r'(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) ([+-]\d{4})', created)
+            if m:
+                import datetime
+                ts = datetime.datetime.strptime(' '.join(m.groups()), '%Y-%m-%d %H:%M:%S %z').timestamp()
+                add(ts, 'update', f'Container recreated: {name}', image.split('@')[0][:120], True, 'Unraid Docker')
+    out.sort(key=lambda e: e['ts'], reverse=True)
+    return out[:400]
+
+
 def status():
     state = read_state()
     job = state.get('job')
@@ -650,13 +814,15 @@ def main(argv):
     command = argv[1] if len(argv) > 1 else ''
     if command == 'ssh':
         command = os.environ.get('SSH_ORIGINAL_COMMAND', '').strip()
-        if command not in ('status', 'health', 'check', 'start'):
+        if command not in ('status', 'health', 'check', 'start', 'events'):
             print(json.dumps(dict(ok=False, error='Unsupported command.')))
             return 2
     if command == 'status':
         print(json.dumps(status()))
     elif command == 'health':
         print(json.dumps(health()))
+    elif command == 'events':
+        print(json.dumps(dict(observed_at=int(time.time()), days=EVENT_DAYS, events=events())))
     elif command in ('check', 'start'):
         print(json.dumps(spawn('check' if command == 'check' else 'update')))
     elif command in ('run-check', 'run-update'):

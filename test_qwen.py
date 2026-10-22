@@ -49,8 +49,9 @@ class QwenTests(unittest.TestCase):
             self.assertEqual(second.submit('After lock released')[0],202)
             thread.call_args.kwargs['args'][0].close()
 
-    def exercise(self,tokens=100,cleanup_error=False):
-        broker=q.Broker();broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000)
+    def exercise(self,tokens=100,cleanup_error=False,broker=None):
+        broker=broker or q.Broker()
+        if not broker.job.get('prompt'):broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000)
         lock=SimpleNamespace(close=unittest.mock.Mock())
         response={'choices':[{'finish_reason':'stop','message':{'content':'Measured cache space is available.'}}]}
         values=[storage(),{'data':[{'id':q.r.MODEL}]},storage(),{}, {'prompt':'template'},
@@ -65,7 +66,7 @@ class QwenTests(unittest.TestCase):
         return state,fetch
 
     def test_pc_answers_when_on_and_a310_is_untouched(self):
-        broker=q.Broker();broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000)
+        broker=q.Broker();broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000,target='auto')
         lock=SimpleNamespace(close=unittest.mock.Mock())
         response={'choices':[{'finish_reason':'stop','message':{'content':'Cache is fine.'}}],'usage':{'prompt_tokens':900}}
         with patch.object(q,'pc_token',return_value='k'),patch.object(q,'ask_pc',return_value=response) as ask,\
@@ -75,9 +76,22 @@ class QwenTests(unittest.TestCase):
         self.assertEqual((state['status'],state['model'],state['input_tokens']),('complete',q.PC_LABEL,900))
         self.assertEqual(ask.call_args.args[0],'k');stop.assert_not_called();run.assert_not_called();lock.close.assert_called_once()
 
+    def test_choice_a310_never_asks_the_pc_and_pc_choice_fails_when_off(self):
+        with patch.object(q,'pc_token',return_value='k') as tok:
+            broker=q.Broker();broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000,target='a310')
+            state,fetch=self.exercise(broker=broker)
+        tok.assert_not_called();self.assertEqual((state['status'],state['model']),('complete',q.A310_LABEL))
+        broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='pc')
+        lock=SimpleNamespace(close=unittest.mock.Mock())
+        with patch.object(q,'pc_token',return_value=None),patch.object(q.r,'stop_model') as stop:
+            broker.work(lock)
+        self.assertEqual(broker.state()['status'],'failed');self.assertIn('gaming PC is off',broker.state()['error']);stop.assert_not_called()
+        self.assertEqual(q.Broker().submit('hi','gpu')[0],400)
+
     def test_pc_failure_falls_back_to_a310(self):
+        broker=q.Broker();broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000,target='auto')
         with patch.object(q,'pc_token',return_value='k'),patch.object(q.Broker,'answer_on_pc',side_effect=OSError('asleep')):
-            state,fetch=self.exercise()
+            state,fetch=self.exercise(broker=broker)
         self.assertEqual((state['status'],state['model']),('complete',q.A310_LABEL))
         self.assertIn('A310 answered',state['fallback'])
 
