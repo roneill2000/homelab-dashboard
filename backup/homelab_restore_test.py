@@ -4,7 +4,7 @@
 Reads from the restic repository only (no restore to live paths). For each backup tag it streams a sample of files
 out of the newest snapshot with `restic dump` and checks them:
   photos  - 20 random photos, SHA-256 equal to the original on the Unraid share (skips files changed since)
-  unraid  - 10 random small appdata/flash files, SHA-256 equal to the original on Unraid (via ssh)
+  unraid  - 10 random small files from the flash config and Pi-hole backups (small subtrees; see files()), SHA-256 equal to the original on Unraid (via ssh)
   proxmox - the smallest guest archive, `zstd -t` integrity check and equal to the local copy if still present
   configs - every config archive, `tar -tz` readable and equal to the local copy
 Writes /var/lib/homelab-cloud-backup/restore-test.json (latest) and restore-tests.jsonl (history).
@@ -41,9 +41,12 @@ def newest(tag, host):
     return max(snaps, key=lambda s: s['time'])
 
 
-def files(snap):
+def files(snap, *dirs):
+    """Files in a snapshot, optionally only under dirs (restic then skips other subtrees, which matters for
+    snapshots made on another host: their directory data is not in Proxmox's local cache and each
+    directory is a separate Google Drive request)."""
     out = []
-    for line in restic_json('ls', snap['id']).splitlines():
+    for line in restic_json('ls', snap['id'], *dirs).splitlines():
         if line.startswith('{'):
             row = json.loads(line)
             if row.get('type') == 'file':
@@ -104,7 +107,7 @@ def check_photos():
 
 def check_unraid():
     snap = newest('unraid', 'unraid'); taken = snap_time(snap)
-    pool = [f for f in files(snap) if 0 < f['size'] <= 5 << 20 and '/rclone' not in f['path']]
+    pool = [f for f in files(snap, '/boot-config', '/data/backup/backups/pihole') if 0 < f['size'] <= 5 << 20 and '/restic' not in f['path']]
     random.shuffle(pool)
     good = bad = 0; size = 0
     for f in pool[:40]:
