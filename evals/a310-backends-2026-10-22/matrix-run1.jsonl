@@ -1,0 +1,9 @@
+{"case": "aot/q4km", "load_s": 21, "short": {"prompt_n": 30, "prompt_tps": 56.6, "gen_n": 300, "gen_tps": 18.0}, "long": {"prompt_n": 2591, "prompt_tps": 263.5, "gen_n": 69, "gen_tps": 15.3}}
+{"case": "aot/q4km", "load_s": 9, "short": {"prompt_n": 30, "prompt_tps": 55.9, "gen_n": 300, "gen_tps": 18.0}, "long": {"prompt_n": 2591, "prompt_tps": 281.4, "gen_n": 69, "gen_tps": 15.3}}
+{"case": "vulkan/q4km", "load_s": 11, "short": {"prompt_n": 30, "prompt_tps": 12.1, "gen_n": 300, "gen_tps": 12.6}, "long": {"prompt_n": 2591, "prompt_tps": 161.6, "gen_n": 69, "gen_tps": 11.9}}
+{"case": "vulkan/iq4xs", "load_s": 27, "short": {"prompt_n": 30, "prompt_tps": 10.9, "gen_n": 300, "gen_tps": 8.7}, "long": {"prompt_n": 2591, "prompt_tps": 137.7, "gen_n": 98, "gen_tps": 8.4}}
+{"case": "vulkan/iq3xxs", "load_s": 25, "short": {"prompt_n": 30, "prompt_tps": 3.6, "gen_n": 300, "gen_tps": 6.6}, "long": {"prompt_n": 2591, "prompt_tps": 62.5, "gen_n": 47, "gen_tps": 6.7}}
+{"case": "aot/iq4xs", "load_s": 15, "short": {"prompt_n": 30, "prompt_tps": 32.4, "gen_n": 293, "gen_tps": 13.6}, "long": {"prompt_n": 2591, "prompt_tps": 179.2, "gen_n": 120, "gen_tps": 12.0}}
+{"case": "vulkan/q4km+draft", "load_s": 2, "error": "did not load", "log": "Error response from daemon: No such container: homelab-bench-llm\n"}
+{"case": "aot/q4km+draft", "load_s": 3, "error": "did not load", "log": "Error response from daemon: No such container: homelab-bench-llm\n"}
+{"case": "aot/iq4xs+draft", "load_s": 2, "error": "did not load", "log": "Error response from daemon: No such container: homelab-bench-llm\n"}
