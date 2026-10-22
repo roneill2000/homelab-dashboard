@@ -30,7 +30,7 @@ class AITests(unittest.TestCase):
    result=a.snapshot();self.assertTrue(result['webui']['online']);self.assertFalse(result['desktop']['online']);self.assertNotIn('models',result['desktop']);self.assertNotIn('last_success_at',result['desktop'])
  def test_poll_is_cached_and_snapshot_cannot_mutate_state(self):
   with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={}) as web,patch.object(a,'desktop',return_value={'models':[{'id':'a'}]}) as desk:
-   a.collect(1000);a.collect(1010);self.assertEqual(desk.call_count,1)
+   a.collect(1000,min_interval=30);a.collect(1010,min_interval=30);self.assertEqual(desk.call_count,1)
    result=a.snapshot();result['desktop']['models'][0]['id']='changed'
    self.assertEqual(a.snapshot()['desktop']['models'][0]['id'],'a')
 
