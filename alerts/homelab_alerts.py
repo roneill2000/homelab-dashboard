@@ -5,6 +5,10 @@ Runs on Proxmox every 5 minutes (homelab-alerts.timer). Reads Homepage's APIs, c
 previous run, and sends one alert when a check goes bad and one when it recovers. A check must be
 bad on two consecutive runs before alerting, except failed update runs, which alert immediately.
 The ntfy topic is read from the existing watchdog so it lives in one place.
+
+Also: `--digest` (homelab-digest.timer, 07:00) sends one morning summary with a short Ask Qwen note, and
+`--serve-why` (homelab-why.service, :8997) answers the "Ask Qwen why" button on alerts by asking Ask Qwen about
+that alert and pushing the answer back to ntfy.
 """
 import json
 import os
@@ -12,6 +16,8 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -21,9 +27,11 @@ STATE = Path('/var/lib/homelab-alerts/state.json')
 INTENTIONALLY_STOPPED = {'zurg', 'Transcoding-GPU-Benchmark'}
 CONSECUTIVE = 2
 SNAPSHOTS = Path('/var/lib/homelab-cloud-backup/snapshots.json')
-SUMMARY_SENT = Path('/var/lib/homelab-alerts/summary-day')
-SOURCES = {'photos': ('Photos', 36), 'proxmox': ('Proxmox', 36), 'unraid': ('Unraid', 30)}  # tag: (label, stale after h)
-SUMMARY_HOUR = 7
+SOURCES = {'photos': ('Photos', 36), 'proxmox': ('Proxmox', 36), 'unraid': ('Unraid', 30), 'configs': ('Configs', 36)}  # tag: (label, stale after h)
+DETAILS = Path('/var/lib/homelab-alerts/details.json')  # last title/detail per alert key, for the why button and digest
+CONFIG_BACKUP = Path('/var/backups/homelab-configs/last_success')
+WHY_URL = 'http://192.168.0.3:8997/why'
+QWEN_URL = HOME + '/api/qwen'
 
 
 def fetch(path, timeout=60):
@@ -77,7 +85,39 @@ def checks(t, s, f, now):
         failed = upd.get('failed') or []
         out['updates-failed'] = (bool(failed), 'Update run failed',
                                  '; '.join(f"{x['name']}: {x.get('detail')}" + (f" ({x['rollback']})" if x.get('rollback') else '') for x in failed) or 'No failed updates.', 5)
+        out.update(smart_checks(f.get('smart'), now))
     return out
+
+
+def smart_checks(smart, now):
+    """Unraid self-test results and schedule (smart/homelab_smart.py). Attribute health is Scrutiny's job."""
+    out = {}
+    if not smart:
+        return out
+    settled = now - (smart.get('scheduler_installed_at') or now) > 3 * 86400  # give the scheduler time to catch up
+    for d in smart.get('disks') or []:
+        name = f"{d.get('role')} ({d.get('device')})"
+        kind, every = ('extended', smart.get('extended_every_days', 90)) if d.get('rotational') else ('short', smart.get('short_every_days', 30))
+        t = d.get(f'last_{kind}')
+        if not t:
+            continue
+        result = t.get('result') or ''
+        ok = result.startswith('Completed without error') or 'progress' in result.lower() or 'aborted by host' in result.lower()
+        out[f"smart-test:{d.get('device')}"] = (not ok, f'Drive self-test failed on {name}', f"{d.get('model')}: {kind} test {result} at {t.get('at_hours')} h.", 4)
+        if settled and t.get('hours_ago') is not None and d.get('running_remaining_pct') is None:
+            out[f"smart-overdue:{d.get('device')}"] = (t['hours_ago'] > (every + 30) * 24, f'Drive self-tests not running on {name}',
+                                                      f"Last {kind} test was {t['hours_ago'] // 24} days ago; the scheduler should run one every {every} days.", 3)
+    return out
+
+
+def config_backup_check(now, path=CONFIG_BACKUP):
+    """Nightly router / Proxmox / Orange Pi config backup (homelab-config-backup, 00:45)."""
+    try:
+        last = int(path.read_text().strip())
+    except (OSError, ValueError):
+        return {}
+    hours = (now - last) / 3600
+    return {'config-backup': (hours > 36, 'Config backup failing', f'Router / Proxmox / Orange Pi config backup last succeeded {int(hours)} h ago.', 3)}
 
 
 def cloud_backup_check(now, path=Path('/var/lib/homelab-cloud-backup/last_success')):
@@ -138,27 +178,113 @@ def unraid_backup_check(now, latest):
                              f'Newest Unraid snapshot on Google Drive is {int(hours)} h old. Check the unraid-restic container.', 4)}
 
 
-def daily_summary(now, latest, sent_path=SUMMARY_SENT):
-    """One quiet morning message listing each off-site backup. Returns (title, body, priority) or None."""
-    day = time.strftime('%Y-%m-%d', time.localtime(now))
-    if time.localtime(now).tm_hour < SUMMARY_HOUR or not latest:
-        return None
-    try:
-        if sent_path.read_text().strip() == day:
-            return None
-    except OSError:
-        pass
-    lines, stale = [], []
+def digest_text(now, t, f, latest, active):
+    """Morning summary lines. Returns (title, body, problems) from measured data only; missing data says so."""
+    lines, problems = [], []
+    bk = []
     for tag, (label, limit) in SOURCES.items():
-        ts = latest.get(tag)
+        ts = (latest or {}).get(tag)
         if ts is None:
-            lines.append(f'{label}: no snapshot yet'); stale.append(label); continue
+            bk.append(f'{label} no snapshot'); problems.append(f'{label} backup has no snapshot'); continue
         old = (now - ts) / 3600 > limit
-        lines.append(f"{label}: {time.strftime('%a %-I:%M %p', time.localtime(ts))}" + (' (stale)' if old else ''))
+        bk.append(f"{label} {time.strftime('%-I:%M %p', time.localtime(ts))}" + (' STALE' if old else ''))
         if old:
-            stale.append(label)
-    title = 'Backups OK' if not stale else 'Backups: ' + ', '.join(stale) + ' stale'
-    return title, '\n'.join(lines), 2 if not stale else 3
+            problems.append(f'{label} backup stale')
+    lines.append('Backups: ' + (', '.join(bk) if latest else 'unknown (snapshot list unavailable)'))
+    if t:
+        u = t.get('unraid') or {}
+        if u.get('cache_pct') is not None:
+            lines.append(f"Storage: cache {u['cache_pct']}%, array {u.get('array_pct')}%")
+        sy = t.get('syslog') or {}
+        if sy.get('online'):
+            lines.append(f"Logs (24 h): {sy.get('errors_24h', 0)} errors, {sy.get('warnings_24h', 0)} warnings from {sy.get('hosts_reporting')} hosts")
+        st = t.get('speedtest') or {}
+        if st.get('dl') is not None:
+            lines.append(f"Internet: {round(st['dl'])} down / {round(st.get('ul') or 0)} up Mbps")
+    if f:
+        pend = (f.get('updates') or {}).get('pending') or []
+        if pend:
+            lines.append(f'Updates waiting: {len(pend)} (' + ', '.join(x['name'] for x in pend[:4]) + (' …' if len(pend) > 4 else '') + ')')
+        smart = f.get('smart') or {}
+        for d in smart.get('disks') or []:
+            a = d.get('attrs') or {}
+            bad = {k: v for k, v in a.items() if k in ('reallocated', 'pending', 'offline_uncorrectable', 'reported_uncorrectable') and v}
+            if bad:
+                problems.append(f"{d.get('role')} disk: " + ', '.join(f'{v} {k.replace("_", " ")}' for k, v in bad.items()))
+            if d.get('running_remaining_pct') is not None:
+                lines.append(f"Self-test running on {d.get('role')} ({d['running_remaining_pct']}% left)")
+    if active:
+        problems += [f'Active alert: {x}' for x in active]
+    if problems:
+        lines.insert(0, 'Needs attention: ' + '; '.join(problems))
+    title = 'Homelab: all good' if not problems else f'Homelab: {len(problems)} thing' + ('s' if len(problems) > 1 else '') + ' to check'
+    return title, '\n'.join(lines), problems
+
+
+def ask_qwen(prompt, wait=420):
+    """Ask Homepage's Ask Qwen (27B on the PC when on, else the A310). Returns (answer, model) or (None, reason)."""
+    body = json.dumps({'prompt': prompt[:3000]}).encode()
+    headers = {'Content-Type': 'application/json', 'X-Qwen-Request': '1'}
+    deadline = time.time() + wait
+    while True:
+        try:
+            urllib.request.urlopen(urllib.request.Request(QWEN_URL, data=body, method='POST', headers=headers), timeout=20).read()
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 409 or time.time() > deadline:
+                return None, f'Ask Qwen refused the question ({e.code}).'
+            time.sleep(30)  # another question or the nightly review is running
+        except Exception:
+            return None, 'Ask Qwen is unreachable.'
+    while time.time() < deadline:
+        time.sleep(5)
+        try:
+            with urllib.request.urlopen(urllib.request.Request(QWEN_URL, headers={'X-Qwen-Request': '1'}), timeout=20) as r:
+                job = json.load(r)
+        except Exception:
+            continue
+        if job.get('status') == 'complete':
+            return job.get('answer'), job.get('model')
+        if job.get('status') == 'failed':
+            return None, job.get('error') or 'Ask Qwen could not answer.'
+    return None, 'Ask Qwen took too long.'
+
+
+def active_alerts(state=None, details=None):
+    state = state if state is not None else (json.loads(STATE.read_text()) if STATE.exists() else {})
+    details = details if details is not None else read_details()
+    return [details.get(k, {}).get('title', k) for k, v in state.items() if v.get('alerted')]
+
+
+def read_details():
+    try:
+        return json.loads(DETAILS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def remember(key, title, detail, now):
+    d = read_details()
+    d[key] = {'title': title, 'detail': detail, 'at': int(now)}
+    DETAILS.parent.mkdir(parents=True, exist_ok=True)
+    DETAILS.write_text(json.dumps(d))
+
+
+def run_digest(now):
+    def safe(path):
+        try:
+            return fetch(path, timeout=120)
+        except Exception:
+            return None
+    t, f = safe('/api/telemetry'), safe('/api/fleet')
+    refresh_snapshots(now, every=0)
+    title, body, problems = digest_text(now, t, f, read_latest(), active_alerts())
+    answer, model = ask_qwen('This is my homelab morning summary, from measured data:\n' + body +
+                             '\nIn at most two short sentences: is anything unusual or worth doing today? '
+                             'If nothing stands out, say so. Do not repeat the numbers.', wait=480)
+    if answer:
+        body += f'\n\nQwen ({(model or "local").split(" · ")[0]}): {answer.strip()[:600]}'
+    send('info', title, body, 2 if not problems else 3, markdown=False)
 
 
 def transitions(prev, current):
@@ -186,17 +312,82 @@ def topic():
     return m.group(1)
 
 
-def send(kind, title, detail, prio):
+def header_text(text):
+    """ntfy reads raw header bytes as UTF-8, so anything outside ASCII (°, ·, accents) goes as an RFC 2047 encoded word."""
+    try:
+        text.encode('ascii')
+        return text
+    except UnicodeEncodeError:
+        import base64
+        return '=?UTF-8?B?' + base64.b64encode(text.encode()).decode() + '?='
+
+
+def send(kind, title, detail, prio, key=None, markdown=False, tags=None):
     head = ('RECOVERED: ' if kind == 'up' else '') + title
-    tags = {'up': 'white_check_mark', 'info': 'floppy_disk'}.get(kind, 'warning')
-    req = urllib.request.Request('https://ntfy.sh/' + topic(), data=detail.encode(), method='POST', headers={
-        'Title': head, 'Priority': str(prio), 'Tags': tags})
+    tags = tags or {'up': 'white_check_mark', 'info': 'house'}.get(kind, 'warning')
+    headers = {'Title': header_text(head), 'Priority': str(prio), 'Tags': tags}
+    if markdown:
+        headers['Markdown'] = 'yes'
+    if kind == 'down' and key:  # phone (on LAN or WireGuard) calls homelab-why, which pushes the answer back
+        headers['Actions'] = f'http, Ask Qwen why, {WHY_URL}?key={urllib.parse.quote(key)}, method=POST, clear=true'
+    req = urllib.request.Request('https://ntfy.sh/' + topic(), data=detail.encode(), method='POST', headers=headers)
     urllib.request.urlopen(req, timeout=15).read()
 
 
+def why_prompt(title, detail):
+    return (f'My homelab alert just fired: "{title}". Detail: {detail}\n'
+            'What does it most likely mean, what should I check first, and is it urgent? Under 120 words. '
+            'Say which parts come from the observations and which are general knowledge.')
+
+
+def serve_why(port=8997):
+    """POST /why?key=<alert key>: answer in the background, push to ntfy. Only known alert keys; one at a time."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    busy = threading.Lock()
+
+    def answer(key, info):
+        try:
+            text, model = ask_qwen(why_prompt(info['title'], info['detail']))
+            send('info', f"Why: {info['title']}", (text or f'No answer: {model}')[:3500], 3, markdown=True, tags='robot')
+        finally:
+            busy.release()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            key = (q.get('key') or [''])[0]
+            info = read_details().get(key)
+            if urllib.parse.urlparse(self.path).path != '/why' or not info:
+                return self.reply(404, 'Unknown alert.')
+            if not busy.acquire(blocking=False):
+                return self.reply(429, 'Already answering one alert. Try again in a few minutes.')
+            threading.Thread(target=answer, args=(key, info), daemon=True).start()
+            self.reply(202, 'Asking Qwen. The answer arrives as a notification.')
+
+        def reply(self, code, text):
+            raw = text.encode()
+            self.send_response(code); self.send_header('Content-Type', 'text/plain'); self.send_header('Content-Length', str(len(raw)))
+            self.end_headers(); self.wfile.write(raw)
+
+        def log_message(self, *a):
+            pass
+
+    with ThreadingHTTPServer(('0.0.0.0', port), Handler) as srv:
+        srv.serve_forever()
+
+
 def main(argv):
+    if '--digest' in argv:
+        run_digest(time.time())
+        return 0
+    if '--serve-why' in argv:
+        serve_why()
+        return 0
     if '--test' in argv:
-        send('down', 'Homelab alerts test', 'homelab-alerts is installed and can reach your ntfy topic.', 2)
+        detail = 'homelab-alerts is installed and can reach your ntfy topic. Tap "Ask Qwen why" to test the button (needs LAN or WireGuard).'
+        remember('test', 'Homelab alerts test', 'A test alert sent by hand to check ntfy delivery and the Ask Qwen why button.', time.time())
+        send('down', 'Homelab alerts test', detail, 2, key='test')
         return 0
     now = time.time()
     def safe(path):
@@ -213,21 +404,17 @@ def main(argv):
     refresh_snapshots(now)
     latest = read_latest()
     current.update(unraid_backup_check(now, latest))
+    current.update(config_backup_check(now))
     sends, state = transitions(prev, current)
     for key, kind, title, detail, prio in sends:
         try:
-            send(kind, title, detail, prio)
+            if kind == 'down':
+                remember(key, title, detail, now)
+            send(kind, title, detail, prio, key=key)
         except Exception:
             state[key]['alerted'] = not state[key]['alerted']  # retry next run
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(state))
-    summary = daily_summary(now, latest)
-    if summary and '--dry-run' not in argv:
-        try:
-            send('info', *summary)
-            SUMMARY_SENT.write_text(time.strftime('%Y-%m-%d', time.localtime(now)))
-        except Exception:
-            pass  # try again next run
     if '--dry-run' in argv:
         print(json.dumps({k: v[0] for k, v in checks(t, s, f, now).items()}, indent=1))
     return 0

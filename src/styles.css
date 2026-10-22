@@ -97,3 +97,4 @@ body{font-size:16px}.sidebar{width:248px;padding-left:14px;padding-right:14px}.w
 .offsite-sources li{display:flex;justify-content:space-between;gap:1rem;font-size:.9rem}
 .offsite-sources li span:first-child{color:var(--muted)}
 .offsite-sources li span.error{color:#ed9e98}
+.drive-smart{font-size:13px;color:var(--faint);margin-top:2px}.drive-smart .error{color:#ed9e98}

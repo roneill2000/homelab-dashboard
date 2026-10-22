@@ -63,8 +63,12 @@ test -s "$LIST"
 backup_tagged proxmox "${RCLONE_OPTS[@]}" "${LIMIT[@]}" --tag proxmox --host homelab --files-from-verbatim "$LIST"
 rm -f "$LIST"
 
+# Configs: router, Proxmox host and Orange Pi (written 00:45 by homelab-config-backup). Small, so no upload limit.
+[ -d /var/backups/homelab-configs ] && backup_tagged configs "${RCLONE_OPTS[@]}" --tag configs --host homelab /var/backups/homelab-configs
+
 restic forget --tag photos --host homelab --keep-daily 7 --keep-weekly 4 --keep-monthly 12
 restic forget --tag proxmox --host homelab --keep-daily 7 --keep-weekly 4
+restic forget --tag configs --host homelab --keep-daily 7 --keep-weekly 4 --keep-monthly 12
 
 if [ "$(date +%u)" = 7 ]; then          # Sundays: reclaim space and prove the data is readable
   restic prune "${LIMIT[@]}"

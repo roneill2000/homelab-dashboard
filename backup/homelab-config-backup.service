@@ -1,0 +1,7 @@
+[Unit]
+Description=Homelab config backup (router, Proxmox host, Orange Pi)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/homelab-config-backup
