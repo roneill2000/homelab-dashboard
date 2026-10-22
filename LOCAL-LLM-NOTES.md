@@ -31,3 +31,10 @@ Ryan asked whether a small local LLM on the A310 is useful and memory-feasible. 
 - A 1–3B parameter model with 4-bit weights and a short 2–4k-token context is a proposed trial budget, not a measured fit or throughput result. A 7B model would leave too little 4 GB GPU headroom for context/runtime/Jellyfin. Intel's OpenVINO GenAI documentation describes compressed models and GPU inference: https://docs.openvino.ai/2025/openvino-workflow-generative/inference-with-genai.html
 - Recommended first integration: an on-demand explanation of one grouped log issue, supplied with exact event times and independently verified service state. Keep alert detection and recovery classification based on rules/checks; model output is an explanation and suggested checks.
 - A trial should measure peak GPU/system memory, usefulness on known failures, and playback/transcoding contention. GPU runtime/driver compatibility inside the chosen container remains unverified.
+
+## Ask Qwen routing (22 Oct 2026)
+
+- Gaming PC on: Ask Qwen sends the question, with the same observations and system rules, to `qwen3.8-27b` on the PC router (`192.168.0.12:8080`). Key in `/mnt/disk1/.homelab-nightly/router-token` (0600), copied from LXC 104 by `nightly/install_qwen.py`.
+- PC off, asleep, or it fails mid-answer: the A310 answers (Qwen3.5-4B Q4_K_M, SYCL built ahead of time for acm-g11, 6K window, 256-token thinking cap). The nightly review keeps 768.
+- Live checks: 27B 84 s / 54 tok/s, backup time correct; A310 51 s total, 6.6 s load, 15.3 tok/s.
+- Evidence: `evals/ask-qwen-2026-10-22/` (RESULTS.md, THINK-CAP.md) and `evals/a310-backends-2026-10-22/`.
