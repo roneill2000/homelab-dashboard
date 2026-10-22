@@ -367,7 +367,7 @@ def serve_why(port=8997):
             if urllib.parse.urlparse(self.path).path != '/why' or not info:
                 return self.reply(404, 'Unknown alert.')
             if not busy.acquire(blocking=False):
-                return self.reply(429, 'Already answering one alert. Try again in a few minutes.')
+                return self.reply(202, 'Already asking Qwen about an alert. That answer arrives as a notification; tap again after it if you need this one too.')  # 2xx so ntfy doesn't show a failure on a repeat tap
             threading.Thread(target=answer, args=(key, info), daemon=True).start()
             self.reply(202, 'Asking Qwen. The answer arrives as a notification.')
 
