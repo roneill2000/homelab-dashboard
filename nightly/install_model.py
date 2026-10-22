@@ -25,7 +25,8 @@ if not target.exists() or digest(target)!=p['MODEL_SHA256']:
    out.write(block)
  if digest(stage)!=p['MODEL_SHA256']:raise ValueError('Model checksum mismatch')
  stage.replace(target)
-subprocess.run(['docker','pull',p['IMAGE']],check=True)
+if subprocess.run(['docker','image','inspect',p['IMAGE']],capture_output=True).returncode:  # local A310 build is never pulled
+    subprocess.run(['docker','pull',p['IMAGE']],check=True)
 print(json.dumps({'model':p['MODEL'],'bytes':target.stat().st_size,'sha256_verified':True}))
 '''
 

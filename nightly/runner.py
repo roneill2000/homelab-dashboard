@@ -20,7 +20,9 @@ MODEL_FILE='Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf'
 MODEL_REPO='unsloth/Qwen3.5-4B-GGUF'
 MODEL_REVISION='e87f176479d0855a907a41277aca2f8ee7a09523'
 MODEL_SHA256='00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4'
-IMAGE='ghcr.io/ggml-org/llama.cpp@sha256:1b0f1d02bb9077a8a52c2a9951259ac49ed68a5bf564e2ad68cbbffe9274d387'
+# llama.cpp b11804 SYCL with libggml-sycl.so built ahead of time for the A310 (acm-g11); local to Unraid,
+# rebuilt by evals/a310-backends-2026-10-22/build_aot.sh. 18 tok/s vs 12.6 on Vulkan, 4-21 s load.
+IMAGE='homelab/llama-sycl-a310:b11804'
 NAME='homelab-nightly-llm'
 API='http://127.0.0.1:11437'
 
@@ -107,16 +109,17 @@ def checked_finding(group,content):
     return dict(group_id=group['id'],interpretation=content)
 
 
-def container_command(context_size=2048):
-    return ['docker','run','-d','--pull','never','--rm','--name',NAME,'--user','0:0','--memory','5g','--cpus','2',
+def container_command(context_size=2048, reasoning_budget=768):
+    return ['docker','run','-d','--pull','never','--rm','--name',NAME,'--user','0:0','--memory','7g','--cpus','2',
             '--pids-limit','256',
             '--health-cmd','curl -fsS http://127.0.0.1:8000/health || exit 1','--health-start-period','15m',
-            '--device','/dev/dri/renderD129','--cap-drop','ALL','--security-opt','no-new-privileges',
+            '--device','/dev/dri/card1','--device','/dev/dri/renderD129','-e','ONEAPI_DEVICE_SELECTOR=level_zero:0',
+            '--cap-drop','ALL','--security-opt','no-new-privileges',
             '-p','127.0.0.1:11437:8000','-v',str(MODEL_ROOT)+':/models:ro',IMAGE,
             '--model','/models/'+MODEL_FILE,'--alias',MODEL,'--host','0.0.0.0','--port','8000',
-            '--device','Vulkan0','--gpu-layers','all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
+            '--gpu-layers','all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
             '--batch-size','256','--ubatch-size','128','--threads','2','--threads-batch','2',
-            '--jinja','--reasoning','on','--reasoning-budget','768','--no-context-shift']
+            '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift']
 
 
 def acquire_run_lock(lock,scheduled=False,timeout=1200):
