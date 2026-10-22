@@ -13,6 +13,7 @@ KNOWN='/etc/homelab-dashboard/update_known_hosts'
 TARGET='root@192.168.0.3'
 CACHE={'at':0,'body':None};LOCK=threading.Lock()
 FLEET={'at':0,'body':None};FLEET_LOCK=threading.Lock()
+EVENTS={'at':0,'body':None};EVENTS_LOCK=threading.Lock()
 
 
 def remote(command,timeout=15):
@@ -34,6 +35,13 @@ def fleet():
     with FLEET_LOCK:
         if FLEET['body'] is not None and time.time()-FLEET['at']<60:return FLEET['body']
         body=remote('health',timeout=90);FLEET.update(at=time.time(),body=body);return body
+
+
+def events():
+    # "What changed" timeline from Proxmox; collecting takes ~15 s, so cache for five minutes.
+    with EVENTS_LOCK:
+        if EVENTS['body'] is not None and time.time()-EVENTS['at']<300:return EVENTS['body']
+        body=remote('events',timeout=90);EVENTS.update(at=time.time(),body=body);return body
 
 
 PC_MAC='34:5a:60:01:a1:9a'  # gaming PC, Realtek 5GbE (Wake on Magic Packet + Shutdown WoL enabled)
@@ -84,6 +92,12 @@ def handle(handler,post=False):
         try:wake_pc();answer(200,dict(ok=True))
         except OSError:answer(503,dict(ok=False,error='Could not send the wake signal.'))
         return True
+    if path=='/api/events' and not post:
+        try:raw=json.dumps(events()).encode();code=200
+        except Exception:raw=json.dumps(dict(error='Timeline unavailable.')).encode();code=503
+        handler.send_response(code);handler.send_header('Content-Type','application/json')
+        handler.send_header('Cache-Control','no-store');handler.send_header('Content-Length',str(len(raw)))
+        handler.end_headers();handler.wfile.write(raw);return True
     if path=='/api/fleet' and not post:
         raw=b''
         try:raw=json.dumps(fleet()).encode();code=200

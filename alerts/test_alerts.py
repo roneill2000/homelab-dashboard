@@ -1,4 +1,4 @@
-import sys, unittest
+import json, sys, unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import homelab_alerts as a
@@ -94,6 +94,22 @@ class CloudBackupTests(unittest.TestCase):
         out = a.smart_checks(launches, now)
         self.assertTrue(out['smart-launch:sdb'][0]); self.assertIn('Device busy', out['smart-launch:sdb'][2])
         self.assertTrue(out['smart-overdue:sdb'][0])  # no test ever recorded, after the grace period
+
+    def test_restore_check_recent_snapshots_and_event_log(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = Path(d) / 'rt.json'
+            self.assertEqual(a.restore_test_check(1000, r), {})
+            r.write_text(json.dumps({'finished_at': 0, 'checks': [{'label': 'Photos', 'ok': False, 'detail': '18 of 20 match'}, {'label': 'Configs', 'ok': None, 'detail': 'Could not run'}]}))
+            out = a.restore_test_check(41 * 86400, r)
+            self.assertTrue(out['restore-test'][0]); self.assertIn('Photos: 18 of 20', out['restore-test'][2]); self.assertNotIn('Configs', out['restore-test'][2])
+            self.assertTrue(out['restore-overdue'][0])
+            ev = Path(d) / 'ev.jsonl'
+            a.log_event('Disk hot', 'sdb 60 C', False, 1000, ev)
+            self.assertEqual(json.loads(ev.read_text())['title'], 'Disk hot')
+        snaps = [{'time': '2026-10-22T08:08:32Z', 'tags': ['unraid']}, {'time': '2026-10-21T08:08:32Z', 'tags': ['unraid']}]
+        rec = a.recent_by_tag(snaps)['unraid']
+        self.assertEqual(len(rec), 2); self.assertGreater(rec[0], rec[1])
 
     def test_config_backup_check_and_header_encoding(self):
         import tempfile

@@ -128,7 +128,9 @@ class Broker:
                 self.job = dict(status='idle',model=A310_LABEL)
             return dict(self.job)
 
-    def submit(self, prompt):
+    def submit(self, prompt, target='a310'):
+        if target not in ('a310', 'auto', 'pc'):
+            return 400, dict(status='failed', error='Unknown model choice.')
         if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>3000:
             return 400, dict(status='failed',error='Enter a question of 1–3,000 characters.')
         with self.mutex:
@@ -140,8 +142,8 @@ class Broker:
             except BlockingIOError:
                 lock.close()
                 return 409, dict(status='busy',model=A310_LABEL,error='The nightly review is using Qwen. Try again when it finishes.')
-            self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),
-                            model=A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
+            self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),target=target,
+                            model=PC_LABEL if target=='pc' else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
                             context_note='Question-selected host, storage, services, network, AI and log observations. No chat history or internet search.')
             accepted = dict(self.job)
             worker=threading.Thread(target=self.work,args=(lock,),name='qwen-question',daemon=False)
@@ -185,12 +187,17 @@ class Broker:
     def work(self, lock):
         owned=False;result={};work_started=time.monotonic()
         try:
-            token=pc_token()
+            target=self.state().get('target','a310')
+            token=pc_token() if target in ('auto','pc') else None
+            if target=='pc' and not token:
+                raise ValueError('The gaming PC is off, asleep or not serving the 27B. Wake it from Overview, or ask the A310.')
             if token:
                 try:
                     result=self.answer_on_pc(token);return
                 except Exception:
-                    # PC went to sleep, model swap failed, or the answer was unusable: use the A310 instead.
+                    if target=='pc':
+                        raise ValueError('The gaming PC did not finish an answer. Try again, or ask the A310.')
+                    # Auto: PC went to sleep, model swap failed, or the answer was unusable: use the A310 instead.
                     self.update(model=A310_LABEL,fallback='The gaming PC did not answer, so the A310 answered instead.',
                                 input_tokens=None,context_limit=None)
             else:
@@ -278,7 +285,7 @@ class Handler(BaseHTTPRequestHandler):
             data=json.loads(self.rfile.read(size))
             if not isinstance(data,dict):raise ValueError()
         except (ValueError,OSError):return self.reply(400,{'error':'Invalid question'})
-        code,result=BROKER.submit(data.get('prompt'));self.reply(code,result)
+        code,result=BROKER.submit(data.get('prompt'),data.get('target','a310'));self.reply(code,result)
     def log_message(self,*args):pass
 
 

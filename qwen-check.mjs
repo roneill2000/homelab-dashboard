@@ -15,7 +15,7 @@ try{
  let job={status:'idle',model:'Qwen3.5-4B'},posts=0,mode='accepted',statusFailure=false;
  await page.route('**/api/qwen',async r=>{
   if(r.request().method()==='POST'){
-   posts++;expect(r.request().headers()['x-qwen-request']).toBe('1');const body=r.request().postDataJSON();expect(Object.keys(body)).toEqual(['prompt']);expect(body.prompt.length).toBeLessThanOrEqual(3000);
+   posts++;expect(r.request().headers()['x-qwen-request']).toBe('1');const body=r.request().postDataJSON();expect(Object.keys(body)).toEqual(['prompt','target']);expect(['a310','auto','pc']).toContain(body.target);expect(body.prompt.length).toBeLessThanOrEqual(3000);
    if(mode==='invalid')return r.fulfill({status:400,json:{error:'Question rejected by fixture'}});
    if(mode==='busy'){job={status:'busy',model:'Qwen3.5-4B',error:'Nightly review is using the model.'};return r.fulfill({status:409,json:job})}
    job={status:'queued',model:'Qwen3.5-4B',id:'fixture',prompt:body.prompt};return r.fulfill({status:202,json:job});

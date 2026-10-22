@@ -30,6 +30,8 @@ SNAPSHOTS = Path('/var/lib/homelab-cloud-backup/snapshots.json')
 SOURCES = {'photos': ('Photos', 36), 'proxmox': ('Proxmox', 36), 'unraid': ('Unraid', 30), 'configs': ('Configs', 36)}  # tag: (label, stale after h)
 DETAILS = Path('/var/lib/homelab-alerts/details.json')  # last title/detail per alert key, for the why button and digest
 CONFIG_BACKUP = Path('/var/backups/homelab-configs/last_success')
+EVENTS = Path('/var/lib/homelab-alerts/events.jsonl')  # sent alerts, read by the runner's "what changed" timeline
+RESTORE_TEST = Path('/var/lib/homelab-cloud-backup/restore-test.json')
 WHY_URL = 'http://192.168.0.3:8997/why'
 QWEN_URL = HOME + '/api/qwen'
 
@@ -154,7 +156,7 @@ def refresh_snapshots(now, path=SNAPSHOTS, every=1800):
     if snaps is None:  # unreachable is not stale; keep the old cache
         return
     tmp = path.with_suffix('.new')
-    tmp.write_text(json.dumps({'checked_at': now, 'latest': latest_by_tag(snaps)}))
+    tmp.write_text(json.dumps({'checked_at': now, 'latest': latest_by_tag(snaps), 'recent': recent_by_tag(snaps)}))
     tmp.replace(path)
 
 
@@ -166,6 +168,34 @@ def latest_by_tag(snaps):
         for tag in snap.get('tags') or []:
             latest[tag] = max(latest.get(tag, 0), int(ts))
     return latest
+
+
+def recent_by_tag(snaps, keep=20):
+    times = {}
+    for tag, ts in ((t, v) for s in snaps for t, v in [(t, latest_by_tag([s])[t]) for t in (s.get('tags') or [])]):
+        times.setdefault(tag, []).append(ts)
+    return {t: sorted(v, reverse=True)[:keep] for t, v in times.items()}
+
+
+def log_event(title, detail, ok, now, path=EVENTS):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('a') as f:
+        f.write(json.dumps({'ts': int(now), 'title': title, 'detail': detail[:300], 'ok': ok}) + '\n')
+    lines = path.read_text().splitlines()
+    if len(lines) > 1000:
+        path.write_text('\n'.join(lines[-500:]) + '\n')
+
+
+def restore_test_check(now, path=RESTORE_TEST):
+    """Monthly off-site restore check (homelab-restore-test, 15th). A check that couldn't run is not a failure."""
+    try:
+        r = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    failed = [c for c in r.get('checks', []) if c.get('ok') is False]
+    days = (now - (r.get('finished_at') or 0)) / 86400
+    return {'restore-test': (bool(failed), 'Off-site restore test failed', '; '.join(f"{c.get('label')}: {c.get('detail')}" for c in failed) or 'All checks passed.', 4),
+            'restore-overdue': (days > 40, 'Off-site restore test overdue', f'Last restore test finished {int(days)} days ago; it should run on the 15th of each month.', 3)}
 
 
 def read_latest(path=SNAPSHOTS):
@@ -197,6 +227,14 @@ def digest_text(now, t, f, latest, active):
         if old:
             problems.append(f'{label} backup stale')
     lines.append('Backups: ' + (', '.join(bk) if latest else 'unknown (snapshot list unavailable)'))
+    try:
+        rt = json.loads(RESTORE_TEST.read_text())
+        state = {True: 'passed', False: 'FAILED', None: 'incomplete'}[rt.get('ok')]
+        lines.append(f"Last restore test: {state} {time.strftime('%-d %b', time.localtime(rt['finished_at']))}")
+        if rt.get('ok') is False:
+            problems.append('Off-site restore test failed')
+    except (OSError, ValueError, KeyError):
+        pass
     if t:
         u = t.get('unraid') or {}
         if u.get('cache_pct') is not None:
@@ -229,7 +267,7 @@ def digest_text(now, t, f, latest, active):
 
 def ask_qwen(prompt, wait=420):
     """Ask Homepage's Ask Qwen (27B on the PC when on, else the A310). Returns (answer, model) or (None, reason)."""
-    body = json.dumps({'prompt': prompt[:3000]}).encode()
+    body = json.dumps({'prompt': prompt[:3000], 'target': 'auto'}).encode()  # digest and why: 27B when the PC is on
     headers = {'Content-Type': 'application/json', 'X-Qwen-Request': '1'}
     deadline = time.time() + wait
     while True:
@@ -411,12 +449,14 @@ def main(argv):
     latest = read_latest()
     current.update(unraid_backup_check(now, latest))
     current.update(config_backup_check(now))
+    current.update(restore_test_check(now))
     sends, state = transitions(prev, current)
     for key, kind, title, detail, prio in sends:
         try:
             if kind == 'down':
                 remember(key, title, detail, now)
             send(kind, title, detail, prio, key=key)
+            log_event(('Recovered: ' if kind == 'up' else '') + title, detail, kind == 'up', now)
         except Exception:
             state[key]['alerted'] = not state[key]['alerted']  # retry next run
     STATE.parent.mkdir(parents=True, exist_ok=True)
