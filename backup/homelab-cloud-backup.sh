@@ -39,7 +39,12 @@ trap 'notify "Cloud backup failed" 4 warning "homelab-cloud-backup stopped at li
 exec 9>/run/homelab-cloud-backup.lock
 flock -n 9 || { echo "already running"; exit 0; }
 
-restic cat config >/dev/null 2>&1 || restic init
+# Never create a repository here: an empty or wrong destination must fail loudly, not start a fresh repo.
+# First-time setup is `restic init` by hand, then save its id to $REPO_ID (Terra review, 22 Oct 2026).
+REPO_ID=/root/.config/restic/gdrive.repo-id
+ID=$(restic cat config --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])') \
+  || { notify "Cloud backup failed" 4 warning "Google Drive repository unreadable (missing, wrong password, or Drive sign-in expired). Nothing was uploaded."; echo "Google Drive repository unreadable (missing, wrong password, or Drive sign-in expired). Nothing was uploaded."; exit 1; }
+[ "$ID" = "$(cat "$REPO_ID")" ] || { notify "Cloud backup failed" 4 warning "Google Drive repository id $ID is not the expected one. Nothing was uploaded."; echo "Google Drive repository id $ID is not the expected one. Nothing was uploaded."; exit 1; }
 
 # Full speed for the very first upload; after that cap at ~200 Mbps (24414 KiB/s) so ~100 Mbps of the
 # 300 Mbps uplink stays free (Ryan, 21 Oct 2026).

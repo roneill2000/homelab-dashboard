@@ -89,6 +89,11 @@ class CloudBackupTests(unittest.TestCase):
         old = a.smart_checks({'scheduler_installed_at': now - 10 * 86400, 'disks': [dict(disk, last_extended=dict(disk['last_extended'], result='Completed without error'))]}, now)
         self.assertFalse(old['smart-test:sdb'][0]); self.assertTrue(old['smart-overdue:sdb'][0])
         self.assertEqual(a.smart_checks(None, now), {})
+        launches = {'scheduler_installed_at': now - 10 * 86400, 'launches': {'sdb': {'ok': False, 'kind': 'extended', 'at': now, 'message': 'Device busy'}},
+                    'disks': [dict(disk, last_extended=None)]}
+        out = a.smart_checks(launches, now)
+        self.assertTrue(out['smart-launch:sdb'][0]); self.assertIn('Device busy', out['smart-launch:sdb'][2])
+        self.assertTrue(out['smart-overdue:sdb'][0])  # no test ever recorded, after the grace period
 
     def test_config_backup_check_and_header_encoding(self):
         import tempfile
