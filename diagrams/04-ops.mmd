@@ -1,0 +1,49 @@
+flowchart TD
+    subgraph TELEMETRY["Telemetry & Central Dashboards"]
+        direction TB
+        HOMEPAGE["Homepage (LXC 104)<br/>192.168.0.2:80 · Command Center"]
+        SYSLOG_MON["Syslog Monitor<br/>192.168.0.3:8999 · Parser & API"]
+        KUMA["Uptime Kuma<br/>192.168.0.10:3001 · Heartbeats"]
+        NETALERTX["NetAlertX (LXC 102)<br/>192.168.0.13:20211 · Device Watch"]
+        SCRUTINY["Scrutiny (Unraid)<br/>192.168.0.4:8080 · SMART Sentry"]
+    end
+
+    subgraph SOURCES["10 Reporting Homelab Hosts"]
+        HOSTS["Proxmox · Unraid · Orange Pi · Router<br/>VMs & LXCs (102, 103, 104, 105, 106, 111)"]
+    end
+
+    subgraph ALERTS["Alert Notification Pipeline"]
+        direction TB
+        SENDERS["10 Alert Senders<br/>Watchdogs, SMART, Webhooks, DDNS"]
+        NTFY["ntfy.sh<br/>Encrypted Push Gateway"]
+        MOBILE["Admin iPhone / Watch<br/>Instant Notification Alerts"]
+        HC["healthchecks.io<br/>External Dead-Man Heartbeat"]
+    end
+
+    subgraph AI_ROUTING["Local AI Inference Routing"]
+        direction TB
+        ARC_GPU["Intel Arc A310 (Unraid)<br/>192.168.0.4:11438 · Qwen3.5-4B"]
+        RTX_GPU["RTX 5070 Ti (Gaming PC)<br/>192.168.0.12:8080 · llama.cpp (16GB)"]
+        AI_CLIENTS["Open WebUI / OpenCode<br/>192.168.0.16 / 192.168.0.19"]
+    end
+
+    %% Syslog pipeline
+    HOSTS -->|UDP 514 rsyslog| SYSLOG_MON
+    SYSLOG_MON -->|Real-time alerts API| HOMEPAGE
+
+    %% Telemetry scrapes
+    HOSTS -.->|Scrapes API & metrics| HOMEPAGE
+    KUMA -->|Ping / HTTP checks| HOSTS
+    NETALERTX -->|ARP & Port scans| HOSTS
+
+    %% Alert notification flows
+    SENDERS -->|HTTPS POST| NTFY
+    KUMA -->|Webhook alert| NTFY
+    SCRUTINY -->|Webhook alert| NTFY
+    NETALERTX -->|Webhook alert| NTFY
+    NTFY -->|Push notifications| MOBILE
+    HOSTS -->|Periodic ping| HC
+
+    %% AI routing flows
+    HOMEPAGE -->|Ask Qwen prompt query| ARC_GPU
+    AI_CLIENTS -->|Coding & chat inference| RTX_GPU

@@ -1,0 +1,468 @@
+{
+  "collected_at": "2026-10-22T12:57:00Z",
+  "hosts": [
+    {
+      "id": "router",
+      "name": "GL-BE9300",
+      "ip": "192.168.0.1",
+      "kind": "router",
+      "hardware": "GL.iNet Flint 3 (Wi-Fi 7, OpenWrt 21.02/kernel 5.4.260)"
+    },
+    {
+      "id": "proxmox",
+      "name": "pve",
+      "ip": "192.168.0.3",
+      "kind": "hypervisor",
+      "hardware": "Intel N100 (4C/4T), 16 GB RAM, Proxmox VE 9.2.21 (Kernel 7.0.14-24-pve)"
+    },
+    {
+      "id": "unraid",
+      "name": "Tower",
+      "ip": "192.168.0.4",
+      "kind": "nas",
+      "hardware": "Intel Core i7-7700T, 16 GB RAM, Intel Arc A310 (Transcode & AI), Unraid 7.3.2"
+    },
+    {
+      "id": "orangepi",
+      "name": "orangepi-zero2w",
+      "ip": "192.168.0.10",
+      "kind": "sbc",
+      "hardware": "Orange Pi Zero 2W (Allwinner H618), Ubuntu 26.04 LTS (Kernel 6.1.31-sun50iw9)"
+    },
+    {
+      "id": "gaming-pc",
+      "name": "desktop-pc",
+      "ip": "192.168.0.12",
+      "kind": "pc",
+      "hardware": "Windows 11 PC, NVIDIA GeForce RTX 5070 Ti (16 GB VRAM)"
+    }
+  ],
+  "guests": [
+    {
+      "id": "lxc-102",
+      "host": "proxmox",
+      "name": "utilities",
+      "ip": "192.168.0.13",
+      "kind": "lxc",
+      "ports": [
+        3000,
+        6500,
+        6501,
+        8080,
+        8085,
+        8191,
+        8787,
+        8989,
+        9696,
+        20211,
+        20212
+      ],
+      "status": "running"
+    },
+    {
+      "id": "lxc-103",
+      "host": "proxmox",
+      "name": "kasm",
+      "ip": "192.168.0.15",
+      "kind": "lxc",
+      "ports": [
+        443
+      ],
+      "status": "running"
+    },
+    {
+      "id": "lxc-104",
+      "host": "proxmox",
+      "name": "homepage",
+      "ip": "192.168.0.2",
+      "kind": "lxc",
+      "ports": [
+        80
+      ],
+      "status": "running"
+    },
+    {
+      "id": "lxc-105",
+      "host": "proxmox",
+      "name": "speedtest-tracker",
+      "ip": "192.168.0.14",
+      "kind": "lxc",
+      "ports": [
+        80
+      ],
+      "status": "running"
+    },
+    {
+      "id": "lxc-106",
+      "host": "proxmox",
+      "name": "pihole-secondary",
+      "ip": "192.168.0.11",
+      "kind": "lxc",
+      "ports": [
+        53,
+        80
+      ],
+      "status": "running"
+    },
+    {
+      "id": "lxc-111",
+      "host": "proxmox",
+      "name": "apache-guacamole",
+      "ip": "192.168.0.6",
+      "kind": "lxc",
+      "ports": [
+        8080
+      ],
+      "status": "running"
+    },
+    {
+      "id": "lxc-112",
+      "host": "proxmox",
+      "name": "open-webui",
+      "ip": "192.168.0.16",
+      "kind": "lxc",
+      "ports": [
+        8080
+      ],
+      "status": "running"
+    },
+    {
+      "id": "lxc-113",
+      "host": "proxmox",
+      "name": "memos",
+      "ip": "192.168.0.18",
+      "kind": "lxc",
+      "ports": [
+        5230
+      ],
+      "status": "running"
+    },
+    {
+      "id": "lxc-114",
+      "host": "proxmox",
+      "name": "opencode",
+      "ip": "192.168.0.19",
+      "kind": "lxc",
+      "ports": [
+        3000
+      ],
+      "status": "running"
+    },
+    {
+      "id": "vm-107",
+      "host": "proxmox",
+      "name": "Wireguard",
+      "ip": "192.168.0.30",
+      "kind": "vm",
+      "ports": [
+        443,
+        500
+      ],
+      "status": "running"
+    },
+    {
+      "id": "vm-100",
+      "host": "proxmox",
+      "name": "Kali",
+      "ip": "dhcp",
+      "kind": "vm",
+      "ports": [],
+      "status": "stopped"
+    },
+    {
+      "id": "vm-101",
+      "host": "proxmox",
+      "name": "ubuntu",
+      "ip": "dhcp",
+      "kind": "vm",
+      "ports": [],
+      "status": "stopped"
+    },
+    {
+      "id": "vm-109",
+      "host": "proxmox",
+      "name": "VM 109",
+      "ip": "dhcp",
+      "kind": "vm",
+      "ports": [],
+      "status": "stopped"
+    },
+    {
+      "id": "vm-110",
+      "host": "proxmox",
+      "name": "Windows",
+      "ip": "dhcp",
+      "kind": "vm",
+      "ports": [],
+      "status": "stopped"
+    },
+    {
+      "id": "docker-jellyfin",
+      "host": "unraid",
+      "name": "Jellyfin",
+      "ip": "192.168.0.17",
+      "kind": "docker",
+      "ports": [
+        8096
+      ],
+      "status": "running"
+    },
+    {
+      "id": "docker-minecraft",
+      "host": "unraid",
+      "name": "Minecraft",
+      "ip": "192.168.0.25",
+      "kind": "docker",
+      "ports": [
+        25565
+      ],
+      "status": "running"
+    },
+    {
+      "id": "docker-audiobookshelf",
+      "host": "unraid",
+      "name": "Audiobookshelf",
+      "ip": "192.168.0.4",
+      "kind": "docker",
+      "ports": [
+        13378
+      ],
+      "status": "running"
+    },
+    {
+      "id": "docker-scrutiny",
+      "host": "unraid",
+      "name": "Scrutiny",
+      "ip": "192.168.0.4",
+      "kind": "docker",
+      "ports": [
+        8080
+      ],
+      "status": "running"
+    },
+    {
+      "id": "docker-glances",
+      "host": "unraid",
+      "name": "Glances",
+      "ip": "192.168.0.4",
+      "kind": "docker",
+      "ports": [
+        61208
+      ],
+      "status": "running"
+    },
+    {
+      "id": "docker-unraid-restic",
+      "host": "unraid",
+      "name": "unraid-restic",
+      "ip": "192.168.0.4",
+      "kind": "docker",
+      "ports": [],
+      "status": "running"
+    },
+    {
+      "id": "docker-zurg",
+      "host": "unraid",
+      "name": "zurg",
+      "ip": "192.168.0.4",
+      "kind": "docker",
+      "ports": [
+        9999
+      ],
+      "status": "stopped"
+    },
+    {
+      "id": "docker-nebula-sync",
+      "host": "orangepi",
+      "name": "nebula-sync",
+      "ip": "192.168.0.10",
+      "kind": "docker",
+      "ports": [],
+      "status": "running"
+    },
+    {
+      "id": "docker-uptime-kuma",
+      "host": "orangepi",
+      "name": "uptime-kuma",
+      "ip": "192.168.0.10",
+      "kind": "docker",
+      "ports": [
+        3001
+      ],
+      "status": "running"
+    },
+    {
+      "id": "svc-pihole-opi",
+      "host": "orangepi",
+      "name": "pihole-FTL",
+      "ip": "192.168.0.10",
+      "kind": "docker",
+      "ports": [
+        53,
+        80
+      ],
+      "status": "running"
+    },
+    {
+      "id": "svc-llamacpp",
+      "host": "gaming-pc",
+      "name": "llama.cpp",
+      "ip": "192.168.0.12",
+      "kind": "pc",
+      "ports": [
+        8080
+      ],
+      "status": "running"
+    }
+  ],
+  "links": [
+    {
+      "from": "router",
+      "to": "lxc-106",
+      "what": "DNS",
+      "verified": true
+    },
+    {
+      "from": "router",
+      "to": "svc-pihole-opi",
+      "what": "DNS",
+      "verified": true
+    },
+    {
+      "from": "docker-nebula-sync",
+      "to": "lxc-106",
+      "what": "HTTP",
+      "verified": true
+    },
+    {
+      "from": "vm-107",
+      "to": "router",
+      "what": "WireGuard",
+      "verified": true
+    },
+    {
+      "from": "lxc-102",
+      "to": "proxmox",
+      "what": "SMB",
+      "verified": true
+    },
+    {
+      "from": "lxc-102",
+      "to": "unraid",
+      "what": "SMB",
+      "verified": true
+    },
+    {
+      "from": "proxmox",
+      "to": "unraid",
+      "what": "NFS",
+      "verified": true
+    },
+    {
+      "from": "proxmox",
+      "to": "google-drive",
+      "what": "restic",
+      "verified": true
+    },
+    {
+      "from": "docker-unraid-restic",
+      "to": "google-drive",
+      "what": "restic",
+      "verified": true
+    },
+    {
+      "from": "hosts",
+      "to": "proxmox",
+      "what": "syslog",
+      "verified": true
+    },
+    {
+      "from": "lxc-104",
+      "to": "hosts",
+      "what": "HTTP",
+      "verified": true
+    },
+    {
+      "from": "alert-senders",
+      "to": "ntfy.sh",
+      "what": "ntfy",
+      "verified": true
+    },
+    {
+      "from": "lxc-112",
+      "to": "svc-llamacpp",
+      "what": "HTTP",
+      "verified": true
+    },
+    {
+      "from": "lxc-114",
+      "to": "svc-llamacpp",
+      "what": "HTTP",
+      "verified": true
+    },
+    {
+      "from": "lxc-104",
+      "to": "unraid",
+      "what": "HTTP",
+      "verified": true
+    }
+  ],
+  "storage": [
+    {
+      "id": "pve-nvme",
+      "host": "proxmox",
+      "size": "512 GB",
+      "role": "Proxmox OS & local-lvm guest disks"
+    },
+    {
+      "id": "pve-sda",
+      "host": "proxmox",
+      "size": "477 GB",
+      "role": "Local share /mnt/share (Samba [n100])"
+    },
+    {
+      "id": "unraid-array",
+      "host": "unraid",
+      "size": "4 TB",
+      "role": "Protected media and appdata storage (/mnt/user/4TB)"
+    },
+    {
+      "id": "unraid-cache",
+      "host": "unraid",
+      "size": "256 GB",
+      "role": "NVMe fast cache (/mnt/cache)"
+    },
+    {
+      "id": "opi-sd",
+      "host": "orangepi",
+      "size": "32 GB",
+      "role": "MicroSD root filesystem"
+    }
+  ],
+  "backups": [
+    {
+      "what": "PVE guest snapshots (vzdump)",
+      "from": "proxmox",
+      "to": "unraid (/mnt/pve/unraid/dump)",
+      "schedule": "Daily 01:00",
+      "retention": "keep-last: 3"
+    },
+    {
+      "what": "Photos & latest vzdump archives",
+      "from": "proxmox",
+      "to": "Google Drive (rclone:gdrive:homelab-restic)",
+      "schedule": "Daily 02:00",
+      "retention": "restic policy, 200 Mbps cap"
+    },
+    {
+      "what": "Unraid appdata, system, flash & pi-hole",
+      "from": "docker-unraid-restic",
+      "to": "Google Drive (rclone:gdrive:homelab-restic)",
+      "schedule": "Daily 04:00",
+      "retention": "restic snapshot policy"
+    }
+  ],
+  "unverified": [
+    "Individual client device hostnames and assigned IPs on IoT (192.168.10.0/24) and Guest (192.168.9.0/24) subnets"
+  ]
+}
