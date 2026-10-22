@@ -18,6 +18,7 @@ EXTENDED_DAYS = 90
 SHORT_DAYS = 30
 WATCH = {5: 'reallocated', 187: 'reported_uncorrectable', 197: 'pending', 198: 'offline_uncorrectable', 199: 'crc_errors'}
 LOG = Path('/mnt/disk1/.homelab-smart/schedule.log')
+LAUNCHES = Path('/mnt/disk1/.homelab-smart/launches.json')  # last launch attempt per device, ok or not
 
 
 def smartctl(*args):
@@ -91,6 +92,7 @@ def status():
     cron = Path('/boot/config/plugins/dynamix/homelab-smart.cron')
     return dict(observed_at=int(time.time()), extended_every_days=EXTENDED_DAYS, short_every_days=SHORT_DAYS,
                 scheduler_installed_at=int(cron.stat().st_mtime) if cron.exists() else None,
+                launches=json.loads(LAUNCHES.read_text()) if LAUNCHES.exists() else {},
                 disks=[disk(dev, role) for dev, role in devices()])
 
 
@@ -111,6 +113,16 @@ def due(d):
     return 'short' if t is None or t['hours_ago'] >= SHORT_DAYS * 24 else None
 
 
+def record_launch(dev, kind, ok, message):
+    try:
+        data = json.loads(LAUNCHES.read_text())
+    except (OSError, ValueError):
+        data = {}
+    data[dev.rsplit('/', 1)[-1]] = dict(kind=kind, at=int(time.time()), ok=ok, message=message)
+    LAUNCHES.parent.mkdir(parents=True, exist_ok=True)
+    LAUNCHES.write_text(json.dumps(data))
+
+
 def schedule():
     if time.localtime().tm_wday == 6 or parity_running():
         return []
@@ -118,8 +130,10 @@ def schedule():
     for dev, role in devices():
         kind = due(disk(dev, role))
         if kind:
-            smartctl('-t', kind, dev)
-            started.append(f'{dev} {kind}')
+            text = smartctl('-t', kind, dev)
+            ok = 'has begun' in text or 'Testing has begun' in text
+            record_launch(dev, kind, ok, '' if ok else text.strip().splitlines()[-1][:200] if text.strip() else 'no output from smartctl')
+            started.append(f"{dev} {kind}{'' if ok else ' FAILED'}")
     if started:
         LOG.parent.mkdir(parents=True, exist_ok=True)
         with LOG.open('a') as f:

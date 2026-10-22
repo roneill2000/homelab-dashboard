@@ -98,8 +98,14 @@ def smart_checks(smart, now):
     for d in smart.get('disks') or []:
         name = f"{d.get('role')} ({d.get('device')})"
         kind, every = ('extended', smart.get('extended_every_days', 90)) if d.get('rotational') else ('short', smart.get('short_every_days', 30))
+        launch = (smart.get('launches') or {}).get(d.get('device'))
+        if launch:  # an explicit failed launch is actionable; a missing reading stays unknown
+            out[f"smart-launch:{d.get('device')}"] = (not launch.get('ok'), f'Drive self-test did not start on {name}',
+                                                     f"{kind} test launch at {time.strftime('%d %b %H:%M', time.localtime(launch.get('at') or 0))}: {launch.get('message') or 'smartctl did not confirm the start'}", 3)
         t = d.get(f'last_{kind}')
         if not t:
+            if settled and d.get('running_remaining_pct') is None:
+                out[f"smart-overdue:{d.get('device')}"] = (True, f'Drive self-tests not running on {name}', f'No {kind} test is recorded for this disk.', 3)
             continue
         result = t.get('result') or ''
         ok = result.startswith('Completed without error') or 'progress' in result.lower() or 'aborted by host' in result.lower()
