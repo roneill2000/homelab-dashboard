@@ -64,6 +64,28 @@ class QwenTests(unittest.TestCase):
         self.assertEqual(stop.call_count,2)
         return state,fetch
 
+    def test_pc_answers_when_on_and_a310_is_untouched(self):
+        broker=q.Broker();broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000)
+        lock=SimpleNamespace(close=unittest.mock.Mock())
+        response={'choices':[{'finish_reason':'stop','message':{'content':'Cache is fine.'}}],'usage':{'prompt_tokens':900}}
+        with patch.object(q,'pc_token',return_value='k'),patch.object(q,'ask_pc',return_value=response) as ask,\
+             patch.object(q.r,'fetch',side_effect=[storage(),{}]),patch.object(q.r,'stop_model') as stop,patch.object(q.subprocess,'run') as run:
+            broker.work(lock)
+        state=broker.state()
+        self.assertEqual((state['status'],state['model'],state['input_tokens']),('complete',q.PC_LABEL,900))
+        self.assertEqual(ask.call_args.args[0],'k');stop.assert_not_called();run.assert_not_called();lock.close.assert_called_once()
+
+    def test_pc_failure_falls_back_to_a310(self):
+        with patch.object(q,'pc_token',return_value='k'),patch.object(q.Broker,'answer_on_pc',side_effect=OSError('asleep')):
+            state,fetch=self.exercise()
+        self.assertEqual((state['status'],state['model']),('complete',q.A310_LABEL))
+        self.assertIn('A310 answered',state['fallback'])
+
+    def test_a310_questions_use_the_256_token_thinking_cap(self):
+        command=q.r.container_command(context_size=6144,reasoning_budget=q.A310_THINKING)
+        self.assertEqual(command[command.index('--reasoning-budget')+1],'256')
+        self.assertEqual(q.r.container_command()[q.r.container_command().index('--reasoning-budget')+1],'768')  # nightly keeps 768
+
     def test_success_refetches_context_then_cleans_up(self):
         state,fetch=self.exercise()
         self.assertEqual(state['status'],'complete')

@@ -7,6 +7,7 @@ ROOT=Path(__file__).resolve().parent
 REMOTE=r'''
 import datetime,fcntl,json,os,pathlib,secrets,shutil,signal,subprocess,time,urllib.request
 p=json.loads(PAYLOAD)
+router=p.pop('__router_token',None)
 root=pathlib.Path('/mnt/disk1/.homelab-nightly')
 if not root.is_dir():raise RuntimeError('Install nightly model first')
 # Exclude new questions/nightly startup throughout replacement.
@@ -38,6 +39,11 @@ if not tokenfile.exists():
  fd=os.open(tokenfile,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
  with os.fdopen(fd,'w') as f:f.write(token)
 os.chmod(tokenfile,0o600)
+if router:  # gaming PC llama.cpp router key, so Ask Qwen can use the 27B when the PC is on
+ rf=root/'router-token';stage=root/'router-token.new'
+ fd=os.open(stage,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+ with os.fdopen(fd,'w') as f:f.write(router)
+ os.replace(stage,rf)
 cron=pathlib.Path('/boot/config/plugins/dynamix/homelab-qwen.cron')
 if cron.exists():shutil.copy2(cron,backup/cron.name)
 cron.write_text('# Local Qwen prompt broker; GPU starts only on request\n* * * * * test ! -f /mnt/disk1/.homelab-nightly/qwen_service.py || /usr/bin/python3 /mnt/disk1/.homelab-nightly/qwen_service.py --ensure\n')
@@ -66,6 +72,9 @@ print('Dashboard Qwen credential installed (private)')
 '''
 if __name__=='__main__':
  payload={name:(ROOT/name).read_text(encoding='utf-8') for name in ('qwen_service.py','qwen_context.py','runner.py','log_snapshot.py','gpu_probe.py')}
+ key=subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct exec 104 -- python3 -'],capture_output=True,text=True,
+                    input="import json;print(json.load(open('/etc/homelab-dashboard/ai.json')).get('token',''))")
+ if key.returncode==0 and key.stdout.strip():payload['__router_token']=key.stdout.strip()
  script=REMOTE.replace('json.loads(PAYLOAD)','json.loads('+repr(json.dumps(payload))+')')
  result=subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.4','python3','-'],input=script,text=True,capture_output=True)
  if result.returncode:raise RuntimeError('Broker installation failed: '+result.stderr[-1500:])
