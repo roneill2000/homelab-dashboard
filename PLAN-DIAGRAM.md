@@ -39,7 +39,7 @@ Pull from these, in this order. Save raw results under `diagrams/raw/` (gitignor
 | Unraid | `ssh proxmox "ssh root@192.168.0.4 'docker ps -a --format \"{{.Names}}|{{.Ports}}|{{.Networks}}\"'"` | Docker apps, br0 IPs (Jellyfin .17, Minecraft .25), ports |
 | Orange Pi | `ssh proxmox "ssh root@192.168.0.10 'docker ps --format \"{{.Names}}\"; systemctl list-units --type=service --state=running --no-legend | head -40'"` | Pi-hole replica, Uptime Kuma, nebula-sync |
 | Router | `ssh root@192.168.0.1 "cat /tmp/dhcp.leases | wc -l; uci show network | grep -E 'ipaddr|netmask'"` (counts only, no MACs) | LAN, IoT and guest subnets |
-| Repo docs | `alerts/SENDERS.md`, `syslog/README.md`, `backup/`, `LOCAL-LLM-NOTES.md`, `AUDIT-NETWORK-2026-10-21.md` | Alert senders, log flow, backup design, AI setup |
+| Repo docs | `alerts/SENDERS.md`, `syslog/README.md`, `backup/`, `LOCAL-LLM-NOTES.md`, `private/AUDIT-NETWORK-2026-10-21.md (local only)` | Alert senders, log flow, backup design, AI setup |
 
 `inventory.json` shape:
 
