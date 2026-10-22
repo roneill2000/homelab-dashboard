@@ -27,14 +27,14 @@ def handle(handler,post=False):
             reply(403,dict(status='failed',error='Use the homepage to submit a question.'));return True
         try:
             length=int(handler.headers.get('Content-Length','0'))
-            if not 0<length<=8192:raise ValueError()
+            if not 0<length<=16384:raise ValueError()
             handler.connection.settimeout(5)
             data=json.loads(handler.rfile.read(length))
             prompt=data.get('prompt') if isinstance(data,dict) else None
-            if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>1000:raise ValueError()
+            if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>3000:raise ValueError()
             body=json.dumps({'prompt':prompt}).encode()
         except (ValueError,OSError):
-            reply(400,dict(status='failed',error='Enter a question of 1–1,000 characters.'));return True
+            reply(400,dict(status='failed',error='Enter a question of 1–3,000 characters.'));return True
     try:
         config=json.loads(CONFIG.read_text())
         request=urllib.request.Request('http://192.168.0.4:11438/job',data=body,

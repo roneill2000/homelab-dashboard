@@ -29,7 +29,7 @@ SYSTEM = ('Answer the user directly. You may explain general topics using your l
           'Use readable dates, not Unix timestamps. If the supplied data cannot answer a local question, say exactly what is missing. '
           +qwen_context.CAPABILITIES)
 
-INPUT_BUDGET=2750
+INPUT_BUDGET=4550
 
 
 def context(storage, now):
@@ -56,7 +56,7 @@ def context(storage, now):
 
 def body_for(prompt, evidence):
     return dict(model=r.MODEL, temperature=0.6, top_p=0.95, top_k=20, seed=42,
-                max_tokens=1152, stream=False, chat_template_kwargs={'enable_thinking':True},
+                max_tokens=1400, stream=False, chat_template_kwargs={'enable_thinking':True},
                 messages=[dict(role='system',content=SYSTEM),
                           dict(role='user',content='Observations: '+json.dumps(evidence,separators=(',',':'))+'\nQuestion: '+prompt)])
 
@@ -88,8 +88,8 @@ class Broker:
             return dict(self.job)
 
     def submit(self, prompt):
-        if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>1000:
-            return 400, dict(status='failed',error='Enter a question of 1–1,000 characters.')
+        if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>3000:
+            return 400, dict(status='failed',error='Enter a question of 1–3,000 characters.')
         with self.mutex:
             if self.job['status'] in ACTIVE:
                 return 409, dict(self.job, error='A question is already running. Wait for its answer.')
@@ -122,7 +122,7 @@ class Broker:
             # run.lock excludes the nightly process before any shared container operation.
             r.stop_model()
             owned=True
-            subprocess.run(r.container_command(context_size=4096),check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=60)
+            subprocess.run(r.container_command(context_size=6144),check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=60)
             deadline=time.monotonic()+900
             while True:
                 try:
@@ -166,7 +166,7 @@ class Broker:
             if omitted:note+=' Trimmed to fit: '+', '.join(dict.fromkeys(omitted))+'.'
             note+=' Sources include timestamps; unavailable readings stay unknown. No chat history or internet search.'
             self.update(status='generating',context_at=evidence['observed_at'],generation_started_at=int(time.time()),
-                        context_note=note,context_sources=names,context_omissions=omitted,input_tokens=count,context_limit=4096,
+                        context_note=note,context_sources=names,context_omissions=omitted,input_tokens=count,context_limit=6144,
                         evidence=evidence)
             generation_started=time.monotonic()
             response=r.fetch(r.API+'/v1/chat/completions',body,timeout=180)
@@ -209,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path!='/job':return self.reply(404,{'error':'Not found'})
         try:
             size=int(self.headers.get('Content-Length','0'))
-            if not 0<size<=8192:raise ValueError()
+            if not 0<size<=16384:raise ValueError()
             self.connection.settimeout(5)
             data=json.loads(self.rfile.read(size))
             if not isinstance(data,dict):raise ValueError()

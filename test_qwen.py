@@ -85,7 +85,8 @@ class QwenTests(unittest.TestCase):
         self.assertEqual(state['status'],'failed')
         self.assertIn('too long',state['error'])
         self.assertNotIn(q.r.API+'/v1/chat/completions',[c.args[0] for c in fetch.call_args_list])
-        self.assertEqual(q.body_for('Q',{})['max_tokens'],1152)
+        self.assertEqual(q.body_for('Q',{})['max_tokens'],1400)
+        self.assertLessEqual(q.INPUT_BUDGET+q.body_for('Q',{})['max_tokens'],6144-128)  # fits the 6K window with margin
 
     def test_failed_resource_gate_never_touches_container(self):
         broker=q.Broker();broker.job=dict(status='queued',prompt='Q',updated_at=1000)
