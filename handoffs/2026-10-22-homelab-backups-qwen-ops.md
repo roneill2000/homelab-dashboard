@@ -30,7 +30,7 @@
 - agy's diagrams (`diagrams/`) unreviewed. Settle: check against `PLAN-DIAGRAM.md` Step 4.
 - Remove or keep the Apple TV Wi-Fi block (`hostapd_cli -p /var/run/hostapd-wifiN deny_acl DEL_MAC …`).
 - Restic password still only on Proxmox (`/root/.config/restic/gdrive.pass`); Ryan to save it in a password manager.
-- Audit leftovers: SSH passwords off, read-only PVE token, MariaDB socket in LXC 102, Proxmox firewall. Source: `AUDIT-NETWORK-2026-10-21.md`.
+- Security follow-ups from the audits: see `private/AUDIT-NETWORK-2026-10-21.md` (local only, not in git).
 
 ## Files that matter
 - `nightly/qwen_service.py`, `nightly/runner.py`, `nightly/install_qwen.py`, `nightly/install_runner.py` — Ask Qwen and A310 container.

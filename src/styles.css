@@ -109,3 +109,4 @@ body{font-size:16px}.sidebar{width:248px;padding-left:14px;padding-right:14px}.w
 .timeline-day li.bad strong,.timeline-day li.bad .timeline-icon{color:#ed9e98}.timeline-source{font-size:12px;color:var(--faint);white-space:nowrap}
 @media (max-width:760px){.readiness-row{grid-template-columns:1fr 1fr}.readiness-head{display:none}.timeline-day li{grid-template-columns:60px 20px 1fr}.timeline-source{display:none}}
 .qwen-target{flex-shrink:0;max-width:190px;min-height:44px;font-size:14px}@media (max-width:760px){.qwen-input-row{flex-wrap:wrap}.qwen-target{flex:1 1 100%;max-width:none}}
+@media (max-width:760px){.section-heading{flex-wrap:wrap}.section-heading .segments{flex-wrap:wrap}}
