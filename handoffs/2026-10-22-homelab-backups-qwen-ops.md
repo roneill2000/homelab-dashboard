@@ -4,7 +4,7 @@
 **Workstream:** homelab-dashboard (personal; repo `~/homelab`, remote `n100` only, never ryan-tools or sevenai).
 
 ## Working state
-- `~/homelab`, branch `main`, HEAD `9a4ca32` = `n100/main`, clean tree (git, 22 Oct ~13:45).
+- `~/homelab`, branch `main`, history rewritten on n100 at 13:44/14:00 by another session (trailers → Antigravity); this brief and the 429 fix were dropped and re-applied, clean tree (git, 22 Oct ~13:45).
 - `fcb547e diagrams: …` was pushed by agy from `PLAN-DIAGRAM.md`; not reviewed yet.
 - `OPERATIONS.md` is private notes, gitignored; never commit it.
 
@@ -25,7 +25,7 @@
 - OAuth publishing "is whatever"; rate limiting is acceptable.
 
 ## Open
-- **Google OAuth app in Testing mode: token expires ~28 Oct and backups then stop (not just slow).** Settle by switching both rclone configs (Proxmox `/root/.config/rclone`, Unraid `/boot/config/restic/rclone`) to rclone's built-in client via `rclone config reconnect gdrive:`; Ryan clicks one sign-in link each.
+- **Google OAuth app in Testing mode: token expires ~28 Oct and backups then stop.** Keep the custom client (rclone's shared client is retiring during 2026, per rclone.org/drive; my earlier switch-back advice was wrong, corrected by AUDIT-TERRA-2026-10-22). Settle: publish the app (needs a home page + privacy URL), then `rclone config reconnect gdrive:` on Proxmox and Unraid and confirm a new snapshot from each.
 - Did the "Ask Qwen why" button work from Ryan's phone? Settle: Ryan taps it on the test alert with WireGuard on.
 - agy's diagrams (`diagrams/`) unreviewed. Settle: check against `PLAN-DIAGRAM.md` Step 4.
 - Remove or keep the Apple TV Wi-Fi block (`hostapd_cli -p /var/run/hostapd-wifiN deny_acl DEL_MAC …`).
@@ -39,7 +39,7 @@
 - `backup/`, `smart/install.sh`, `updates/install.py`, `deploy.py` (build with `npm run build` first).
 
 ## Next step
-Before 28 Oct: switch rclone on Proxmox and Unraid to the built-in client (`rclone config reconnect gdrive:` with client_id/secret removed), then run one manual backup each and confirm a new snapshot.
+Before 28 Oct: put up a minimal home page + privacy page Ryan controls, publish the Google OAuth app, reconnect rclone on both hosts, then run one manual backup each and confirm a new snapshot. Then pick from AUDIT-TERRA-2026-10-22 (auth on dashboard actions, SSH/firewall, restore checks).
 
 ## Unverified
 - Ryan's phone receiving/acting on the why button; Thursday's SMART tests actually starting (check `/mnt/disk1/.homelab-smart/schedule.log`).
