@@ -71,14 +71,16 @@ function NetworkPanel({network,ranges,compact=false}){
 function OffsiteCard({cb}){
  const now=Date.now()/1000,age=cb?.last_success?now-cb.last_success:null;
  const ago=s=>s<3600?`${Math.max(1,Math.round(s/60))} min ago`:s<172800?`${Math.round(s/3600)} h ago`:`${Math.round(s/86400)} days ago`;
- const state=!cb?null:cb.last_failed_start?false:age!==null&&age>36*3600?false:cb.last_success?true:null;
- const label=!cb?'Checking':cb.running?'Uploading':cb.last_failed_start?'Last run failed':age!==null&&age>36*3600?'Stale':cb.last_success?'Up to date':'First upload pending';
+ const staleSources=(cb?.sources||[]).filter(x=>x.last&&now-x.last>x.stale_h*3600);
+ const state=!cb?null:cb.last_failed_start?false:(age!==null&&age>36*3600)||staleSources.length?false:cb.last_success?true:null;
+ const label=!cb?'Checking':cb.running?'Uploading':cb.last_failed_start?'Last run failed':age!==null&&age>36*3600?'Stale':staleSources.length?`${staleSources.map(x=>x.label).join(', ')} stale`:cb.last_success?'Up to date':'First upload pending';
+ const when=ts=>new Date(ts*1000).toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'});
  const next=cb?.next_run?new Date(cb.next_run.replace(/^\w+ /,'')).toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'}):'—';
  return <article className="panel recovery-card"><header className="panel-header"><div className="panel-title"><span className="icon-tile"><Icon name="cloud"/></span><div><h3>Off-site backup</h3><p>{cb?.destination||'Google Drive'}</p></div></div><Badge state={state} label={label}/></header>
   <strong className="recovery-value">{age!==null?ago(age):cb?.running?'In progress':'—'}</strong>
   {cb?.running&&cb.progress?.percent!=null&&<div className="offsite-progress"><Meter value={cb.progress.percent} label={`Uploading ${cb.progress.phase==='proxmox'?'Proxmox backups':cb.progress.phase==='photos'?'photos':'backup'} · ${num(cb.progress.percent,1)}%`} detail={`${num(cb.progress.bytes_done/1e9)} of ${num(cb.progress.bytes_total/1e9)} GB${cb.progress.eta_s?` · about ${cb.progress.eta_s>=3600?`${Math.floor(cb.progress.eta_s/3600)} h ${Math.round(cb.progress.eta_s%3600/60)} min`:`${Math.max(1,Math.round(cb.progress.eta_s/60))} min`} left`:''}`} color="#7de5c0"/>{cb.progress.source==='estimate'&&<p className="source-note">Estimated from data read so far.</p>}</div>}
-  <p>Last successful upload{cb?.last_success?` · ${new Date(cb.last_success*1000).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}`:''}</p>
-  <p>{cb?.scope||'Photos + newest Proxmox backups'} · next run {next}</p>
+  {cb?.sources?<ul className="offsite-sources">{cb.sources.map(x=><li key={x.tag}><span>{x.label}</span><span className={x.last&&now-x.last>x.stale_h*3600?'error':''}>{x.last?when(x.last):'No snapshot yet'}</span></li>)}</ul>:<p>Last successful upload{cb?.last_success?` · ${new Date(cb.last_success*1000).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}`:''}</p>}
+  <p>{cb?.scope||'Photos + newest Proxmox backups'} · Proxmox job next runs {next}, Unraid daily at 4 AM</p>
   {cb?.last_failed_start&&<p className="source-note error">The run that started {cb.last_failed_start} did not finish. Check /var/lib/homelab-cloud-backup/run.log on Proxmox.</p>}
   <footer className="host-footer"><span>Encrypted with restic · 7 daily, 4 weekly, 12 monthly</span></footer></article>}
 function PiCard({pi,observedAt}){
@@ -302,7 +304,7 @@ function App(){
  if(fresh&&sourceFresh(sys)&&Number(sys.errors_24h)>0)issues.push({label:`${sys.errors_24h} log ${Number(sys.errors_24h)===1?'error':'errors'}`,go:()=>navigate('infra')});
  {const bad=(data.scrutiny?.drives||[]).filter(d=>d.healthy===false);if(sourceFresh(data.scrutiny)&&bad.length)issues.push({label:'Drive health warning',go:()=>navigate('storage')})}
  {const t=Date.parse(String(speed.tested_at||'').replace(' ','T'));if(Number.isFinite(t)&&Date.now()-t>12*3600000)issues.push({label:'Speed tests failing',go:()=>navigate('network'),soft:true})}
- {const cb=fleet?.cloud_backup;if(cb&&!cb.running&&cb.last_failed_start)issues.push({label:'Cloud backup failed',go:()=>navigate('infra')});else if(cb?.last_success&&Date.now()/1000-cb.last_success>36*3600)issues.push({label:'Cloud backup stale',go:()=>navigate('infra')})}
+ {const cb=fleet?.cloud_backup;if(cb&&!cb.running&&cb.last_failed_start)issues.push({label:'Cloud backup failed',go:()=>navigate('infra')});else if(cb?.last_success&&Date.now()/1000-cb.last_success>36*3600)issues.push({label:'Cloud backup stale',go:()=>navigate('infra')});else if((cb?.sources||[]).some(x=>x.last&&Date.now()/1000-x.last>x.stale_h*3600))issues.push({label:'Cloud backup stale',go:()=>navigate('infra')})}
  async function checkUpdates(){try{const d=await postAction('/api/updates',{action:'check'});notify(d.ok?'Checking for updates. Results appear on the Updates page.':(d.error||'The check could not start.'))}catch{notify('Could not reach the update service.')}}
  const pin=id=>setFavorites(old=>old.includes(id)?old.filter(x=>x!==id):[...old,id]);
  const grid=items=><div className="service-grid">{items.map(s=><ServiceCard key={s.id} service={s} data={dashboardData} favorite={favorites.includes(s.id)} onFavorite={pin}/>)}</div>;

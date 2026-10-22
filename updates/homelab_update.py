@@ -596,8 +596,16 @@ def cloud_backup_status():
         pass
     running = active.strip() in ('activating', 'active')
     progress = backup_progress(state) if running else None
+    try:  # newest snapshot per tag, cached every 30 min by homelab-alerts; includes Unraid's own job
+        snaps = json.loads((state / 'snapshots.json').read_text())
+        sources = [dict(tag=t, label=l, last=snaps['latest'].get(t), stale_h=h)
+                   for t, l, h in (('photos', 'Photos', 36), ('proxmox', 'Proxmox', 36), ('unraid', 'Unraid', 30))]
+        checked = snaps['checked_at']
+    except (OSError, ValueError, KeyError):
+        sources, checked = None, None
     return dict(last_success=last, running=running, progress=progress, next_run=nxt.strip() or None,
-                last_failed_start=failed, destination='Google Drive (restic, encrypted)', scope='Photos + newest Proxmox backups')
+                last_failed_start=failed, destination='Google Drive (restic, encrypted)',
+                scope='Photos, Proxmox backups, Unraid appdata + flash', sources=sources, sources_checked_at=checked)
 
 
 def health():

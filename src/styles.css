@@ -92,3 +92,8 @@ body{font-size:16px}.sidebar{width:248px;padding-left:14px;padding-right:14px}.w
 @media(max-width:1200px){.net-grid{grid-template-columns:1fr}.net-grid.compact{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.net-grid.compact{grid-template-columns:1fr}}
 .net-now{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.net-now small{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}.net-now strong{font-size:24px;font-weight:650;letter-spacing:-.01em}
 .net-totals{display:grid;grid-template-columns:1fr 1fr;gap:10px;border-top:1px solid var(--border);padding-top:10px;margin-top:8px}.net-totals small{display:block;color:var(--muted);font-size:12px}.net-totals span{font-size:14px;font-variant-numeric:tabular-nums}.net-totals em{display:block;font-style:normal;font-size:11px;color:var(--faint)}
+
+.offsite-sources{list-style:none;margin:.4rem 0;padding:0;display:grid;gap:.25rem}
+.offsite-sources li{display:flex;justify-content:space-between;gap:1rem;font-size:.9rem}
+.offsite-sources li span:first-child{color:var(--muted)}
+.offsite-sources li span.error{color:#ed9e98}
