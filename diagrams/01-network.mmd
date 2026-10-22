@@ -1,0 +1,63 @@
+flowchart TD
+    WAN["Comcast Internet<br/>2.5 Gbps WAN (DHCP)"]
+    EXT["External Mobile / Laptop<br/>10.0.0.0/24 · Road Warrior"]
+    UPSTREAM["Upstream DNS<br/>Quad9 / Cloudflare"]
+
+    ROUTER["GL.iNet Flint 3 (GL-BE9300)<br/>192.168.0.1 · Wi-Fi 7 Gateway"]
+
+    WAN -->|WAN DHCP| ROUTER
+    EXT -->|WireGuard :500/udp| ROUTER
+
+    subgraph IOT_NET["IoT Subnet (br-iot) · Isolated"]
+        IOT_GW["IoT Gateway<br/>192.168.10.1 · VLAN"]
+        IOT_DEVS["Smart Home Devices<br/>192.168.10.0/24 · unverified"]
+        IOT_GW --- IOT_DEVS
+    end
+
+    subgraph GUEST_NET["Guest Subnet (br-guest) · Isolated"]
+        GUEST_GW["Guest Gateway<br/>192.168.9.1 · VLAN"]
+        GUEST_DEVS["Guest Devices<br/>192.168.9.0/24 · unverified"]
+        GUEST_GW --- GUEST_DEVS
+    end
+
+    ROUTER -->|DHCP / VLAN| IOT_GW
+    ROUTER -->|DHCP / VLAN| GUEST_GW
+
+    subgraph LAN_NET["Primary LAN (br-lan) · 192.168.0.0/24"]
+        direction TB
+        
+        subgraph PVE_HOST["Proxmox VE 9.2 (Intel N100) · 192.168.0.3"]
+            PVE["Proxmox Host<br/>192.168.0.3 · Hypervisor"]
+            WG_VM["WireGuard (VM 107)<br/>192.168.0.30 · VPN Gateway"]
+            PIHOLE_PRI["Pi-hole Primary (LXC 106)<br/>192.168.0.11:53 · DNS Master"]
+        end
+
+        subgraph UNRAID_HOST["Unraid 7.3.2 (i7-7700T) · 192.168.0.4"]
+            UNRAID["Unraid Tower<br/>192.168.0.4 · NAS & Containers"]
+            JELLYFIN_MAC["Jellyfin (macvlan br0)<br/>192.168.0.17:8096"]
+            MC_MAC["Minecraft (macvlan br0)<br/>192.168.0.25:25565"]
+        end
+
+        subgraph OPI_HOST["Orange Pi Zero 2W (H618) · 192.168.0.10"]
+            OPI["Orange Pi Host<br/>192.168.0.10 · Secondary SBC"]
+            PIHOLE_SEC["Pi-hole Secondary (Docker)<br/>192.168.0.10:53 · DNS Replica"]
+        end
+
+        subgraph PC_HOST["Gaming PC (Windows 11) · 192.168.0.12"]
+            PC["Desktop PC (RTX 5070 Ti)<br/>192.168.0.12 · Local AI"]
+        end
+    end
+
+    ROUTER -->|Port Forward :500/udp| WG_VM
+    WG_VM -->|Routed VPN Traffic| LAN_NET
+
+    ROUTER -->|DHCP Option 6 DNS 1| PIHOLE_PRI
+    ROUTER -->|DHCP Option 6 DNS 2| PIHOLE_SEC
+
+    PIHOLE_SEC -.->|nebula-sync every 30m| PIHOLE_PRI
+    PIHOLE_PRI -->|Encrypted Upstream DNS| UPSTREAM
+    PIHOLE_SEC -->|Encrypted Upstream DNS| UPSTREAM
+
+    classDef unverified stroke-dasharray: 5 5,stroke:#888,fill:#2b2b2b,color:#aaa;
+    classDef stopped stroke-dasharray: 5 5,stroke:#777,fill:#222,color:#888;
+    class IOT_DEVS,GUEST_DEVS unverified;

@@ -1,0 +1,41 @@
+flowchart TD
+    subgraph PVE["Proxmox VE · 192.168.0.3"]
+        direction TB
+        PVE_NVME["NVMe SSD · 512 GB<br/>OS & local-lvm guest disks"]
+        PVE_SDA["SATA SSD · 477 GB<br/>/mnt/share · Samba [n100] & Pics"]
+        PVE_VZDUMP["vzdump Backup Job<br/>Daily 01:00 · snapshot all guests"]
+        PVE_RESTIC["homelab-cloud-backup.sh<br/>Daily 02:00 · Proxmox restic runner"]
+    end
+
+    subgraph LXC102["LXC 102 Utilities · 192.168.0.13"]
+        direction TB
+        LXC_MNT["FileBrowser & Arr Stack<br/>CIFS client mounts"]
+    end
+
+    subgraph UNRAID["Unraid Server · 192.168.0.4"]
+        direction TB
+        UNRAID_CACHE["NVMe Cache · 256 GB<br/>/mnt/cache · appdata & system"]
+        UNRAID_ARRAY["Storage Array · 4 TB<br/>/mnt/user/4TB · 68% used"]
+        UNRAID_NFS["NFS Backup Target<br/>/mnt/pve/unraid/dump"]
+        UNRAID_RESTIC["unraid-restic container<br/>Daily 04:00 · appdata & flash"]
+    end
+
+    subgraph CLOUD["Off-site Cloud Storage"]
+        GDRIVE["Google Drive<br/>rclone:gdrive:homelab-restic · Encrypted"]
+    end
+
+    %% Storage mounts
+    PVE_SDA -->|"SMB //192.168.0.3/n100"| LXC_MNT
+    UNRAID_ARRAY -->|"SMB //192.168.0.4/4tb"| LXC_MNT
+    UNRAID_ARRAY -->|"Exports NFS /mnt/pve/unraid"| UNRAID_NFS
+
+    %% Backup flows
+    PVE_NVME -->|"Snapshots at 01:00"| PVE_VZDUMP
+    PVE_VZDUMP -->|"NFS write - keep-last 3"| UNRAID_NFS
+
+    PVE_RESTIC -->|"Reads latest vzdump & pics"| PVE_VZDUMP
+    PVE_RESTIC -->|"Reads /mnt/share/pics"| PVE_SDA
+    PVE_RESTIC -->|"restic encrypted upload (capped 200 Mbps)"| GDRIVE
+
+    UNRAID_CACHE -->|"Reads appdata & system"| UNRAID_RESTIC
+    UNRAID_RESTIC -->|"restic encrypted upload"| GDRIVE

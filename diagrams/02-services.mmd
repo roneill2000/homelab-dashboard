@@ -1,0 +1,52 @@
+flowchart TD
+    subgraph PVE["Proxmox VE 9.2 · 192.168.0.3 (Intel N100)"]
+        direction TB
+        LXC104["homepage (LXC 104)<br/>192.168.0.2:80 · Command Center"]
+        LXC102["utilities (LXC 102)<br/>192.168.0.13 · Arr Stack, SAB, NetAlertX"]
+        LXC105["speedtest (LXC 105)<br/>192.168.0.14:80 · Speedtest Tracker"]
+        LXC106["pihole (LXC 106)<br/>192.168.0.11:53,80 · Pi-hole Primary"]
+        LXC111["guacamole (LXC 111)<br/>192.168.0.6:8080 · Remote Desktop Gateway"]
+        LXC112["open-webui (LXC 112)<br/>192.168.0.16:8080 · LLM Web Interface"]
+        LXC113["memos (LXC 113)<br/>192.168.0.18:5230 · Knowledge Base"]
+        LXC114["opencode (LXC 114)<br/>192.168.0.19:3000 · Code Agent UI"]
+        LXC103["kasm (LXC 103)<br/>192.168.0.15:443 · Container Desktops"]
+        VM107["Wireguard (VM 107)<br/>192.168.0.30:500 · VPN Tunnel"]
+
+        subgraph PVE_STOPPED["Stopped VMs"]
+            VM100["Kali (VM 100)<br/>DHCP · stopped"]
+            VM101["ubuntu (VM 101)<br/>DHCP · stopped"]
+            VM109["VM 109<br/>DHCP · stopped"]
+            VM110["Windows (VM 110)<br/>DHCP · stopped"]
+        end
+    end
+
+    subgraph UNRAID["Unraid 7.3.2 · 192.168.0.4 (i7-7700T)"]
+        direction TB
+        D_JELLY["Jellyfin (macvlan br0)<br/>192.168.0.17:8096 · Arc A310 Media"]
+        D_MC["Minecraft (macvlan br0)<br/>192.168.0.25:25565 · PaperMC"]
+        D_ABS["Audiobookshelf<br/>192.168.0.4:13378 · Audiobooks"]
+        D_SCRUTINY["Scrutiny<br/>192.168.0.4:8080 · SMART Monitor"]
+        D_GLANCES["Glances<br/>192.168.0.4:61208 · Telemetry"]
+        D_RESTIC["unraid-restic<br/>192.168.0.4 · Off-site Backup"]
+        D_ZURG["zurg<br/>192.168.0.4:9999 · stopped"]
+    end
+
+    subgraph OPI["Orange Pi Zero 2W · 192.168.0.10 (H618)"]
+        direction TB
+        O_PIHOLE["pihole-FTL<br/>192.168.0.10:53,80 · Pi-hole Replica"]
+        O_NEBULA["nebula-sync<br/>192.168.0.10 · DNS Sync Runner"]
+        O_KUMA["uptime-kuma<br/>192.168.0.10:3001 · Service Monitor"]
+    end
+
+    subgraph PC["Gaming PC · 192.168.0.12 (Windows 11)"]
+        PC_LLAMA["llama.cpp router<br/>192.168.0.12:8080 · RTX 5070 Ti (16GB)"]
+    end
+
+    O_NEBULA -.->|sync DNS config every 30m| LXC106
+    LXC112 -->|OpenAI API inference| PC_LLAMA
+    LXC114 -->|OpenAI API inference| PC_LLAMA
+    LXC104 -.->|status checks| PVE
+    LXC104 -.->|status checks| UNRAID
+
+    classDef stopped stroke-dasharray: 5 5,stroke:#777,fill:#2a2a2a,color:#888;
+    class VM100,VM101,VM109,VM110,D_ZURG stopped;
