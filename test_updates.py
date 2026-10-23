@@ -203,5 +203,28 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(once.count('update_proxy.handle'), 2)
 
 
+class WeeklyTests(unittest.TestCase):
+    def test_weekly_summary_done_and_skipped(self):
+        state = {'items': [{'name': 'memos', 'state': 'done'},
+                           {'name': 'kasm', 'state': 'skipped', 'detail': 'Excluded from automatic updates; update by hand'}]}
+        title, body = u.weekly_summary(state)
+        self.assertEqual(title, 'Weekly updates done')
+        self.assertIn('Updated: memos', body)
+        self.assertIn('Left for you: kasm', body)
+
+    def test_weekly_summary_stopped_on_failure(self):
+        state = {'items': [{'name': 'memos', 'state': 'done'},
+                           {'name': 'kasm', 'state': 'failed'}]}
+        title, body = u.weekly_summary(state)
+        self.assertEqual(title, 'Weekly updates stopped after a failure')
+
+    def test_run_weekly_cloud_backup_busy_skips(self):
+        with patch.object(u, 'cloud_backup_busy', return_value=True),              patch.object(u, 'ntfy') as ntfy,              patch.object(u, 'run_update') as run_update:
+            u.run_weekly()
+            ntfy.assert_called_once_with('Weekly updates skipped',
+                                         'The cloud backup or restore test was running. Next try: next Saturday.')
+            run_update.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -23,6 +23,8 @@ from pathlib import Path
 STATE_DIR = Path('/var/lib/homelab-update')
 STATE = STATE_DIR / 'state.json'
 LOCK = Path('/run/homelab-update.lock')
+WEEKLY_EXCLUDE = {'kasm', 'itzg-minecraft-server'}  # Ryan, 22 Oct 2026: update these by hand
+WATCHDOG = Path('/usr/local/bin/homelab-health-watchdog.sh')
 UNRAID = 'root@192.168.0.4'
 PI = 'root@192.168.0.10'  # Orange Pi Zero 2W: Pi-hole replica, Uptime Kuma, nebula-sync
 PI_ID = 'pi:orangepi'
@@ -443,11 +445,16 @@ def update_docker(run, item):
     item.update(state='done', pending=0, detail='Updated · previous image kept' if tag else 'Updated · previous image NOT kept', rollback_image=tag)
 
 
-def run_update(run):
+def run_update(run, weekly=False):
     reasons = busy_reasons()
     if reasons:
         raise Refused('Not started: ' + '; '.join(reasons) + '.')
     run_check(run)
+    if weekly:
+        for i in run.state['items']:
+            if i['name'] in WEEKLY_EXCLUDE and i['state'] == 'pending':
+                i.update(state='skipped', detail='Excluded from automatic updates; update by hand')
+        run.save()
     items = run.state['items']
     queue = [i for i in items if i['state'] == 'pending']
     for i in queue:
@@ -472,6 +479,68 @@ def run_update(run):
             run.save()
             raise
         run.save()
+
+
+def cloud_backup_busy():
+    try:
+        with open('/run/homelab-cloud-backup.lock', 'a') as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(f, fcntl.LOCK_UN)
+            return False
+    except OSError:
+        return True
+
+
+def ntfy(title, body, priority=2):
+    m = re.search(r'^TOPIC="([^"]+)"', WATCHDOG.read_text(), re.M)
+    if not m:
+        return
+    import urllib.request
+    req = urllib.request.Request('https://ntfy.sh/' + m.group(1), data=body.encode(), method='POST',
+                                 headers={'Title': title, 'Priority': str(priority), 'Tags': 'arrows_counterclockwise'})
+    urllib.request.urlopen(req, timeout=15).read()
+
+
+def weekly_summary(state):
+    items = state.get('items') or []
+    done = [i['name'] for i in items if i.get('state') == 'done']
+    failed = [i['name'] for i in items if i.get('state') == 'failed']
+    excluded = [i['name'] for i in items if 'Excluded from automatic' in (i.get('detail') or '')]
+    lines = [f"Updated: {', '.join(done) if done else 'nothing needed updating'}"]
+    if failed:
+        lines.append(f"Failed: {', '.join(failed)} (alert sent separately; later items were not started)")
+    if excluded:
+        lines.append(f"Left for you: {', '.join(excluded)}")
+    if Path('/var/run/reboot-required').exists():
+        lines.append('Proxmox has a pending reboot for a new kernel (not rebooted automatically).')
+    return ('Weekly updates done' if not failed else 'Weekly updates stopped after a failure'), '\n'.join(lines)
+
+
+def run_weekly():
+    if cloud_backup_busy():
+        ntfy('Weekly updates skipped', 'The cloud backup or restore test was running. Next try: next Saturday.')
+        return
+    reasons = busy_reasons()
+    if reasons:
+        ntfy('Weekly updates skipped', 'Not started: ' + '; '.join(reasons) + '.')
+        return
+    with open(LOCK, 'a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            ntfy('Weekly updates skipped', 'An update job was already running.')
+            return
+        run = Run('update')
+        try:
+            run_update(run, weekly=True)
+            run.finish('complete')
+        except Refused as exc:
+            run.finish('refused', str(exc))
+        except Exception as exc:
+            run.log(f'error: {exc}')
+            run.finish('failed', str(exc)[:300])
+    title, body = weekly_summary(read_state())
+    ntfy(title, body)
 
 
 class Refused(Exception):
@@ -827,6 +896,10 @@ def main(argv):
         print(json.dumps(spawn('check' if command == 'check' else 'update')))
     elif command in ('run-check', 'run-update'):
         run_job(command[4:])
+    elif command == 'run-weekly':
+        run_weekly()
+    elif command == 'weekly-dry-run':
+        print(json.dumps(dict(cloud_backup_busy=cloud_backup_busy(), busy=busy_reasons(), exclude=sorted(WEEKLY_EXCLUDE))))
     else:
         print('usage: homelab-update status|health|check|start', file=sys.stderr)
         return 2

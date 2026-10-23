@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly hands-off updates, Saturday 07:30
+
+[Timer]
+OnCalendar=Sat *-*-* 07:30:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target
