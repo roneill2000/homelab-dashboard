@@ -20,3 +20,4 @@ Not ntfy: Proxmox cron pings healthchecks.io every 15 min (dead-man alert from t
 
 | homelab-digest | Proxmox `homelab-alerts --digest`, `homelab-digest.timer` 07:00 | One morning summary: backups (photos, Proxmox, Unraid, configs), storage, logs, internet, pending updates, SMART problems, active alerts, plus a two-sentence Ask Qwen note. Priority 2 when all good, 3 when something needs attention. Replaces the old "Backups OK" message. |
 | homelab-why | Proxmox `homelab-why.service` on :8997 | Answers the **Ask Qwen why** button on homelab-alerts notifications: asks Ask Qwen about that alert and posts "Why: <alert>". Only fires when you tap the button (phone on LAN or WireGuard). |
+| homelab-weekly-update | Proxmox homelab-weekly-update.timer, Sat 07:30 | One summary after the weekly update run, or one "skipped" message. Failures also raise the existing updates-failed alert. |

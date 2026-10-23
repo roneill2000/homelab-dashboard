@@ -1,0 +1,8 @@
+[Unit]
+Description=Weekly hands-off updates (homelab-update)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/homelab-update run-weekly
+TimeoutStartSec=3h
