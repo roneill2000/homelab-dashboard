@@ -33,6 +33,7 @@ Failure alerts carry the button; recoveries and info don't. homelab-why accepts 
 | homelab-health-watchdog | `high` priority (ALERT:) messages |
 | smart-notify | always |
 | Unraid notifications | warning and alert levels |
+| ddns-update (Orange Pi) | DDNS UPDATE FAILED only |
 | Proxmox notifications | matcher `ntfy-fail-matcher` (severity error) → webhook `NtfyFail`, title only; other severities stay on `Ntfy` |
 
-Not covered: Uptime Kuma and Scrutiny (no custom action support in their ntfy senders), ddns-update on the Orange Pi.
+Not covered: Uptime Kuma and Scrutiny (no custom action support in their ntfy senders).
