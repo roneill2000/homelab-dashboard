@@ -95,6 +95,20 @@ class CloudBackupTests(unittest.TestCase):
         self.assertTrue(out['smart-launch:sdb'][0]); self.assertIn('Device busy', out['smart-launch:sdb'][2])
         self.assertTrue(out['smart-overdue:sdb'][0])  # no test ever recorded, after the grace period
 
+    def test_nightly_alerts_only_after_two_failed_nights_and_digest_line(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            h = Path(d) / 'h.json'
+            self.assertFalse(a.nightly_check({'status': 'failed', 'local_date': '2026-10-22', 'error': 'X'}, h)['nightly-failing'][0])
+            self.assertTrue(a.nightly_check({'status': 'failed', 'local_date': '2026-10-23', 'error': 'X'}, h)['nightly-failing'][0])
+            self.assertFalse(a.nightly_check({'status': 'complete', 'local_date': '2026-10-24'}, h)['nightly-failing'][0])
+            self.assertEqual(a.nightly_check({'status': 'running', 'local_date': '2026-10-25'}, h), {})
+        n = {'status': 'complete', 'model_label': 'Gemma 4 12B \u00b7 A310 + RAM', 'findings': [1, 2], 'skipped_groups': [1], 'evidence': {'distinct_groups': 3}, 'fallback_reason': None}
+        body = a.digest_text(1792700000, None, None, None, [], n)[1]
+        self.assertIn('Nightly review: 3 log groups, 2 explained on Gemma 4 12B, 1 skipped', body)
+        title, body, problems = a.digest_text(1792700000, None, None, None, [], {'status': 'failed', 'error': 'TimeoutError'})
+        self.assertIn('Nightly log review failed', problems)
+
     def test_restore_check_recent_snapshots_and_event_log(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:

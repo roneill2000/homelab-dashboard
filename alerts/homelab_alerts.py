@@ -32,6 +32,7 @@ DETAILS = Path('/var/lib/homelab-alerts/details.json')  # last title/detail per 
 CONFIG_BACKUP = Path('/var/backups/homelab-configs/last_success')
 EVENTS = Path('/var/lib/homelab-alerts/events.jsonl')  # sent alerts, read by the runner's "what changed" timeline
 RESTORE_TEST = Path('/var/lib/homelab-cloud-backup/restore-test.json')
+NIGHTLY_HISTORY = Path('/var/lib/homelab-alerts/nightly-history.json')  # local_date -> final status of the 03:00 review
 WHY_URL = 'http://192.168.0.3:8997/why'
 QWEN_URL = HOME + '/api/qwen'
 
@@ -186,6 +187,25 @@ def log_event(title, detail, ok, now, path=EVENTS):
         path.write_text('\n'.join(lines[-500:]) + '\n')
 
 
+def nightly_check(nightly, path=NIGHTLY_HISTORY):
+    """Alert when the 03:00 log review fails two nights in a row. One failed night is reported in the digest only."""
+    if not isinstance(nightly, dict) or nightly.get('status') not in ('complete', 'failed') or not nightly.get('local_date'):
+        return {}
+    try:
+        hist = json.loads(path.read_text())
+    except (OSError, ValueError):
+        hist = {}
+    hist[nightly['local_date']] = nightly['status']
+    hist = dict(sorted(hist.items())[-14:])
+    path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(hist))
+    last = list(hist.items())[-2:]
+    import datetime
+    consecutive = len(last) == 2 and (datetime.date.fromisoformat(last[1][0]) - datetime.date.fromisoformat(last[0][0])).days == 1
+    bad = consecutive and all(v == 'failed' for _, v in last)
+    return {'nightly-failing': (bad, 'Nightly log review failed two nights running',
+                                f"Last error: {nightly.get('error') or 'unknown'}. See Infrastructure > Nightly log review.", 3)}
+
+
 def restore_test_check(now, path=RESTORE_TEST):
     """Monthly off-site restore check (homelab-restore-test, 15th). A check that couldn't run is not a failure."""
     try:
@@ -214,7 +234,7 @@ def unraid_backup_check(now, latest):
                              f'Newest Unraid snapshot on Google Drive is {int(hours)} h old. Check the unraid-restic container.', 4)}
 
 
-def digest_text(now, t, f, latest, active):
+def digest_text(now, t, f, latest, active, nightly=None):
     """Morning summary lines. Returns (title, body, problems) from measured data only; missing data says so."""
     lines, problems = [], []
     bk = []
@@ -235,6 +255,17 @@ def digest_text(now, t, f, latest, active):
             problems.append('Off-site restore test failed')
     except (OSError, ValueError, KeyError):
         pass
+    if isinstance(nightly, dict) and nightly.get('status'):
+        label = (nightly.get('model_label') or nightly.get('model') or 'local model').split(' \u00b7 ')[0]
+        if nightly['status'] == 'complete':
+            n = len(nightly.get('findings') or []); sk = len(nightly.get('skipped_groups') or [])
+            groups = (nightly.get('evidence') or {}).get('distinct_groups')
+            line = f"Nightly review: {groups if groups is not None else '?'} log groups, {n} explained on {label}" + (f', {sk} skipped' if sk else '')
+            if nightly.get('fallback_reason'):
+                line += f" (fallback: {nightly['fallback_reason']})"
+            lines.append(line)
+        elif nightly['status'] == 'failed':
+            lines.append(f"Nightly review FAILED ({nightly.get('error') or 'unknown'})"); problems.append('Nightly log review failed')
     if t:
         u = t.get('unraid') or {}
         if u.get('cache_pct') is not None:
@@ -320,9 +351,9 @@ def run_digest(now):
             return fetch(path, timeout=120)
         except Exception:
             return None
-    t, f = safe('/api/telemetry'), safe('/api/fleet')
+    t, f, s = safe('/api/telemetry'), safe('/api/fleet'), safe('/api/storage?window=900')
     refresh_snapshots(now, every=0)
-    title, body, problems = digest_text(now, t, f, read_latest(), active_alerts())
+    title, body, problems = digest_text(now, t, f, read_latest(), active_alerts(), ((s or {}).get('activity') or {}).get('nightly'))
     answer, model = ask_qwen('This is my homelab morning summary, from measured data:\n' + body +
                              '\nIn at most two short sentences: is anything unusual or worth doing today? '
                              'If nothing stands out, say so. Do not repeat the numbers.', wait=480)
@@ -450,6 +481,7 @@ def main(argv):
     current.update(unraid_backup_check(now, latest))
     current.update(config_backup_check(now))
     current.update(restore_test_check(now))
+    current.update(nightly_check(((s or {}).get('activity') or {}).get('nightly')))
     sends, state = transitions(prev, current)
     for key, kind, title, detail, prio in sends:
         try:

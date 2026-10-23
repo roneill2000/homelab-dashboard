@@ -25,7 +25,21 @@ MODEL_SHA256='85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87'
 # rebuilt by evals/a310-backends-2026-10-22/build_aot.sh. 18 tok/s vs 12.6 on Vulkan, 4-21 s load.
 IMAGE='homelab/llama-sycl-a310:b11804'
 NAME='homelab-nightly-llm'
+# Overnight log review: Gemma 4 12B split across the A310 (18 of 49 layers) and system RAM, ~4.4 tok/s.
+# 3 of 4 hard questions right vs 0 for Qwen3.5-9B (evals/ask-qwen-2026-10-22, 22 Oct 2026). More GPU layers
+# fail with UR_RESULT_ERROR_OUT_OF_HOST_MEMORY on this card, so the split is pinned, not auto-fit.
+NIGHTLY_MODEL='gemma-4-12b-it-Q4_K_M'
+NIGHTLY_FILE='gemma-4-12b-it-GGUF/gemma-4-12b-it-Q4_K_M.gguf'
+NIGHTLY_SHA256='0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42'
+NIGHTLY_GPU_LAYERS=int(os.environ.get('HOMELAB_NIGHTLY_GPU_LAYERS','18'))
+NIGHTLY_MIN_RAM_GIB=float(os.environ.get('HOMELAB_NIGHTLY_MIN_RAM_GIB','6'))  # ~4.1 GB of weights in RAM plus working memory
+GROUP_TIMEOUT=int(os.environ.get('HOMELAB_NIGHTLY_GROUP_TIMEOUT','900'))  # one answer: 5-9 min on the 12B
+RUN_LIMIT=int(os.environ.get('HOMELAB_NIGHTLY_RUN_LIMIT','7200'))  # stop reviewing new groups after 2 h
 API='http://127.0.0.1:11437'
+PROFILES={
+    'nightly':dict(model=NIGHTLY_MODEL,file=NIGHTLY_FILE,label='Gemma 4 12B · A310 + RAM',max_tokens=2500,load_timeout=600),
+    'quick':dict(model=MODEL,file=MODEL_FILE,label='Gemma 4 E4B · A310',max_tokens=1152,load_timeout=900),
+}
 
 
 def fetch(url,body=None,timeout=30):
@@ -81,7 +95,7 @@ def prepare_evidence(snapshot,services,storage):
                 parity=(storage.get('activity',{}).get('recovery',{}).get('parity')))
 
 
-def request_body(group):
+def request_body(group, profile='quick'):
     # Ask only for the meaning of the historical event. Measured recovery state
     # is displayed separately; the model cannot decide current availability.
     instructions=("Review a historical syslog event. Explain what the message proves, what remains "
@@ -94,7 +108,7 @@ def request_body(group):
                   "For link-down events, the cause is unknown: a cable fault, disconnected peer, "
                   "administrative change, and driver or software issue cannot be distinguished here.")
     evidence={key:group[key] for key in ('host','message') if key in group}
-    return dict(model=MODEL,temperature=0.6,top_p=0.95,top_k=20,seed=42,max_tokens=1152,stream=False,
+    return dict(model=PROFILES[profile]['model'],temperature=0.6,top_p=0.95,top_k=20,seed=42,max_tokens=PROFILES[profile]['max_tokens'],stream=False,
                 chat_template_kwargs={'enable_thinking':True},
                 messages=[dict(role='system',content=instructions),
                           dict(role='user',content=json.dumps(evidence))])
@@ -110,19 +124,71 @@ def checked_finding(group,content):
     return dict(group_id=group['id'],interpretation=content)
 
 
-def container_command(context_size=2048, reasoning_budget=768):
-    return ['docker','run','-d','--pull','never','--rm','--name',NAME,'--user','0:0','--memory','7g','--cpus','2',
+def container_command(context_size=2048, reasoning_budget=768, profile='quick'):
+    pr=PROFILES[profile];big=profile=='nightly'
+    command=['docker','run','-d','--pull','never','--rm','--name',NAME,'--user','0:0','--memory','9g' if big else '7g','--cpus','4' if big else '2',
             '--pids-limit','256',
             '--health-cmd','curl -fsS http://127.0.0.1:8000/health || exit 1','--health-start-period','15m',
             '--device','/dev/dri/card1','--device','/dev/dri/renderD129','-e','ONEAPI_DEVICE_SELECTOR=level_zero:0',
             '--cap-drop','ALL','--security-opt','no-new-privileges',
             '-p','127.0.0.1:11437:8000','-v',str(MODEL_ROOT)+':/models:ro',IMAGE,
-            '--model','/models/'+MODEL_FILE,'--alias',MODEL,'--host','0.0.0.0','--port','8000',
-            '--gpu-layers','all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
-            '--batch-size','256','--ubatch-size','128','--threads','2','--threads-batch','2',
-            '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift',
-            # Gemma's per-layer embedding tables (~1.8 GB) stay in system RAM so the rest fits the 4 GB A310 (3.2 GB used)
-            '--override-tensor','per_layer_token_embd=CPU']
+            '--model','/models/'+pr['file'],'--alias',pr['model'],'--host','0.0.0.0','--port','8000',
+            '--gpu-layers',str(NIGHTLY_GPU_LAYERS) if big else 'all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
+            '--batch-size','256','--ubatch-size','128','--threads','4' if big else '2','--threads-batch','4' if big else '2',
+            '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift']
+    if not big:
+        # Gemma E4B's per-layer embedding tables (~1.8 GB) stay in system RAM so the rest fits the 4 GB A310 (3.2 GB used)
+        command+=['--override-tensor','per_layer_token_embd=CPU']
+    return command
+
+
+def mem_available_gib():
+    try:
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            if line.startswith('MemAvailable:'):return int(line.split()[1])/1024/1024
+    except (OSError,ValueError):pass
+    return None
+
+
+def choose_profile():
+    """The 12B when its file is present and Unraid has the RAM tonight; otherwise Gemma E4B, with the reason."""
+    if not (MODEL_ROOT/NIGHTLY_FILE).exists():return 'quick','Gemma 4 12B model file missing'
+    free=mem_available_gib()
+    if free is None or free<NIGHTLY_MIN_RAM_GIB:
+        return 'quick',f'only {free:.1f} GiB RAM free (12B needs {NIGHTLY_MIN_RAM_GIB:g})' if free is not None else 'free RAM unknown'
+    return 'nightly',None
+
+
+def start_model(profile):
+    """Start our container for a profile and wait until it serves; returns load seconds or raises."""
+    old=subprocess.run(['docker','inspect',NAME],capture_output=True,text=True)
+    if old.returncode==0:subprocess.run(['docker','rm','-f',NAME],check=True,stdout=subprocess.DEVNULL)
+    subprocess.run(container_command(profile=profile),check=True,stdout=subprocess.DEVNULL,timeout=60)
+    started=time.time();name=PROFILES[profile]['model']
+    while time.time()-started<PROFILES[profile]['load_timeout']:
+        try:
+            if any(m.get('id')==name for m in fetch(API+'/v1/models',timeout=3).get('data',[])):return round(time.time()-started,1)
+        except Exception:pass
+        state=subprocess.run(['docker','inspect','--format','{{.State.Running}}',NAME],capture_output=True,text=True,timeout=10)
+        if state.returncode or state.stdout.strip()!='true':raise RuntimeError('Model container exited during loading')
+        time.sleep(3)
+    raise TimeoutError('GPU model did not become ready')
+
+
+def review_group(group, profile):
+    """One finding for one log group. Retries once; returns (finding, usage, None) or (None, None, reason)."""
+    reason=None
+    for attempt in (1,2):
+        try:
+            response=fetch(API+'/v1/chat/completions',request_body(group,profile),timeout=GROUP_TIMEOUT)
+            choice=response['choices'][0];content=choice['message'].get('content','').strip()
+            if not content or len(content)>3000 or '<think>' in content or choice.get('finish_reason')!='stop':
+                reason='empty' if not content else 'length_limit' if choice.get('finish_reason')=='length' else 'invalid_format'
+                continue
+            return checked_finding(group,content),response.get('usage',{}),None
+        except Exception as exc:
+            reason=type(exc).__name__
+    return None,None,reason
 
 
 def acquire_run_lock(lock,scheduled=False,timeout=1200):
@@ -168,7 +234,9 @@ def stop_model():
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--scheduled',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--scheduled',action='store_true')
+    parser.add_argument('--evidence-file',help='testing: review this saved snapshot instead of waiting for the backup and fetching logs')
+    args=parser.parse_args()
     ROOT.mkdir(mode=0o700,exist_ok=True)
     lock=open(ROOT/'run.lock','w')
     if not acquire_run_lock(lock,args.scheduled):
@@ -189,55 +257,54 @@ def main():
         # Backup and review share 03:00. Allow the backup to publish its running state first.
         if args.scheduled:time.sleep(90)
         deadline=time.time()+5400
-        while True:
+        while not args.evidence_file:
             try:storage=fetch('http://192.168.0.2/api/storage',timeout=20)
             except Exception:storage={}
             if backup_clear(storage,time.time()) and shutil.disk_usage('/mnt/cache').free>=1024**3:break
             if time.time()>deadline:raise TimeoutError('Backup or cache space did not clear within 90 minutes')
             save(report);time.sleep(60)
-        snapshot=fetch('http://192.168.0.3:8999/api/nightly-snapshot',timeout=60)
+        if args.evidence_file:
+            storage={};snapshot=json.loads(Path(args.evidence_file).read_text())
+        else:
+            snapshot=fetch('http://192.168.0.3:8999/api/nightly-snapshot',timeout=60)
         evidence=prepare_evidence(snapshot,measured_services(),storage)
         report.update(status='running',notes='Loading the local model.',evidence=evidence,
                       coverage_hosts=snapshot['hosts'])
         save(report)
         if shutil.disk_usage('/mnt/cache').free < 1024**3:
             raise RuntimeError('Cache free space below 1 GiB; inference deferred')
-        # A prior interrupted run may have left our dedicated container running.
-        old=subprocess.run(['docker','inspect',NAME],capture_output=True,text=True)
-        if old.returncode==0:subprocess.run(['docker','rm','-f',NAME],check=True,stdout=subprocess.DEVNULL)
+        profile,fallback=choose_profile()
         owned=True
-        subprocess.run(container_command(),check=True,stdout=subprocess.DEVNULL,timeout=60)
-        load_started=time.time();ready=False
-        while time.time()-load_started<900:
-            try:
-                models=fetch(API+'/v1/models',timeout=3)
-                ready=any(m.get('id')==MODEL for m in models.get('data',[]))
-                if ready:break
-            except Exception:pass
-            state=subprocess.run(['docker','inspect','--format','{{.State.Running}}',NAME],capture_output=True,text=True,timeout=10)
-            if state.returncode or state.stdout.strip()!='true':raise RuntimeError('Model container exited during loading')
-            time.sleep(3)
-        if not ready:raise TimeoutError('GPU model did not become ready')
-        report['load_seconds']=round(time.time()-load_started,1)
+        try:
+            report['load_seconds']=start_model(profile)
+        except Exception as exc:
+            if profile!='nightly':raise
+            stop_model()  # free the A310 before the smaller model
+            fallback=f'Gemma 4 12B did not load ({type(exc).__name__})'
+            profile='quick';report['load_seconds']=start_model(profile)
+        report.update(model=PROFILES[profile]['model'],model_label=PROFILES[profile]['label'],fallback_reason=fallback)
         generation_started=time.time()
-        findings=[];usage={'prompt_tokens':0,'completion_tokens':0};truncated=False
-        for index,group in enumerate(evidence['groups'][:8],1):
-            report['notes']=f'Reviewing log group {index} of {min(8,len(evidence["groups"]))}.'
+        findings=[];skipped=[];usage={'prompt_tokens':0,'completion_tokens':0};truncated=False
+        groups=evidence['groups'][:8]
+        for index,group in enumerate(groups,1):
+            if time.time()-generation_started>RUN_LIMIT:
+                skipped.append(dict(group_id=group['id'],reason='run_time_limit'));continue
+            report['notes']=f'Reviewing log group {index} of {len(groups)} on {PROFILES[profile]["label"]}.'
             save(report)
-            response=fetch(API+'/v1/chat/completions',request_body(group),timeout=180)
-            choice=response['choices'][0];content=choice['message'].get('content','').strip()
-            if not content or len(content)>3000 or '<think>' in content or choice.get('finish_reason')!='stop':
-                report['validation_error']='empty' if not content else 'length_limit' if choice.get('finish_reason')=='length' else 'invalid_format'
-                raise ValueError('Model returned an invalid report: '+report['validation_error'])
-            findings.append(checked_finding(group,content))
-            for key in usage:usage[key]+=response.get('usage',{}).get(key,0)
-            truncated=truncated or choice.get('finish_reason')=='length'
+            finding,used,reason=review_group(group,profile)
+            if finding is None:
+                skipped.append(dict(group_id=group['id'],reason=reason));continue
+            findings.append(finding)
+            for key in usage:usage[key]+=used.get(key,0)
+        if groups and not findings:
+            report['validation_error']=skipped[0]['reason'] if skipped else 'none'
+            raise ValueError('No log group could be reviewed: '+report['validation_error'])
         # Publish success only after GPU release has been verified.
         stop_model();owned=False
-        report.update(status='complete',completed_at=int(time.time()),findings=findings,
+        report.update(status='complete',completed_at=int(time.time()),findings=findings,skipped_groups=skipped,
                       model_output_truncated=truncated,usage=usage,
                       generation_seconds=round(time.time()-generation_started,1),
-                      inference_seconds=round(time.time()-load_started,1),notes='Model interpretation; source facts are shown separately.')
+                      inference_seconds=round(time.time()-generation_started+(report.get('load_seconds') or 0),1),notes='Model interpretation; source facts are shown separately.')
         save(report,final=True)
         print('Nightly review complete:',report['completed_at'])
     except Exception as exc:

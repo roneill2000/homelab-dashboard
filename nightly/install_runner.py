@@ -16,7 +16,7 @@ manifest=dict(p['manifest'],device='/dev/dri/renderD129',schedule='03:00 America
 if p['schedule']:
  cron=pathlib.Path('/boot/config/plugins/dynamix/homelab-nightly.cron')
  if cron.exists():shutil.copy2(cron,backup/cron.name)
- line='0 3 * * * /usr/bin/python3 /mnt/disk1/.homelab-nightly/runner.py --scheduled >> /mnt/disk1/.homelab-nightly/runner.log 2>&1\n'
+ line='0 3 * * * /usr/bin/timeout -s TERM -k 60 3h /usr/bin/python3 /mnt/disk1/.homelab-nightly/runner.py --scheduled >> /mnt/disk1/.homelab-nightly/runner.log 2>&1\n'  # hard stop after 3 h; SIGTERM saves a failed report and frees the GPU
  cron.write_text('# Homelab local log review; host timezone America/New_York\n'+line)
  subprocess.run(['/bin/bash','/usr/local/sbin/update_cron'],check=True)
  active=subprocess.check_output(['crontab','-c','/etc/cron.d','-l'],text=True)
