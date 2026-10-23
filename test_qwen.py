@@ -95,6 +95,30 @@ class QwenTests(unittest.TestCase):
         self.assertEqual((state['status'],state['model']),('complete',q.A310_LABEL))
         self.assertIn('A310 answered',state['fallback'])
 
+    def test_every_model_choice_is_validated_and_labelled(self):
+        for good in ('a310','a310-12b','auto','pc','pc:gemma-4-26b-a4b','pc:qwen3.6-35b-moe'):
+            self.assertTrue(q.TARGET_RE.match(good),good)
+        for bad in ('gpu','pc:','pc:../etc','pc:A B','a310;rm'):
+            self.assertIsNone(q.TARGET_RE.match(bad),bad)
+            self.assertEqual(q.Broker().submit('hi',bad)[0],400)
+        self.assertEqual(q.pc_label('gemma-4-26b-a4b'),'Gemma 4 26B MoE · gaming PC')
+
+    def test_named_pc_model_is_asked_for_by_name(self):
+        broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='pc:gemma-4-26b-a4b')
+        lock=SimpleNamespace(close=unittest.mock.Mock())
+        response={'choices':[{'finish_reason':'stop','message':{'content':'ok'}}],'usage':{}}
+        with patch.object(q,'pc_token',return_value='k') as tok,patch.object(q,'ask_pc',return_value=response) as ask,patch.object(q.r,'fetch',side_effect=[storage(),{}]):
+            broker.work(lock)
+        tok.assert_called_once_with('gemma-4-26b-a4b');self.assertEqual(ask.call_args.args[2],'gemma-4-26b-a4b')
+        self.assertEqual(broker.state()['model'],'Gemma 4 26B MoE · gaming PC')
+
+    def test_12b_choice_explains_when_unavailable(self):
+        broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='a310-12b')
+        lock=SimpleNamespace(close=unittest.mock.Mock())
+        with patch.object(q.r,'choose_profile',return_value=('quick','only 3.0 GiB RAM free (12B needs 6)')),patch.object(q.r,'fetch',return_value=storage()),patch.object(q.r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(q.r,'stop_model') as stop:
+            broker.work(lock)
+        st=broker.state();self.assertEqual(st['status'],'failed');self.assertIn('3.0 GiB',st['error']);stop.assert_not_called()
+
     def test_a310_questions_use_the_256_token_thinking_cap(self):
         command=q.r.container_command(context_size=6144,reasoning_budget=q.A310_THINKING)
         self.assertEqual(command[command.index('--reasoning-budget')+1],'256')

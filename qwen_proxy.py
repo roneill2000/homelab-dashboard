@@ -1,5 +1,6 @@
 """Dashboard-only proxy. Broker credentials never enter browser responses."""
 import json
+import re
 from pathlib import Path
 import urllib.error
 import urllib.parse
@@ -33,7 +34,7 @@ def handle(handler,post=False):
             prompt=data.get('prompt') if isinstance(data,dict) else None
             if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>3000:raise ValueError()
             target=data.get('target','a310')
-            if target not in ('a310','auto','pc'):raise ValueError()
+            if not isinstance(target,str) or not re.match(r'^(a310|a310-12b|auto|pc|pc:[a-z0-9][a-z0-9.\-]{0,63})$',target):raise ValueError()
             body=json.dumps({'prompt':prompt,'target':target}).encode()
         except (ValueError,OSError):
             reply(400,dict(status='failed',error='Enter a question of 1–3,000 characters.'));return True

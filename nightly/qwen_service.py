@@ -3,6 +3,7 @@ import argparse
 import fcntl
 import hmac
 import json
+import re
 import os
 from pathlib import Path
 import signal
@@ -27,6 +28,17 @@ PC_MODEL = 'qwen3.8-27b'
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Qwen3.8-27B · gaming PC'
 A310_LABEL = 'Gemma 4 E4B · A310'
+A310_12B_LABEL = 'Gemma 4 12B · A310 + RAM'
+PC_NAMES = {'qwen3.8-27b': 'Qwen3.8-27B', 'gemma-4-26b-a4b': 'Gemma 4 26B MoE', 'qwen3.6-35b-moe': 'Qwen3.6 35B MoE'}
+# Model choices: 'a310' (Gemma 4 E4B), 'a310-12b' (Gemma 4 12B split across A310 and RAM), 'auto' (27B if the PC is on),
+# 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves.
+TARGET_RE = re.compile(r'^(a310|a310-12b|auto|pc|pc:[a-z0-9][a-z0-9.\-]{0,63})$')
+
+
+def pc_label(model):
+    return f"{PC_NAMES.get(model, model)} · gaming PC"
+
+
 A310_THINKING = 256  # tokens; halves answer time vs 768 with the same accuracy (evals/ask-qwen-2026-10-22/THINK-CAP.md)
 SYSTEM = ('Answer the user directly. You may explain general topics using your learned knowledge; '
           'you have no internet search and may not know recent facts. Use only supplied observations for claims about this homelab. '
@@ -63,8 +75,8 @@ def context(storage, now):
                 backup_running=backup.get('running') if 0<=now-stamp<=180 else 'unknown')
 
 
-def body_for(prompt, evidence):
-    return dict(model=r.MODEL, temperature=0.6, top_p=0.95, top_k=20, seed=42,
+def body_for(prompt, evidence, model=None):
+    return dict(model=model or r.MODEL, temperature=0.6, top_p=0.95, top_k=20, seed=42,
                 max_tokens=1400, stream=False, chat_template_kwargs={'enable_thinking':True},
                 messages=[dict(role='system',content=SYSTEM),
                           dict(role='user',content='Observations: '+json.dumps(evidence,separators=(',',':'))+'\nQuestion: '+prompt)])
@@ -80,20 +92,20 @@ def performance(response, elapsed):
                 response_seconds=round(elapsed,2))
 
 
-def pc_token():
+def pc_token(model=PC_MODEL):
     """Router key if the gaming PC answers within 3 s and serves the 27B, else None."""
     try:token=PC_TOKEN.read_text().strip()
     except OSError:return None
     try:
         req=urllib.request.Request(PC_API+'/v1/models',headers={'Authorization':'Bearer '+token})
         with urllib.request.urlopen(req,timeout=3) as resp:
-            return token if any(m.get('id')==PC_MODEL for m in json.load(resp).get('data',[])) else None
+            return token if any(m.get('id')==model for m in json.load(resp).get('data',[])) else None
     except Exception:
         return None
 
 
-def ask_pc(token, body):
-    req=urllib.request.Request(PC_API+'/v1/chat/completions',data=json.dumps(dict(body,model=PC_MODEL,max_tokens=6000)).encode(),
+def ask_pc(token, body, model=PC_MODEL):
+    req=urllib.request.Request(PC_API+'/v1/chat/completions',data=json.dumps(dict(body,model=model,max_tokens=6000)).encode(),
                                headers={'Content-Type':'application/json','Authorization':'Bearer '+token})
     with urllib.request.urlopen(req,timeout=300) as resp:return json.load(resp)
 
@@ -129,7 +141,7 @@ class Broker:
             return dict(self.job)
 
     def submit(self, prompt, target='a310'):
-        if target not in ('a310', 'auto', 'pc'):
+        if not isinstance(target, str) or not TARGET_RE.match(target):
             return 400, dict(status='failed', error='Unknown model choice.')
         if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>3000:
             return 400, dict(status='failed',error='Enter a question of 1–3,000 characters.')
@@ -143,7 +155,7 @@ class Broker:
                 lock.close()
                 return 409, dict(status='busy',model=A310_LABEL,error='The nightly review is using Qwen. Try again when it finishes.')
             self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),target=target,
-                            model=PC_LABEL if target=='pc' else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
+                            model=pc_label(target[3:] or PC_MODEL) if target.startswith('pc') else A310_12B_LABEL if target=='a310-12b' else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
                             context_note='Question-selected host, storage, services, network, AI and log observations. No chat history or internet search.')
             accepted = dict(self.job)
             worker=threading.Thread(target=self.work,args=(lock,),name='qwen-question',daemon=False)
@@ -168,8 +180,8 @@ class Broker:
         now=time.time()
         return prompt,qwen_context.build(prompt,storage,telemetry,snapshot,now,context(storage,now),services,fleet)
 
-    def answer_on_pc(self, token):
-        self.update(status='loading',model=PC_LABEL,load_started_at=int(time.time()))
+    def answer_on_pc(self, token, model=PC_MODEL):
+        self.update(status='loading',model=pc_label(model),load_started_at=int(time.time()))
         prompt,evidence=self.observations(r.fetch('http://192.168.0.2/api/storage',timeout=20))
         while len(json.dumps(evidence).encode())>24576:
             if not qwen_context.reduce_evidence(evidence):
@@ -179,7 +191,7 @@ class Broker:
                     context_note=note,context_sources=list(evidence['sources']),context_omissions=omitted,context_limit=49152,
                     evidence=evidence)
         started=time.monotonic()
-        response=ask_pc(token,body_for(prompt,evidence))
+        response=ask_pc(token,body_for(prompt,evidence),model)
         answer=usable(response)
         self.update(input_tokens=(response.get('usage') or {}).get('prompt_tokens'))
         return dict(status='complete',answer=scrub(answer),performance=performance(response,time.monotonic()-started))
@@ -188,20 +200,26 @@ class Broker:
         owned=False;result={};work_started=time.monotonic()
         try:
             target=self.state().get('target','a310')
-            token=pc_token() if target in ('auto','pc') else None
-            if target=='pc' and not token:
+            pc_model=target[3:] if target.startswith('pc:') else PC_MODEL
+            token=pc_token(pc_model) if target=='auto' or target.startswith('pc') else None
+            if target.startswith('pc') and not token:
                 raise ValueError('The gaming PC is off, asleep or not serving the 27B. Wake it from Overview, or ask the A310.')
             if token:
                 try:
-                    result=self.answer_on_pc(token);return
+                    result=self.answer_on_pc(token,pc_model);return
                 except Exception:
-                    if target=='pc':
+                    if target.startswith('pc'):
                         raise ValueError('The gaming PC did not finish an answer. Try again, or ask the A310.')
                     # Auto: PC went to sleep, model swap failed, or the answer was unusable: use the A310 instead.
                     self.update(model=A310_LABEL,fallback='The gaming PC did not answer, so the A310 answered instead.',
                                 input_tokens=None,context_limit=None)
             else:
-                self.update(model=A310_LABEL)
+                self.update(model=A310_12B_LABEL if target=='a310-12b' else A310_LABEL)
+            profile='quick'
+            if target=='a310-12b':
+                profile,why=r.choose_profile()
+                if profile!='nightly':
+                    raise ValueError(f'Gemma 4 12B is not available right now ({why}). Ask Gemma 4 E4B instead.')
             storage=r.fetch('http://192.168.0.2/api/storage',timeout=20)
             if not r.backup_clear(storage,time.time()):
                 raise ValueError('Backup activity is running or unavailable. Try again after the backup.')
@@ -212,11 +230,11 @@ class Broker:
             # run.lock excludes the nightly process before any shared container operation.
             r.stop_model()
             owned=True
-            subprocess.run(r.container_command(context_size=6144,reasoning_budget=A310_THINKING),check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=60)
+            subprocess.run(r.container_command(context_size=6144,reasoning_budget=A310_THINKING,profile=profile),check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=60)
             deadline=time.monotonic()+900
             while True:
                 try:
-                    if any(x.get('id')==r.MODEL for x in r.fetch(r.API+'/v1/models',timeout=3).get('data',[])):break
+                    if any(x.get('id')==r.PROFILES[profile]['model'] for x in r.fetch(r.API+'/v1/models',timeout=3).get('data',[])):break
                 except Exception:pass
                 state=subprocess.run(['docker','inspect','--format','{{.State.Running}}',r.NAME],capture_output=True,text=True,timeout=10)
                 if state.returncode or state.stdout.strip()!='true':raise ValueError('The model stopped while loading. Try again.')
@@ -231,7 +249,7 @@ class Broker:
                 raise ValueError('Cache free space fell below 1 GiB. Try again after space is available.')
             prompt,evidence=self.observations(storage)
             while True:
-                body=body_for(prompt,evidence)
+                body=body_for(prompt,evidence,r.PROFILES[profile]['model'])
                 template=r.fetch(r.API+'/apply-template',{'messages':body['messages'],'chat_template_kwargs':body['chat_template_kwargs']},timeout=10)['prompt']
                 count=len(r.fetch(r.API+'/tokenize',{'content':template,'add_special':True},timeout=10)['tokens'])
                 if count<=INPUT_BUDGET and len(json.dumps(evidence).encode())<=24576:break
@@ -242,7 +260,7 @@ class Broker:
                         context_note=note,context_sources=names,context_omissions=omitted,input_tokens=count,context_limit=6144,
                         evidence=evidence)
             generation_started=time.monotonic()
-            response=r.fetch(r.API+'/v1/chat/completions',body,timeout=180)
+            response=r.fetch(r.API+'/v1/chat/completions',body,timeout=900 if profile=='nightly' else 180)  # the 12B writes ~4 tok/s
             answer=usable(response)
             result=dict(status='complete',answer=scrub(answer),performance=performance(response,time.monotonic()-generation_started))
         except ValueError as exc:
