@@ -32,3 +32,24 @@ Real-time playback target: ≥ 24 fps per stream.
 
 ## LLM Concurrency (Ask Qwen Sharing)
 The Arc A310 hardware QuickSync fixed-function media blocks (QSV encode/decode) run independently of the Xe Execution Units used by SYCL / llama.cpp for Gemma 4 E4B inference. Memory locking `/mnt/disk1/.homelab-nightly/run.lock` prevents VRAM contention with the 12B nightly batch run.
+## Correction: real Jellyfin load test (22 Oct 2026, Claude)
+
+The numbers above measure the GPU alone (video in, frames discarded). A real Jellyfin stream also decodes lossless
+audio on the CPU, writes HLS segments, and reads a 50-80 Mb/s remux from the array's single data disk. This test used
+**Jellyfin's exact ffmpeg command** (copied from its transcode log: VA-API decode, `tonemap_vaapi`, `h264_qsv` low
+power at ~54 Mb/s, DTS-HD MA/TrueHD → stereo MP3, 3 s HLS), 1-6 **different** 4K HDR remuxes at once, page cache dropped
+before each round, output duration verified from the HLS playlists. Script: `jellyfin_load_test.py`.
+
+| Streams | 60 s run (incl. 1 GB probe at start) | 180 s run (steady state) |
+| --- | --- | --- |
+| 1 | 3.43× | — |
+| 2 | 1.79× (slowest) | — |
+| 3 | 1.56× | — |
+| 4 | 1.07× | 1.51× |
+| **5** | 0.88× ✗ | **1.20× ✓** |
+| 6 | — | 0.77× ✗ |
+
+**Capacity: 5 simultaneous 4K HDR remux → 1080p streams in real time; 4 while streams are starting or seeking.**
+The limit is the data disk (reads plateau ~90 MB/s, falling to 62 MB/s at 6 streams as it seeks between files);
+CPU stayed under 40%. A first attempt reported 13-19× because `-t` placed after `-copyts` produced 0-second outputs;
+that run was discarded. GPU engine load was not captured (sampler returned nothing).
