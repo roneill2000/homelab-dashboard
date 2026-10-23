@@ -46,6 +46,10 @@ ID=$(restic cat config --json | python3 -c 'import json,sys; print(json.load(sys
   || { notify "Cloud backup failed" 4 warning "Google Drive repository unreadable (missing, wrong password, or Drive sign-in expired). Nothing was uploaded."; echo "Google Drive repository unreadable (missing, wrong password, or Drive sign-in expired). Nothing was uploaded."; exit 1; }
 [ "$ID" = "$(cat "$REPO_ID")" ] || { notify "Cloud backup failed" 4 warning "Google Drive repository id $ID is not the expected one. Nothing was uploaded."; echo "Google Drive repository id $ID is not the expected one. Nothing was uploaded."; exit 1; }
 
+# Clear locks left by a killed restic (e.g. an interrupted restore test). Without --remove-all this removes
+# only stale locks, never one held by a live process. A leftover lock stopped forget on 23 Oct 2026.
+restic unlock
+
 # Full speed for the very first upload; after that cap at ~200 Mbps (24414 KiB/s) so ~100 Mbps of the
 # 300 Mbps uplink stays free (Ryan, 21 Oct 2026).
 LIMIT=()
@@ -71,9 +75,10 @@ rm -f "$LIST"
 # Configs: router, Proxmox host and Orange Pi (written 00:45 by homelab-config-backup). Small, so no upload limit.
 [ -d /var/backups/homelab-configs ] && backup_tagged configs "${RCLONE_OPTS[@]}" --tag configs --host homelab /var/backups/homelab-configs
 
-restic forget --tag photos --host homelab --keep-daily 7 --keep-weekly 4 --keep-monthly 12
-restic forget --tag proxmox --host homelab --keep-daily 7 --keep-weekly 4
-restic forget --tag configs --host homelab --keep-daily 7 --keep-weekly 4 --keep-monthly 12
+# Group by tag, not by path: each night's Proxmox file list differs, so path grouping never expired one.
+restic forget --group-by host,tags --tag photos --host homelab --keep-daily 7 --keep-weekly 4 --keep-monthly 12
+restic forget --group-by host,tags --tag proxmox --host homelab --keep-daily 7 --keep-weekly 4
+restic forget --group-by host,tags --tag configs --host homelab --keep-daily 7 --keep-weekly 4 --keep-monthly 12
 
 if [ "$(date +%u)" = 7 ]; then          # Sundays: reclaim space and prove the data is readable
   restic prune "${LIMIT[@]}"
