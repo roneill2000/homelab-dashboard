@@ -28,3 +28,8 @@
 | guacamole | https://guac.lan | 192.168.0.6:8080 |
 | files | https://files.lan | 192.168.0.13:6501 |
 | glances | https://glances.lan | 192.168.0.4:61208 |
+## App-side settings
+
+- SABnzbd only answers hostnames on its allow-list: `sab.lan` was added to `host_whitelist` in `/var/lib/sabnzbd/sabnzbd.ini` (LXC 102) on 22 Oct 2026; backup at `sabnzbd.ini.bak-20261022`. Add any new SABnzbd name there too.
+- Pi-hole admin pages live at `/admin/` (the root returns 403/404 by design).
+- `tv.lan` (UHF) returns 404 at `/`, the same as direct `192.168.0.13:8080`; that is the app, not the proxy.
