@@ -1,0 +1,99 @@
+{
+	local_certs
+}
+
+home.lan, homepage.lan {
+	reverse_proxy 192.168.0.2:80
+}
+proxmox.lan {
+	reverse_proxy https://192.168.0.3:8006 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+kasm.lan {
+	reverse_proxy https://192.168.0.15:443 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+nas.lan {
+	reverse_proxy 192.168.0.4:80
+}
+scrutiny.lan {
+	reverse_proxy 192.168.0.4:8080
+}
+glances.lan {
+	reverse_proxy 192.168.0.4:61208
+}
+audiobooks.lan {
+	reverse_proxy 192.168.0.4:13378
+}
+logs.lan {
+	reverse_proxy 192.168.0.3:8999
+}
+pihole.lan {
+	reverse_proxy 192.168.0.11:80
+}
+pihole2.lan {
+	reverse_proxy 192.168.0.10:80
+}
+kuma.lan {
+	reverse_proxy 192.168.0.10:3001
+}
+jellyfin.lan {
+	reverse_proxy 192.168.0.17:8096
+}
+ai.lan {
+	reverse_proxy 192.168.0.16:3000
+}
+opencode.lan {
+	reverse_proxy 192.168.0.19:4096
+}
+memos.lan {
+	reverse_proxy 192.168.0.18:5230
+}
+speedtest.lan {
+	reverse_proxy 192.168.0.14:80
+}
+lanspeed.lan {
+	reverse_proxy 192.168.0.13:3000
+}
+netalertx.lan {
+	reverse_proxy 192.168.0.13:20211
+}
+tv.lan {
+	reverse_proxy 192.168.0.13:8080
+}
+sonarr.lan {
+	reverse_proxy 192.168.0.13:8989
+}
+readarr.lan {
+	reverse_proxy 192.168.0.13:8787
+}
+prowlarr.lan {
+	reverse_proxy 192.168.0.13:9696
+}
+sab.lan {
+	reverse_proxy 192.168.0.13:8085
+}
+rdt.lan {
+	reverse_proxy 192.168.0.13:6500
+}
+files.lan {
+	reverse_proxy 192.168.0.13:6501
+}
+guac.lan, guacamole.lan {
+	redir / /guacamole/
+	reverse_proxy 192.168.0.6:8080
+}
+
+# Old direct ports keep working after jellyfin.lan / guacamole.lan move to this proxy (TV apps, bookmarks).
+http://:8096 {
+	reverse_proxy 192.168.0.17:8096
+}
+http://:8080 {
+	reverse_proxy 192.168.0.6:8080
+}
