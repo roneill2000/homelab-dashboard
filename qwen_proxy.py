@@ -6,13 +6,13 @@ import urllib.parse
 import urllib.request
 
 CONFIG=Path('/etc/homelab-dashboard/qwen.json')
-HOSTS={'192.168.0.2','192.168.0.2:80','127.0.0.1','localhost'}
+HOSTS={'192.168.0.2','192.168.0.2:80','127.0.0.1','localhost','home.lan','homepage.lan'}
 
 
 def same_origin(handler,header):
     # A custom header requires CORS preflight; no cross-origin CORS is allowed.
     host=handler.headers.get('Host','');origin=handler.headers.get('Origin')
-    return handler.headers.get(header)=='1' and host in HOSTS and (origin is None or origin=='http://'+host)
+    return handler.headers.get(header)=='1' and host in HOSTS and (origin is None or origin in ('http://'+host,'https://'+host))
 
 
 def handle(handler,post=False):

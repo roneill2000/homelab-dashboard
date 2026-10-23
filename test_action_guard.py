@@ -74,6 +74,9 @@ class ActionGuardTests(unittest.TestCase):
         self.assertEqual(result, {'blocking': True, 'timer': None})
         _, result = self.post('/api/action/syslog-clear', ok)
         self.assertEqual(result, 'cleared')
+        ok_lan = {'Host': 'home.lan', 'X-Dashboard-Action': '1', 'Origin': 'https://home.lan'}
+        _, result = self.post('/api/action/syslog-clear', ok_lan)
+        self.assertEqual(result, 'cleared')
 
     def test_shape_drift_fails_before_mutation(self):
         with self.assertRaises(ValueError):
