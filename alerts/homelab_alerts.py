@@ -416,7 +416,7 @@ def why_prompt(title, detail):
 
 
 def serve_why(port=8997):
-    """POST /why?key=<alert key>: answer in the background, push to ntfy. Only known alert keys; one at a time."""
+    """POST /why?key=<alert key> or /why?title=..&detail=..: answer in the background, push to ntfy. Only known alert keys; one at a time."""
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     busy = threading.Lock()
@@ -433,6 +433,8 @@ def serve_why(port=8997):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             key = (q.get('key') or [''])[0]
             info = read_details().get(key)
+            if not info and q.get('title'):  # senders on other hosts put the alert text in the button URL
+                info = {'title': q['title'][0][:200], 'detail': (q.get('detail') or [''])[0][:1500]}
             if urllib.parse.urlparse(self.path).path != '/why' or not info:
                 return self.reply(404, 'Unknown alert.')
             if not busy.acquire(blocking=False):
