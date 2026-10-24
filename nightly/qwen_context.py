@@ -20,7 +20,7 @@ RECORDED = {
     'facts': ['Proxmox .3; Unraid .4; Homepage .2; Open WebUI .16:3000; Memos .18:5230.',
               'Desktop .12 is a gaming PC and is intentionally off sometimes; A310 is always available on Unraid.',
               'Ask Qwen answers with Qwen3.8-27B on the gaming PC when it is on, otherwise with Gemma 4 E4B (Q4_K_M) on the A310 (llama.cpp SYCL built for the A310, about 14 tok/s, 6K window, 256-token thinking cap, loads in about 12 s from the cache SSD).',
-              'The 03:00 nightly log review runs Gemma 4 12B split across the A310 and system RAM (~4.4 tok/s); if RAM is short or it fails to load, it uses Gemma 4 E4B. Each log group gets one retry, the run stops reviewing after 2 hours and is killed after 3.',
+              'The 03:00 nightly log review runs Gemma 4 E4B exclusively on the A310 (~14 tok/s). Each log group gets one retry, the run stops reviewing after 2 hours and is killed after 3.',
               'Cache guard checks every 5 minutes and starts mover at 70% used; stock daily mover is 03:40.',
               'Cache pool minimum-free reserve is 100 GiB, applied and checked on 2026-10-20.',
               'Home internet plan is 2.5 Gbps (user supplied); disk MB/s is not SMB or WAN throughput.',

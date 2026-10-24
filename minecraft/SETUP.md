@@ -13,6 +13,6 @@ Paper (VERSION=LATEST) with Geyser + Floodgate so Java and Bedrock play together
 | `simulation-distance` | 8 (view 10) | Less ticking per player; you still see 10 chunks |
 | Paper `optimize-explosions`, `prevent-moving-into-unloaded-chunks` | true | Cheaper TNT/creepers; no stalls from flying into ungenerated land |
 | Chunky (`MODRINTH_PROJECTS=chunky`) | 2000-block radius pre-generated | Exploring near spawn never generates terrain live. Extend: `rcon-cli "chunky radius 4000"` then `"chunky start"` |
-| Memory | 4 GB heap | Measured 23 Oct with 3 players: 0.64 GB live after GC. 5 GB was tried and reverted; leaves RAM for the nightly 12B (needs 6 GB free) |
+| Memory | 6 GB heap | Upgraded to 6 GB on 24 Oct 2026; nightly log review runs Gemma 4 E4B exclusively on the A310 so host RAM pressure is eliminated |
 
 23 Oct 2026: new world started; the previous one is `appdata/minecraft/world-old-20261023` (restore: stop the container, swap the folders back). Backups of the edited files are `*.bak-20261023`.
