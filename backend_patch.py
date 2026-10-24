@@ -452,3 +452,30 @@ def patch_speedtest_time(source):
     source += '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_remove_kasm(source):
+    """Remove Kasm (LXC 103, 192.168.0.15) from port targets, known hosts, and IP matrix."""
+    marker = '# HOMELAB_REMOVE_KASM_V1'
+    if marker in source:
+        return source
+    tree = ast.parse(source)
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name == 'port_targets':
+                pairs = [(k, v) for k, v in zip(node.value.keys, node.value.values) if getattr(k, 'value', None) != 'kasm']
+                node.value.keys = [p[0] for p in pairs]
+                node.value.values = [p[1] for p in pairs]
+            elif name == 'known':
+                pairs = [(k, v) for k, v in zip(node.value.keys, node.value.values) if getattr(k, 'value', None) != 15]
+                node.value.keys = [p[0] for p in pairs]
+                node.value.values = [p[1] for p in pairs]
+        if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
+            node.iter.elts = [elt for elt in node.iter.elts if getattr(elt, 'value', None) != 15]
+    lines = source.splitlines(keepends=True)
+    lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn))+'\n']
+    source = ''.join(lines) + '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source
