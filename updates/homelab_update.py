@@ -23,7 +23,7 @@ from pathlib import Path
 STATE_DIR = Path('/var/lib/homelab-update')
 STATE = STATE_DIR / 'state.json'
 LOCK = Path('/run/homelab-update.lock')
-WEEKLY_EXCLUDE = {'kasm', 'itzg-minecraft-server'}  # Ryan, 22 Oct 2026: update these by hand
+WEEKLY_EXCLUDE = {'itzg-minecraft-server'}  # Ryan, 22 Oct 2026: update by hand
 WATCHDOG = Path('/usr/local/bin/homelab-health-watchdog.sh')
 UNRAID = 'root@192.168.0.4'
 PI = 'root@192.168.0.10'  # Orange Pi Zero 2W: Pi-hole replica, Uptime Kuma, nebula-sync
