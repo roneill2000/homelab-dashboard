@@ -151,12 +151,8 @@ def mem_available_gib():
 
 
 def choose_profile():
-    """The 12B when its file is present and Unraid has the RAM tonight; otherwise Gemma E4B, with the reason."""
-    if not (MODEL_ROOT/NIGHTLY_FILE).exists():return 'quick','Gemma 4 12B model file missing'
-    free=mem_available_gib()
-    if free is None or free<NIGHTLY_MIN_RAM_GIB:
-        return 'quick',f'only {free:.1f} GiB RAM free (12B needs {NIGHTLY_MIN_RAM_GIB:g})' if free is not None else 'free RAM unknown'
-    return 'nightly',None
+    """Gemma 4 E4B on the A310 (fits in 3.2 GB VRAM; zero system RAM pressure)."""
+    return 'quick', None
 
 
 def start_model(profile):

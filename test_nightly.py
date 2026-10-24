@@ -87,13 +87,8 @@ class RunnerTests(unittest.TestCase):
    self.assertNotIn('Private speculation',raw);self.assertEqual(saved['usage']['completion_tokens'],20)
    self.assertIn('load_seconds',saved);self.assertIn('generation_seconds',saved)
    stop.assert_called_once()
- def test_profile_choice_needs_the_file_and_enough_ram(self):
-  with tempfile.TemporaryDirectory() as d,patch.object(r,'MODEL_ROOT',Path(d)):
-   self.assertEqual(r.choose_profile(),('quick','Gemma 4 12B model file missing'))
-   (Path(d)/r.NIGHTLY_FILE).parent.mkdir(parents=True);(Path(d)/r.NIGHTLY_FILE).write_text('x')
-   with patch.object(r,'mem_available_gib',return_value=3.2):
-    profile,reason=r.choose_profile();self.assertEqual(profile,'quick');self.assertIn('3.2 GiB',reason)
-   with patch.object(r,'mem_available_gib',return_value=7.5):self.assertEqual(r.choose_profile(),('nightly',None))
+ def test_profile_choice_runs_e4b_on_a310(self):
+  self.assertEqual(r.choose_profile(),('quick',None))
  def test_nightly_command_pins_the_split_and_drops_the_embedding_override(self):
   big=r.container_command(profile='nightly');quick=r.container_command()
   self.assertEqual(big[big.index('--gpu-layers')+1],str(r.NIGHTLY_GPU_LAYERS));self.assertEqual(big[big.index('--fit')+1],'off')
