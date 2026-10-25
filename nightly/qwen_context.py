@@ -16,8 +16,11 @@ CAPABILITIES = ('Available observations: host CPU/RAM, guests/containers, disk c
                 'No arbitrary SSH, internet search, private notes, file contents, chat history, or configuration writes. '
                 'General knowledge questions are allowed; distinguish them from observed local facts.')
 RECORDED = {
-    'as_of': '2026-10-20',
+    'as_of': '2026-10-25',
     'facts': ['Proxmox .3; Unraid .4; Homepage .2; Open WebUI .16:3000; Memos .18:5230.',
+              'Both Pi-hole DNS servers (Primary LXC 106 at .11 and Secondary Orange Pi at .10) resolve through local Unbound recursive DNS (127.0.0.1#5335) with DNSSEC, qname-minimisation, prefetch, and serve-expired enabled; synced via nebula-sync.',
+              'Orange Pi (.10) runs Ubuntu 26.04 with schedutil governor (480-1512 MHz), mq-deadline on mmcblk1, hardware watchdog (15s) + panic auto-reboot (10s), and official Ubuntu ports APT sources only.',
+              'GL-BE9300 router (.1) CPU governor is locked to performance (1.5 GHz across all 4 cores). Proxmox (.3) and Unraid (.4) have Intel HWP dynamic boost enabled.',
               'Desktop .12 is a gaming PC and is intentionally off sometimes; A310 is always available on Unraid.',
               'Ask Qwen answers with Qwen3.8-27B on the gaming PC when it is on, otherwise with Gemma 4 E4B (Q4_K_M) on the A310 (llama.cpp SYCL built for the A310, about 14 tok/s, 6K window, 256-token thinking cap, loads in about 12 s from the cache SSD).',
               'The 03:00 nightly log review runs Gemma 4 E4B exclusively on the A310 (~14 tok/s). Each log group gets one retry, the run stops reviewing after 2 hours and is killed after 3.',
