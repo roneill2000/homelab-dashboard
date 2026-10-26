@@ -25,19 +25,12 @@ MODEL_SHA256='85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87'
 # rebuilt by evals/a310-backends-2026-10-22/build_aot.sh. 18 tok/s vs 12.6 on Vulkan, 4-21 s load.
 IMAGE='homelab/llama-sycl-a310:b11804'
 NAME='homelab-nightly-llm'
-# Overnight log review: Gemma 4 12B split across the A310 (18 of 49 layers) and system RAM, ~4.4 tok/s.
-# 3 of 4 hard questions right vs 0 for Qwen3.5-9B (evals/ask-qwen-2026-10-22, 22 Oct 2026). More GPU layers
-# fail with UR_RESULT_ERROR_OUT_OF_HOST_MEMORY on this card, so the split is pinned, not auto-fit.
-NIGHTLY_MODEL='gemma-4-12b-it-Q4_K_M'
-NIGHTLY_FILE='gemma-4-12b-it-GGUF/gemma-4-12b-it-Q4_K_M.gguf'
-NIGHTLY_SHA256='0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42'
-NIGHTLY_GPU_LAYERS=int(os.environ.get('HOMELAB_NIGHTLY_GPU_LAYERS','18'))
-NIGHTLY_MIN_RAM_GIB=float(os.environ.get('HOMELAB_NIGHTLY_MIN_RAM_GIB','6'))  # ~4.1 GB of weights in RAM plus working memory
-GROUP_TIMEOUT=int(os.environ.get('HOMELAB_NIGHTLY_GROUP_TIMEOUT','900'))  # one answer: 5-9 min on the 12B
+# The overnight log review also runs Gemma 4 E4B on the A310. The 12B split across the A310 and system RAM was
+# retired on 24 Oct 2026 to keep RAM free (Ryan); its model file was deleted 26 Oct.
+GROUP_TIMEOUT=int(os.environ.get('HOMELAB_NIGHTLY_GROUP_TIMEOUT','900'))  # one log group, including its single retry
 RUN_LIMIT=int(os.environ.get('HOMELAB_NIGHTLY_RUN_LIMIT','7200'))  # stop reviewing new groups after 2 h
 API='http://127.0.0.1:11437'
 PROFILES={
-    'nightly':dict(model=NIGHTLY_MODEL,file=NIGHTLY_FILE,label='Gemma 4 12B · A310 + RAM',max_tokens=2500,load_timeout=600),
     'quick':dict(model=MODEL,file=MODEL_FILE,label='Gemma 4 E4B · A310',max_tokens=1152,load_timeout=900),
 }
 
@@ -125,34 +118,20 @@ def checked_finding(group,content):
 
 
 def container_command(context_size=2048, reasoning_budget=768, profile='quick'):
-    pr=PROFILES[profile];big=profile=='nightly'
-    command=['docker','run','-d','--pull','never','--rm','--name',NAME,'--user','0:0','--memory','9g' if big else '7g','--cpus','4' if big else '2',
+    pr=PROFILES[profile]
+    command=['docker','run','-d','--pull','never','--rm','--name',NAME,'--user','0:0','--memory','7g','--cpus','2',
             '--pids-limit','256',
             '--health-cmd','curl -fsS http://127.0.0.1:8000/health || exit 1','--health-start-period','15m',
             '--device','/dev/dri/card1','--device','/dev/dri/renderD129','-e','ONEAPI_DEVICE_SELECTOR=level_zero:0',
             '--cap-drop','ALL','--security-opt','no-new-privileges',
             '-p','127.0.0.1:11437:8000','-v',str(MODEL_ROOT)+':/models:ro',IMAGE,
             '--model','/models/'+pr['file'],'--alias',pr['model'],'--host','0.0.0.0','--port','8000',
-            '--gpu-layers',str(NIGHTLY_GPU_LAYERS) if big else 'all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
-            '--batch-size','256','--ubatch-size','128','--threads','4' if big else '2','--threads-batch','4' if big else '2',
+            '--gpu-layers','all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
+            '--batch-size','256','--ubatch-size','128','--threads','2','--threads-batch','2',
             '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift']
-    if not big:
-        # Gemma E4B's per-layer embedding tables (~1.8 GB) stay in system RAM so the rest fits the 4 GB A310 (3.2 GB used)
-        command+=['--override-tensor','per_layer_token_embd=CPU']
+    # Gemma E4B's per-layer embedding tables (~1.8 GB) stay in system RAM so the rest fits the 4 GB A310 (3.2 GB used)
+    command+=['--override-tensor','per_layer_token_embd=CPU']
     return command
-
-
-def mem_available_gib():
-    try:
-        for line in Path('/proc/meminfo').read_text().splitlines():
-            if line.startswith('MemAvailable:'):return int(line.split()[1])/1024/1024
-    except (OSError,ValueError):pass
-    return None
-
-
-def choose_profile():
-    """Gemma 4 E4B on the A310 (fits in 3.2 GB VRAM; zero system RAM pressure)."""
-    return 'quick', None
 
 
 def start_model(profile):
@@ -269,15 +248,9 @@ def main():
         save(report)
         if shutil.disk_usage('/mnt/cache').free < 1024**3:
             raise RuntimeError('Cache free space below 1 GiB; inference deferred')
-        profile,fallback=choose_profile()
+        profile,fallback='quick',None
         owned=True
-        try:
-            report['load_seconds']=start_model(profile)
-        except Exception as exc:
-            if profile!='nightly':raise
-            stop_model()  # free the A310 before the smaller model
-            fallback=f'Gemma 4 12B did not load ({type(exc).__name__})'
-            profile='quick';report['load_seconds']=start_model(profile)
+        report['load_seconds']=start_model(profile)
         report.update(model=PROFILES[profile]['model'],model_label=PROFILES[profile]['label'],fallback_reason=fallback)
         generation_started=time.time()
         findings=[];skipped=[];usage={'prompt_tokens':0,'completion_tokens':0};truncated=False

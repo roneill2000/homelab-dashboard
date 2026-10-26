@@ -112,12 +112,11 @@ class QwenTests(unittest.TestCase):
         tok.assert_called_once_with('gemma-4-26b-a4b');self.assertEqual(ask.call_args.args[2],'gemma-4-26b-a4b')
         self.assertEqual(broker.state()['model'],'Gemma 4 26B MoE · gaming PC')
 
-    def test_12b_choice_explains_when_unavailable(self):
-        broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='a310-12b')
-        lock=SimpleNamespace(close=unittest.mock.Mock())
-        with patch.object(q.r,'choose_profile',return_value=('quick','only 3.0 GiB RAM free (12B needs 6)')),patch.object(q.r,'fetch',return_value=storage()),patch.object(q.r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(q.r,'stop_model') as stop:
-            broker.work(lock)
-        st=broker.state();self.assertEqual(st['status'],'failed');self.assertIn('3.0 GiB',st['error']);stop.assert_not_called()
+    def test_retired_12b_choice_is_answered_on_e4b(self):
+        broker=q.Broker()
+        with patch.object(broker,'work'),patch.object(q.r,'ROOT',Path(tempfile.mkdtemp())):
+            code,job=broker.submit('hi','a310-12b')
+        self.assertEqual(code,202);self.assertEqual(job['model'],q.A310_LABEL)
 
     def test_a310_questions_use_the_256_token_thinking_cap(self):
         command=q.r.container_command(context_size=6144,reasoning_budget=q.A310_THINKING)

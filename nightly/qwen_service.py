@@ -28,9 +28,9 @@ PC_MODEL = 'qwen3.8-27b'
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Qwen3.8-27B · gaming PC'
 A310_LABEL = 'Gemma 4 E4B · A310'
-A310_12B_LABEL = 'Gemma 4 12B · A310 + RAM'
 PC_NAMES = {'qwen3.8-27b': 'Qwen3.8-27B', 'gemma-4-26b-a4b': 'Gemma 4 26B MoE', 'qwen3.6-35b-moe': 'Qwen3.6 35B MoE'}
-# Model choices: 'a310' (Gemma 4 E4B), 'a310-12b' (Gemma 4 12B split across A310 and RAM), 'auto' (27B if the PC is on),
+# Model choices: 'a310' (Gemma 4 E4B; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
+# 'auto' (27B if the PC is on),
 # 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves.
 TARGET_RE = re.compile(r'^(a310|a310-12b|auto|pc|pc:[a-z0-9][a-z0-9.\-]{0,63})$')
 
@@ -155,7 +155,7 @@ class Broker:
                 lock.close()
                 return 409, dict(status='busy',model=A310_LABEL,error='The nightly review is using Qwen. Try again when it finishes.')
             self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),target=target,
-                            model=pc_label(target[3:] or PC_MODEL) if target.startswith('pc') else A310_12B_LABEL if target=='a310-12b' else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
+                            model=pc_label(target[3:] or PC_MODEL) if target.startswith('pc') else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
                             context_note='Question-selected host, storage, services, network, AI and log observations. No chat history or internet search.')
             accepted = dict(self.job)
             worker=threading.Thread(target=self.work,args=(lock,),name='qwen-question',daemon=False)
@@ -214,12 +214,8 @@ class Broker:
                     self.update(model=A310_LABEL,fallback='The gaming PC did not answer, so the A310 answered instead.',
                                 input_tokens=None,context_limit=None)
             else:
-                self.update(model=A310_12B_LABEL if target=='a310-12b' else A310_LABEL)
+                self.update(model=A310_LABEL)
             profile='quick'
-            if target=='a310-12b':
-                profile,why=r.choose_profile()
-                if profile!='nightly':
-                    raise ValueError(f'Gemma 4 12B is not available right now ({why}). Ask Gemma 4 E4B instead.')
             storage=r.fetch('http://192.168.0.2/api/storage',timeout=20)
             if not r.backup_clear(storage,time.time()):
                 raise ValueError('Backup activity is running or unavailable. Try again after the backup.')
@@ -260,7 +256,7 @@ class Broker:
                         context_note=note,context_sources=names,context_omissions=omitted,input_tokens=count,context_limit=6144,
                         evidence=evidence)
             generation_started=time.monotonic()
-            response=r.fetch(r.API+'/v1/chat/completions',body,timeout=900 if profile=='nightly' else 180)  # the 12B writes ~4 tok/s
+            response=r.fetch(r.API+'/v1/chat/completions',body,timeout=180)
             answer=usable(response)
             result=dict(status='complete',answer=scrub(answer),performance=performance(response,time.monotonic()-generation_started))
         except ValueError as exc:

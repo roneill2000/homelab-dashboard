@@ -87,33 +87,27 @@ class RunnerTests(unittest.TestCase):
    self.assertNotIn('Private speculation',raw);self.assertEqual(saved['usage']['completion_tokens'],20)
    self.assertIn('load_seconds',saved);self.assertIn('generation_seconds',saved)
    stop.assert_called_once()
- def test_profile_choice_runs_e4b_on_a310(self):
-  self.assertEqual(r.choose_profile(),('quick',None))
- def test_nightly_command_pins_the_split_and_drops_the_embedding_override(self):
-  big=r.container_command(profile='nightly');quick=r.container_command()
-  self.assertEqual(big[big.index('--gpu-layers')+1],str(r.NIGHTLY_GPU_LAYERS));self.assertEqual(big[big.index('--fit')+1],'off')
-  self.assertNotIn('--override-tensor',big);self.assertIn('--override-tensor',quick)
-  self.assertEqual(big[big.index('--alias')+1],r.NIGHTLY_MODEL);self.assertEqual(big[big.index('--memory')+1],'9g')
-  self.assertGreater(r.request_body({'host':'h','message':'m'},'nightly')['max_tokens'],r.request_body({'host':'h','message':'m'})['max_tokens'])
- def _run(self,groups,profile=('nightly',None),start=None,review=None,clock=None):
+ def test_command_runs_e4b_fully_on_the_a310(self):
+  cmd=r.container_command()
+  self.assertEqual(cmd[cmd.index('--gpu-layers')+1],'all');self.assertIn('--override-tensor',cmd)
+  self.assertEqual(cmd[cmd.index('--alias')+1],r.MODEL);self.assertEqual(cmd[cmd.index('--memory')+1],'7g')
+ def _run(self,groups,start=None,review=None,clock=None):
   snapshot=dict(groups=groups,window_start=1,window_end=1000,coverage_limited=False,files_scanned=1,matched_entries=len(groups),distinct_groups=len(groups),source='patterns',hosts=[])
   values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot]
   d=tempfile.mkdtemp()
-  with patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',side_effect=clock or (lambda:1000)),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(r,'choose_profile',return_value=profile),patch.object(r,'start_model',side_effect=start or [12.0]) as st,patch.object(r,'review_group',side_effect=review or []) as rv,patch.object(r,'stop_model') as stop:
+  with patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',side_effect=clock or (lambda:1000)),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(r,'start_model',side_effect=start or [12.0]) as st,patch.object(r,'review_group',side_effect=review or []) as rv,patch.object(r,'stop_model') as stop:
    try:r.main()
    except Exception:pass
    return json.loads((Path(d)/'reports/latest.json').read_text()),st,rv,stop
- def test_big_model_load_failure_falls_back_to_quick_model(self):
+ def test_model_load_failure_fails_the_run(self):
   g=dict(id='g1',host='h',level='WARNING',count=1,first_at=1,last_at=2,message='x')
-  saved,st,rv,stop=self._run([g],start=[RuntimeError('oom'),9.0],review=[({'group_id':'g1','interpretation':'ok'},{'prompt_tokens':1,'completion_tokens':2},None)])
-  self.assertEqual(saved['status'],'complete');self.assertEqual(saved['model'],r.MODEL)
-  self.assertIn('did not load',saved['fallback_reason']);self.assertEqual([c.args[0] for c in st.call_args_list],['nightly','quick'])
-  self.assertEqual(stop.call_count,2)  # once before the fallback, once at the end
+  saved,st,rv,stop=self._run([g],start=[RuntimeError('oom')])
+  self.assertEqual(saved['status'],'failed');self.assertEqual(st.call_count,1);rv.assert_not_called()
  def test_failed_group_is_skipped_not_fatal(self):
   gs=[dict(id=f'g{i}',host='h',level='WARNING',count=1,first_at=1,last_at=2,message='x') for i in (1,2)]
   saved,st,rv,stop=self._run(gs,review=[(None,None,'TimeoutError'),({'group_id':'g2','interpretation':'ok'},{},None)])
   self.assertEqual(saved['status'],'complete');self.assertEqual(saved['skipped_groups'],[{'group_id':'g1','reason':'TimeoutError'}])
-  self.assertEqual(saved['model_label'],'Gemma 4 12B · A310 + RAM')
+  self.assertEqual(saved['model_label'],'Gemma 4 E4B · A310')
   all_bad,*_=self._run(gs,review=[(None,None,'empty'),(None,None,'empty')])
   self.assertEqual(all_bad['status'],'failed')
  def test_run_time_limit_skips_remaining_groups(self):
@@ -127,10 +121,10 @@ class RunnerTests(unittest.TestCase):
  def test_review_group_retries_once(self):
   ok={'choices':[{'finish_reason':'stop','message':{'content':'Fine.'}}],'usage':{'completion_tokens':3}}
   with patch.object(r,'fetch',side_effect=[TimeoutError(),ok]):
-   finding,used,reason=r.review_group({'id':'g','host':'h','message':'m'},'nightly')
+   finding,used,reason=r.review_group({'id':'g','host':'h','message':'m'},'quick')
   self.assertEqual(finding['interpretation'],'Fine.');self.assertIsNone(reason)
   with patch.object(r,'fetch',side_effect=[TimeoutError(),TimeoutError()]):
-   self.assertEqual(r.review_group({'id':'g','host':'h','message':'m'},'nightly'),(None,None,'TimeoutError'))
+   self.assertEqual(r.review_group({'id':'g','host':'h','message':'m'},'quick'),(None,None,'TimeoutError'))
  def test_stop_model_waits_for_removal_and_falls_back_to_remove(self):
   result=lambda code=0,out='',err='':SimpleNamespace(returncode=code,stdout=out,stderr=err)
   gone=result(1,err='Error: No such object: '+r.NAME)
