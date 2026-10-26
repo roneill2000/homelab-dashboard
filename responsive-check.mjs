@@ -2,7 +2,7 @@ import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 fs.mkdirSync('.preview',{recursive:true});
-const browser=await chromium.launch({headless:true,channel:process.env.PW_CHANNEL||'chrome'});
+const browser=await chromium.launch({headless:true,...(process.env.PW_NO_CHROME?{}:{channel:process.env.PW_CHANNEL||'chrome'})});
 const results=[];
 for(const [width,height] of [[360,800],[412,915],[448,998],[998,448],[1440,1000],[1920,1080],[2560,1440],[3440,1440]]){
  const mobile=width<1100;
