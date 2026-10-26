@@ -15,7 +15,7 @@
 - Never edit `*-check.mjs`, `ui-smoke.mjs` or `run-checks.mjs` to make a check pass.
 - Never run `deploy.py`. Ryan decides when to deploy.
 - Use exact string replacement (find text, replace text). Do not reformat, reorder or "tidy" anything else.
-- If a find string is not found, or is found a different number of times than the task says, STOP and ask Ryan.
+- In a replacement table, a row that matches 0 times in a file is fine: skip it. Where a task gives an expected count, the count must match exactly, otherwise STOP and ask Ryan. Each task's Verify step is what decides pass or fail.
 
 ## 0. Already done (Claude, do not redo)
 
@@ -113,15 +113,18 @@
 - [ ] 5.2 Build and check (Rules), commit "m3: metric numbers use the display-small type style". Do not change `.mono`.
 
 ## 6. Remove dead legacy CSS
-
-Classes to check: `confirm-dialog`, `download-value`, `icon-button`, `local-ai-hosts`, `sleep-confirm`, `version-label`.
-
-- [ ] 6.1 For each class above, run `grep -c '<class>' src/app.jsx` (replace `<class>` with the name). Only classes that print `0` are removed. Write that list down.
-- [ ] 6.2 For each class on that list, run `grep -n '^\.<class>[{ :.,]' src/styles.css` and `grep -n '^  \.<class>[{ :.,]' src/styles.css` (rules inside `@media` blocks are indented two spaces). Delete exactly those lines.
-  If a matched line's selector also names another class (it contains a comma, e.g. `.icon-button,.other{...}`), do **not** delete it: STOP and ask Ryan.
-  If deleting a line leaves an empty `@media (...){` block (the next line is `}`), delete that `@media` line and its `}` line too.
-- [ ] 6.3 Verify: for each removed class, `grep -c '\.<class>' src/styles.css` prints `0`.
-- [ ] 6.4 Build and check (Rules), commit "m3: remove CSS for classes no longer used".
+These classes are no longer used in `src/app.jsx`: `confirm-dialog`, `download-value`, `icon-button`, `local-ai-hosts`, `sleep-confirm`, `version-label`.
+- [ ] 6.1 Confirm: `grep -cE "confirm-dialog|download-value|icon-button|local-ai-hosts|sleep-confirm|version-label" src/app.jsx` prints `0`. If not, STOP and ask Ryan.
+- [ ] 6.2 In `src/styles.css`, delete every whole line that starts (after any leading spaces) with one of these exact texts. Expected: **17 lines** deleted in total.
+  `.version-label{` · `.icon-button{` · `.icon-button:hover{` · `.download-value{` · `.download-value span{` · `.confirm-dialog{` · `.confirm-dialog h2{` · `.confirm-dialog p{` · `.confirm-dialog>div{` · `.confirm-dialog button{` · `.local-ai-hosts{` · `.sleep-confirm{` · `.sleep-confirm button{`
+  (Some of these appear 2 or 3 times, inside and outside `@media` blocks; delete all of them. Do not delete the `@media` lines or `}` lines.)
+- [ ] 6.3 In `src/styles.css`, make these exact replacements:
+  | Find (exact) | Replace | Expected count |
+  | --- | --- | --- |
+  | `,.download-value em{` | `{` | 2 |
+  | `  .local-ai-hosts,.ai-model-grid{` | `  .ai-model-grid{` | 1 |
+- [ ] 6.4 Verify: `grep -cE "\.(confirm-dialog|download-value|icon-button|local-ai-hosts|sleep-confirm|version-label)\b" src/styles.css` prints `0`.
+- [ ] 6.5 Build and check (Rules), commit "m3: remove CSS for classes no longer used".
 
 ## 7. Screenshots for Ryan
 

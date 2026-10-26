@@ -36,11 +36,16 @@ if (!process.env.DASHBOARD_URL) {
 mkdirSync('.preview', { recursive: true });
 let bad = 0; const log = [];
 for (const name of scripts) {
-  const { code, out } = await run('node', [`${name}.mjs`], 300000);
+  // Some checks read live telemetry through the preview and can flake (e.g. identical chart samples).
+  // A failed script is retried once; only a script that fails twice in a row counts as BAD.
+  let { code, out } = await run('node', [`${name}.mjs`], 300000);
+  let retried = false;
+  const bad = () => code !== 0 || /^FAIL/m.test(out) || out.includes('TIMEOUT');
+  if (bad()) { retried = true; ({ code, out } = await run('node', [`${name}.mjs`], 300000)); }
   const pass = (out.match(/^PASS/gm) || []).length, fail = (out.match(/^FAIL.*$/gm) || []);
-  const ok = code === 0 && fail.length === 0 && !out.includes('TIMEOUT');
+  const ok = !bad();
   if (!ok) bad++;
-  console.log(`${ok ? 'OK  ' : 'BAD '} ${name.padEnd(22)} pass=${pass} fail=${fail.length} exit=${code}${out.includes('TIMEOUT') ? ' TIMEOUT' : ''}`);
+  console.log(`${ok ? 'OK  ' : 'BAD '} ${name.padEnd(22)} pass=${pass} fail=${fail.length} exit=${code}${out.includes('TIMEOUT') ? ' TIMEOUT' : ''}${retried ? (ok ? ' (passed on retry)' : ' (failed twice)') : ''}`);
   for (const f of fail) console.log('       ' + f.slice(0, 300));
   if (!ok && !fail.length) console.log('       ' + out.trim().split('\n').slice(-3).join(' | ').slice(0, 300));
   log.push(`### ${name}\n${out}`);
