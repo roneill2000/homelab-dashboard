@@ -40,10 +40,10 @@ for (const name of scripts) {
   // A failed script is retried once; only a script that fails twice in a row counts as BAD.
   let { code, out } = await run('node', [`${name}.mjs`], 300000);
   let retried = false;
-  const bad = () => code !== 0 || /^FAIL/m.test(out) || out.includes('TIMEOUT');
-  if (bad()) { retried = true; ({ code, out } = await run('node', [`${name}.mjs`], 300000)); }
+  const failed = () => code !== 0 || /^FAIL/m.test(out) || out.includes('TIMEOUT');
+  if (failed()) { retried = true; ({ code, out } = await run('node', [`${name}.mjs`], 300000)); }
   const pass = (out.match(/^PASS/gm) || []).length, fail = (out.match(/^FAIL.*$/gm) || []);
-  const ok = !bad();
+  const ok = !failed();
   if (!ok) bad++;
   console.log(`${ok ? 'OK  ' : 'BAD '} ${name.padEnd(22)} pass=${pass} fail=${fail.length} exit=${code}${out.includes('TIMEOUT') ? ' TIMEOUT' : ''}${retried ? (ok ? ' (passed on retry)' : ' (failed twice)') : ''}`);
   for (const f of fail) console.log('       ' + f.slice(0, 300));
