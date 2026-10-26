@@ -22,7 +22,7 @@ save() {  # save <name> <command producing a .tgz on stdout>
 save router "${SSH[*]} root@192.168.0.1 'sysupgrade -b /tmp/homelab-cfg.tgz >/dev/null 2>&1 && cat /tmp/homelab-cfg.tgz; rm -f /tmp/homelab-cfg.tgz'"
 save proxmox "tar -czf - --ignore-failed-read --exclude=/root/.config/restic/gdrive.pass /etc/pve /etc/network/interfaces /etc/hosts /etc/fstab /etc/sysctl.d /etc/tmpfiles.d /etc/udev/rules.d /etc/rsyslog.d /etc/logrotate.d /etc/cron.d /etc/systemd/system /usr/local/bin /usr/local/sbin /root/.config /root/.ssh/config 2>/dev/null"
 save orangepi "${SSH[*]} root@192.168.0.10 'crontab -l > /tmp/root.crontab 2>/dev/null; tar -czf - --ignore-failed-read /opt/uptime-kuma /opt/nebula-sync /etc/unbound /etc/pihole/pihole.toml /etc/pihole/hosts /etc/default/cpufrequtils /usr/lib/orangepi/orangepi-hardware-optimization /etc/sysctl.d /etc/systemd/system.conf.d /usr/local/bin/ddns-update.sh /usr/local/bin/dns-watchdog.sh /etc/keepalived /etc/default/keepalived /tmp/root.crontab 2>/dev/null; rm -f /tmp/root.crontab'"
-save pihole "pct exec 106 -- tar -czf - --ignore-failed-read /etc/pihole /etc/dnsmasq.d /etc/unbound /etc/keepalived /etc/default/keepalived 2>/dev/null"
+save pihole "pct exec 106 -- tar -czf - --ignore-failed-read /etc/pihole/pihole.toml /etc/pihole/hosts /etc/pihole/custom.list /etc/dnsmasq.d /etc/unbound /etc/keepalived /etc/default/keepalived 2>/dev/null"
 save proxy "pct exec 115 -- tar -czf - -C /var/lib/caddy .local/share/caddy /etc/caddy 2>/dev/null"
 
 if [ ${#fail[@]} -eq 0 ]; then date +%s > "$D/last_success"; else echo "failed: ${fail[*]}" >&2; exit 1; fi
