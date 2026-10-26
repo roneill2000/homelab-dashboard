@@ -276,3 +276,61 @@
 
 /* Wordmark: Google Sans Flex 500 (Ryan, 26 Oct 2026), like Google's own app wordmarks. */
 .m3-xrail__brand,.m3-nav-drawer__brand,.m3-top-app-bar__brand{font-family:var(--md-ref-typeface-brand);font-weight:500;letter-spacing:-0.2px}
+
+/* ---------- Overview v2 (Codex audit, 26 Oct 2026): one featured surface, quieter supporting surfaces, varied shapes ---------- */
+/* Health hero: primary-container (tertiary-container when something needs attention), 32px corner, emphasized display type. */
+.ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);border-radius:var(--md-sys-shape-corner-extra-large-increased);
+  padding:24px;margin:0 0 32px;display:grid;gap:20px}
+.ov-hero--attention{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container)}
+.ov-hero__head{display:flex;gap:16px;align-items:flex-start}
+.ov-hero__glyph{display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;flex-shrink:0;border-radius:var(--md-sys-shape-corner-large-increased);
+  background:color-mix(in srgb,currentColor 12%,transparent)}
+.ov-hero__eyebrow{margin:0 0 4px;font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);letter-spacing:var(--md-sys-typescale-label-large-tracking);opacity:.85}
+.ov-hero__title{margin:0;font-family:var(--md-sys-typescale-display-small-font);font-size:var(--md-sys-typescale-display-small-size);line-height:var(--md-sys-typescale-display-small-line-height);
+  font-weight:500;letter-spacing:var(--md-sys-typescale-display-small-tracking);color:inherit}
+.ov-hero__sub{margin:6px 0 0;font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height) var(--md-sys-typescale-body-large-font);opacity:.9}
+.ov-hero .status-line{margin:0}
+.ov-hero .all-clear{color:inherit;font-weight:500}
+.ov-hero .quick-actions{margin:0}
+/* The four numbers become quiet tiles inside the hero (no competing colours). */
+.ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;border-radius:var(--md-sys-shape-corner-large)}
+.ov-hero .summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height);font-weight:500}
+.ov-hero .summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-headline-small-size);line-height:var(--md-sys-typescale-headline-small-line-height)}
+.ov-hero .summary-grid>.summary-stat em{font-size:var(--md-sys-typescale-title-medium-size);font-weight:400;opacity:.8}
+.ov-hero .summary-grid>.summary-stat.summary-link:hover{background:color-mix(in srgb,currentColor 14%,transparent);filter:none}
+/* Favorites two thirds, status one third. */
+.ov-columns{display:grid;gap:24px;margin:0 0 32px;align-items:start}
+@media (min-width:840px){.ov-columns{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}}
+.ov-favorites>.section-heading{margin-top:0}
+.ov-favorites .service-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))}
+.ov-side{display:grid;gap:16px}
+.ov-status{background:var(--md-sys-color-surface-container);border-radius:var(--md-sys-shape-corner-large-increased);padding:16px 8px 8px}
+.ov-status--bad{background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container)}
+.ov-status__head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px}
+.ov-status__head h3{margin:0;font:var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--md-sys-typescale-title-medium-font)}
+.ov-status__body{margin:8px 8px 4px;color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font)}
+.ov-status .m3-list{padding:4px 0}
+.ov-status .m3-list-item{min-height:56px;padding:8px}
+.ov-status .m3-list-item.is-ok>.material-symbols-rounded{color:var(--md-custom-green)}
+.ov-status .m3-list-item.is-bad>.material-symbols-rounded{color:var(--md-sys-color-error)}
+.ov-status>.m3-btn{margin-left:0}
+/* Activity: one quiet surface of rows. */
+.ov-activity>.section-heading{margin-top:0}
+.ov-rows{background:var(--md-sys-color-surface-container-low);border-radius:var(--md-sys-shape-corner-large);padding:8px 0}
+.ov-rows>li>.m3-list-item{width:100%}
+.ov-rows .m3-xprogress{margin-top:8px;max-width:420px}
+.ov-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+@media (max-width:599px){.ov-hero{padding:20px;border-radius:var(--md-sys-shape-corner-extra-large)}.ov-hero__title{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height)}}
+
+/* ---------- Interaction fixes (Codex audit) ---------- */
+.m3-page-header__title:focus{outline:none}
+.m3-page-header__title:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:4px;border-radius:4px}
+.m3-search-view__empty{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;color:var(--md-sys-color-on-surface-variant)}
+.m3-search-view__empty p{margin:0}
+/* Selected + pressed connected button: the pressed shape wins over the selected (fully round) shape. */
+.segments button.selected:active,.segments button[aria-pressed=true]:active,.m3-segment[aria-pressed=true]:active{border-radius:var(--md-comp-button-group-connected-pressed-inner-corner)}
+/* Phone chips keep their own padding and 18px icon while pressed (no desktop widening). */
+@media (max-width:599px){
+  .quick-actions>.m3-btn:active:not(:disabled){padding-left:8px;padding-right:16px}
+  .quick-actions>.m3-btn .material-symbols-rounded{font-size:18px!important}
+}

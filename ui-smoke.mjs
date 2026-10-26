@@ -10,12 +10,13 @@ page.setDefaultTimeout(15000);
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.goto(process.env.DASHBOARD_URL||'http://192.168.0.2/',{waitUntil:'domcontentloaded'});
 await page.getByRole('heading',{name:'Overview',exact:true}).waitFor();
+await page.locator('.ov-hero').waitFor(); // Overview v2: storage charts live on the Storage page (checked below)
+await page.screenshot({path:'.preview/desktop.png',fullPage:true});
+await page.getByRole('button',{name:'Storage',exact:true}).click();
 await page.locator('.storage-card .chart').first().waitFor();
 // Flat zero-rate paths have zero-height SVG bounds and are still valid charts.
 await page.locator('.storage-card .chart path').first().waitFor({state:'attached'});
 assert.ok((await page.locator('.storage-card .chart path').first().getAttribute('d'))?.startsWith('M'));
-await page.screenshot({path:'.preview/desktop.png',fullPage:true});
-await page.getByRole('button',{name:'Storage',exact:true}).click();
 for(const range of ['15m','1h','6h','24h']){
  const response=page.waitForResponse(r=>r.url().includes('/api/storage?window=')&&r.ok());
  await page.getByRole('button',{name:range,exact:true}).click();await response;

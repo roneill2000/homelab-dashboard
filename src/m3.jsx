@@ -139,21 +139,23 @@ export function SelectField({label,value,onChange,options,dense,className,childr
   </div>;
 }
 
-// Basic dialog with scrim. Focus moves to initialFocusRef (or the first button) and returns on close.
+// Basic dialog with scrim, rendered at the top of <body> (one overlay owner). Escape and the scrim call onClose; while it is
+// open the rest of the page is inert. Focus moves in (initialFocusRef or the first button) and returns on close.
 export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialog-title',initialFocusRef}){
   const box=useRef();
   useEffect(()=>{const previous=document.activeElement;(initialFocusRef?.current||box.current?.querySelector('button'))?.focus();
-    return()=>{if(previous?.isConnected)previous.focus()}},[]);
-  const trap=ev=>{if(ev.key!=='Tab')return;const n=[...box.current.querySelectorAll('button:not(:disabled),a[href],input,select')];
+    const others=[...document.body.children].filter(el=>el!==box.current?.parentElement&&!el.contains(box.current));const was=others.map(el=>el.inert);others.forEach(el=>{el.inert=true});
+    return()=>{others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus()}},[]);
+  const keys=ev=>{if(ev.key==='Escape'){ev.stopPropagation();onClose?.();return}if(ev.key!=='Tab')return;const n=[...box.current.querySelectorAll('button:not(:disabled),a[href],input,select')];
     if(!n.length)return;if(ev.shiftKey&&document.activeElement===n[0]){ev.preventDefault();n.at(-1).focus()}
     else if(!ev.shiftKey&&document.activeElement===n.at(-1)){ev.preventDefault();n[0].focus()}};
-  return <><div className="m3-scrim" onClick={onClose}/>
-    <div className="m3-dialog" role="dialog" aria-modal="true" aria-labelledby={labelId} ref={box} onKeyDown={trap}>
+  return ReactDOM.createPortal(<div className="m3-dialog-layer"><div className="m3-scrim" onClick={onClose}/>
+    <div className="m3-dialog" role="dialog" aria-modal="true" aria-labelledby={labelId} ref={box} onKeyDown={keys}>
       {icon&&<Icon name={icon} size={24} className="m3-dialog__icon"/>}
       <h2 className="m3-dialog__headline" id={labelId} style={icon?{textAlign:'center'}:undefined}>{headline}</h2>
       <div className="m3-dialog__body">{children}</div>
       {actions&&<div className="m3-dialog__actions">{actions}</div>}
-    </div></>;
+    </div></div>,document.body);
 }
 
 // Snackbar. Render it inside an always-mounted role=status region (App does) so screen readers announce it.
@@ -180,7 +182,7 @@ export const Divider=({inset})=><hr className={cx('m3-divider',inset&&'m3-divide
 // takes over when the page scrolls.
 export function PageHeader({title,subtitle,eyebrow,trailing,large}){
   return <div className={cx('m3-page-header',large&&'m3-page-header--large')}><div>{eyebrow&&<p className="m3-label-large m3-on-surface-variant" style={{margin:'0 0 4px'}}>{eyebrow}</p>}
-    <h1 className="m3-page-header__title">{title}</h1>{subtitle&&<p className="m3-page-header__subtitle">{subtitle}</p>}</div>{trailing}</div>;
+    <h1 className="m3-page-header__title" tabIndex={-1}>{title}</h1>{subtitle&&<p className="m3-page-header__subtitle">{subtitle}</p>}</div>{trailing}</div>;
 }
 export function Section({title,actions,children,className,id,...props}){
   return <section className={cx('m3-section',className)} id={id} {...props}>

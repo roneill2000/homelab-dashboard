@@ -8,15 +8,19 @@ data.activity.latest={ts:now,sab_bps:null,rdt_bps:0,read_bps:1000000,write_bps:2
 data.activity.recovery={backup:{observed_at:now,running:false,latest:{finished_at:now-300,status:'ERROR'},last_success:{finished_at:now-86400,status:'OK'}},parity:{observed_at:now,operation:'paused',array_state:'STARTED',action:'check P',position:20,size:100,last_started_at:now-100,last_finished_at:now-50,last_exit:0,last_errors:0,assigned_disks:[{name:'parity',device:'sdb',status:'DISK_OK'}]}};
 await p.route('**/api/storage?*',r=>r.fulfill({contentType:'application/json',body:JSON.stringify(data)}));
 await p.goto(process.env.DASHBOARD_URL||'http://192.168.0.2');
+// Overview v2 (26 Oct 2026) moved the activity panel to Media and the backup cards to Infrastructure; same assertions.
+const go=async v=>{await p.evaluate(v=>{location.hash='#/'+v},v);await p.waitForTimeout(700)};
+await go('media');
 const readings=p.locator('.activity-readings');
 await expect(readings.locator('div').filter({has:p.getByText('SABnzbd',{exact:true})})).toContainText('—');
 await expect(readings.locator('div').filter({has:p.getByText('RdtClient',{exact:true})})).toContainText('0MB/s');
+await go('infra');
 const backup=p.locator('.recovery-card').filter({hasText:'Proxmox backup jobs'});
 const parity=p.locator('.recovery-card').filter({hasText:'Unraid parity'});
 await expect(backup.locator('.badge')).toHaveText('Check job');await expect(backup).toContainText('24h ago');
 await expect(parity.locator('.recovery-value')).toHaveText('Paused');await expect(parity).toContainText('Completion pending');await expect(parity).not.toContainText('sync errors');await expect(parity).not.toContainText('check P');
 data.activity.latest.ts=now-90;await p.getByRole('button',{name:'Refresh telemetry'}).click();
-await expect(p.locator('.activity-panel .badge')).toHaveText('Unavailable');
 await expect(backup.locator('.badge')).toHaveText('Unknown');await expect(parity.locator('.recovery-value')).toHaveText('Unknown');
+await go('media');await expect(p.locator('.activity-panel .badge')).toHaveText('Unavailable');
 console.log('PASS: missing vs zero rates, failed backup preserves prior success, paused parity is not completed, stale activity and recovery become unknown.');
 await browser.close();

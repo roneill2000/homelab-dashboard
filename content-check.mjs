@@ -16,11 +16,13 @@ await p.route('**/api/telemetry',r=>r.fulfill({contentType:'application/json',bo
 await p.route('**/api/action/**',r=>r.abort());
 await p.goto(process.env.DASHBOARD_URL||'http://127.0.0.1:8799/');
 await expect(p.getByRole('heading',{name:'Overview',exact:true})).toBeVisible();
+await expect(p.locator('.summary-stat').filter({hasText:'DNS protection'})).toContainText('Mixed');
+// Overview v2 (26 Oct 2026): host cards live on Hosts & containers; same assertions there.
+await p.evaluate(()=>{location.hash='#/fleet'});await p.waitForTimeout(700);
 const pve=p.locator('.host-card').filter({hasText:'Proxmox'});
 await expect(pve.locator('.badge')).toHaveText('Stale');
 await expect(pve.locator('.host-stats')).toContainText('—');
 await expect(pve.locator('.source-note')).toContainText('Last successful read');
-await expect(p.locator('.summary-stat').filter({hasText:'DNS protection'})).toContainText('Mixed');
 await p.getByRole('button',{name:'Network & DNS',exact:true}).click();
 await expect(p.getByRole('button',{name:/Pause blocking|Resume blocking/})).toBeDisabled();
 await p.getByRole('button',{name:'Media & downloads',exact:true}).click();
