@@ -1,5 +1,5 @@
 import {chromium,expect} from '@playwright/test';
-const b=await chromium.launch({channel:'chrome',headless:true});const p=await b.newPage();const base=process.env.DASHBOARD_URL||'http://192.168.0.2';
+const b=await chromium.launch({...(process.env.PW_NO_CHROME?{}:{channel:'chrome'}),headless:true});const p=await b.newPage();const base=process.env.DASHBOARD_URL||'http://192.168.0.2';
 await p.route('**/api/action/**',r=>r.abort());const data=await(await p.request.get(base+'/api/storage')).json();const now=Math.floor(Date.now()/1000);
 const report={status:'complete',completed_at:now,updated_at:now,model:'Local test fixture',inference_seconds:30,evidence:{distinct_groups:2,matched_entries:80,files_scanned:10,window_start:now-86400,window_end:now,scope:'Retained syslog files; warning/critical patterns',coverage_limited:true,groups_omitted_from_model:1,groups:[{id:'1',host:'utilities',level:'WARNING',count:80,first_at:now-3600,last_at:now-300,message:'filebrowser.service: '+('long-pattern '.repeat(70)),current_service_state:{state:'running_again'}}]},findings:[{group_id:'1',interpretation:'<script>window.injected=true</script> Historical failure. Inspect the preceding service log entries.'}]};
 data.activity.nightly=report;data.activity.nightly_source_available=true;

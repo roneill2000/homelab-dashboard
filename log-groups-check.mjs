@@ -1,5 +1,5 @@
 import {chromium,expect} from '@playwright/test';
-const b=await chromium.launch({channel:'chrome',headless:true});const p=await b.newPage();const base=process.env.DASHBOARD_URL||'http://192.168.0.2';
+const b=await chromium.launch({...(process.env.PW_NO_CHROME?{}:{channel:'chrome'}),headless:true});const p=await b.newPage();const base=process.env.DASHBOARD_URL||'http://192.168.0.2';
 await p.route('**/api/action/**',r=>r.abort());let data;
 await expect.poll(async()=>{data=await(await p.request.get(base+'/api/telemetry')).json();return data.syslog?.log_groups?.length||0},{timeout:30000}).toBeGreaterThan(0);
 await p.goto(base);const group=p.locator('.log-group').first();

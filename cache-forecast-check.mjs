@@ -1,5 +1,5 @@
 import {chromium,expect} from '@playwright/test';
-const b=await chromium.launch({channel:'chrome',headless:true});const p=await b.newPage();
+const b=await chromium.launch({...(process.env.PW_NO_CHROME?{}:{channel:'chrome'}),headless:true});const p=await b.newPage();
 const base=process.env.DASHBOARD_URL||'http://192.168.0.2';await p.route('**/api/action/**',r=>r.abort());
 const data=await(await p.request.get(base+'/api/storage')).json();
 await p.goto(base);await p.getByRole('button',{name:'All disks',exact:true}).click();const card=p.locator('.storage-card').filter({has:p.getByRole('heading',{name:'Unraid cache',exact:true})}).first();

@@ -1,5 +1,5 @@
 import {chromium,expect} from '@playwright/test';
-const browser=await chromium.launch({channel:'chrome',headless:true});
+const browser=await chromium.launch({...(process.env.PW_NO_CHROME?{}:{channel:'chrome'}),headless:true});
 const page=await browser.newPage();const base=process.env.DASHBOARD_URL||'http://192.168.0.2';
 let data;
 await expect.poll(async()=>{data=await (await page.request.get(base+'/api/telemetry')).json();return data.syslog?.last_alert_full;},{timeout:30000}).toBe(true);

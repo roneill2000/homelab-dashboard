@@ -1,7 +1,7 @@
 import {chromium, expect} from '@playwright/test';
 import {mkdir} from 'node:fs/promises';
 
-const browser = await chromium.launch({channel:'chrome',headless:true});
+const browser = await chromium.launch({...(process.env.PW_NO_CHROME?{}:{channel:'chrome'}),headless:true});
 try {
   const page = await browser.newPage();
   const base = process.env.DASHBOARD_URL || 'http://192.168.0.2';

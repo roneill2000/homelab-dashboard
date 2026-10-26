@@ -1,7 +1,7 @@
 import {chromium,expect} from '@playwright/test';
 import {mkdir} from 'node:fs/promises';
 const base=process.env.DASHBOARD_URL||'http://192.168.0.2';
-const browser=await chromium.launch({channel:'chrome',headless:true});
+const browser=await chromium.launch({...(process.env.PW_NO_CHROME?{}:{channel:'chrome'}),headless:true});
 try{
  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/api/action/**',r=>r.abort());await page.route('**/api/qwen',r=>r.request().method()==='POST'?r.abort():r.continue());

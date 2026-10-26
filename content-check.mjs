@@ -1,5 +1,5 @@
 import { chromium,expect } from '@playwright/test';
-const browser=await chromium.launch({channel:'chrome',headless:true});
+const browser=await chromium.launch({...(process.env.PW_NO_CHROME?{}:{channel:'chrome'}),headless:true});
 const context=await browser.newContext({viewport:{width:1440,height:1000}});
 const api=await context.request.get('http://192.168.0.2/api/telemetry');
 const original=await api.json();

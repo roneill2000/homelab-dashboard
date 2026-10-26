@@ -7,6 +7,12 @@ import { spawn } from 'node:child_process';
 import { readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 
 const URL = process.env.DASHBOARD_URL || 'http://127.0.0.1:8799/';
+// Checks prefer Google Chrome; where it is not installed (e.g. the Proxmox host) they use Playwright's bundled
+// Chromium instead (npx playwright install chromium-headless-shell).
+import { existsSync } from 'node:fs';
+const CHROME = ['/opt/google/chrome/chrome', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  'C:/Program Files/Google/Chrome/Application/chrome.exe'].some(p => existsSync(p));
+if (!CHROME) process.env.PW_NO_CHROME = '1';
 const SKIP = new Set(['memos-check', 'nightly-live-check']);  // need live services, not the preview
 // Passed on the unchanged dashboard on 26 Oct 2026. The others (ai, coverage, gpu, log, log-groups) already
 // failed then because they expect old live data (service counts, Kasm, GPU state); they are not a gate.

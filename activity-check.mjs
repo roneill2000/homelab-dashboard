@@ -1,5 +1,5 @@
 import {chromium,expect} from '@playwright/test';
-const browser=await chromium.launch({channel:'chrome',headless:true});
+const browser=await chromium.launch({...(process.env.PW_NO_CHROME?{}:{channel:'chrome'}),headless:true});
 const p=await browser.newPage({viewport:{width:448,height:998},isMobile:true,hasTouch:true});
 await p.route('**/api/action/**',r=>r.abort());
 const response=await p.request.get('http://192.168.0.2/api/storage');const original=await response.json();
