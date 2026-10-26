@@ -19,13 +19,36 @@ export function LogoMark({size=32}){
     {bars.map(y=><g key={y}><rect x="152" y={y} width="208" height="34" rx="12" fill="var(--md-sys-color-primary-container)"/><circle cx="330" cy={y+17} r="8" fill="var(--md-sys-color-on-primary-container)"/></g>)}</svg>;
 }
 
+const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+// M3 fade-through between pages via the View Transitions API (Chrome, Edge, Safari 18+). The DOM update runs inside the
+// transition (flushSync) so the old and new page are captured; falls back to a plain update elsewhere or with reduced motion.
+export function withPageTransition(update){
+  if(!document.startViewTransition||reducedMotion()){update();return}
+  document.startViewTransition(()=>ReactDOM.flushSync(update));
+}
+
+// Animated number for hero stats: shows the value at once on first render, then glides to new values on the
+// Expressive default spatial spring (stiffness 380, damping 0.8) when it changes. Screen readers get the final value.
+export function CountUp({value,decimals=0}){
+  const n=Number(value),[shown,setShown]=useState(n),from=useRef(n),raf=useRef();
+  useEffect(()=>{if(!Number.isFinite(n)){setShown(n);return}const start=from.current;if(start===n||!Number.isFinite(start)||reducedMotion()){from.current=n;setShown(n);return}
+    const k=380,z=0.8,w=Math.sqrt(k);let x=0,v=0,last=performance.now();cancelAnimationFrame(raf.current);
+    const step=t=>{const dt=Math.min(0.032,(t-last)/1000);last=t;const a=-k*(x-1)-2*z*w*v;v+=a*dt;x+=v*dt;
+      if(Math.abs(1-x)<0.002&&Math.abs(v)<0.02){from.current=n;setShown(n);return}from.current=start+(n-start)*x;setShown(from.current);raf.current=requestAnimationFrame(step)};
+    raf.current=requestAnimationFrame(step);return()=>cancelAnimationFrame(raf.current)},[n]);
+  if(!Number.isFinite(n))return value??'—';
+  const text=Number(shown).toLocaleString(undefined,{minimumFractionDigits:decimals,maximumFractionDigits:decimals});
+  return <><span aria-hidden="true">{text}</span><span className="m3-visually-hidden">{n.toLocaleString(undefined,{maximumFractionDigits:decimals})}</span></>;
+}
+
 const cx=(...a)=>a.filter(Boolean).join(' ');
 
 // Buttons. variant: 'filled' (main action), 'tonal' (secondary), 'outlined' (tertiary), 'text' (low emphasis), 'error'.
 // Pass href to render a link styled as a button.
 export function Button({variant='filled',icon,children,className,href,...props}){
   const cls=cx('m3-btn','m3-btn--'+variant,'m3-state',icon&&'has-icon',className);
-  const inner=<>{icon&&<Icon name={icon} size={18}/>}{children}</>;
+  const inner=<>{icon&&<Icon name={icon} size={20}/>}{children}</>;
   return href?<a className={cls} href={href} {...props}>{inner}</a>:<button type="button" className={cls} {...props}>{inner}</button>;
 }
 
@@ -124,7 +147,7 @@ export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialo
   const trap=ev=>{if(ev.key!=='Tab')return;const n=[...box.current.querySelectorAll('button:not(:disabled),a[href],input,select')];
     if(!n.length)return;if(ev.shiftKey&&document.activeElement===n[0]){ev.preventDefault();n.at(-1).focus()}
     else if(!ev.shiftKey&&document.activeElement===n.at(-1)){ev.preventDefault();n[0].focus()}};
-  return <><div className="m3-scrim" onMouseDown={onClose}/>
+  return <><div className="m3-scrim" onClick={onClose}/>
     <div className="m3-dialog" role="dialog" aria-modal="true" aria-labelledby={labelId} ref={box} onKeyDown={trap}>
       {icon&&<Icon name={icon} size={24} className="m3-dialog__icon"/>}
       <h2 className="m3-dialog__headline" id={labelId} style={icon?{textAlign:'center'}:undefined}>{headline}</h2>

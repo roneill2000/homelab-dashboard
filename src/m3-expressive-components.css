@@ -181,3 +181,92 @@
 .chart-unit{font-weight:500}
 @media (max-width:419px){.summary-grid>.summary-stat{padding:16px}.summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-headline-small-size);line-height:var(--md-sys-typescale-headline-small-line-height)}}
 .summary-grid>.summary-stat strong{overflow-wrap:anywhere}
+
+/* ---------- Expressive motion: page transitions, content entrance (26 Oct 2026) ---------- */
+.m3-visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+/* M3 fade-through on the page content only (navigation stays put): outgoing fades quickly (fast effects spring),
+   incoming fades in and scales from 96% on the Expressive default spatial spring. */
+.m3-app__content{view-transition-name:page}
+::view-transition-old(page){animation:m3-fade-out var(--md-sys-motion-spring-fast-effects-duration) var(--md-sys-motion-spring-fast-effects) both}
+::view-transition-new(page){animation:m3-fade-in var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial) both;
+  animation-delay:60ms;transform-origin:50% 0}
+::view-transition-group(page){animation-duration:var(--md-sys-motion-spring-expressive-default-spatial-duration)}
+@keyframes m3-fade-out{to{opacity:0}}
+@keyframes m3-fade-in{from{opacity:0;transform:scale(.96)}}
+/* Cards and tiles rise in when a page mounts, staggered 30ms each (first 8), on the Expressive fast spatial spring. */
+.summary-stat,.panel,.service-card,.m3-card{animation:m3-rise var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial) both}
+:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(2){animation-delay:30ms}
+:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(3){animation-delay:60ms}
+:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(4){animation-delay:90ms}
+:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(5){animation-delay:120ms}
+:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(6){animation-delay:150ms}
+:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(n+7){animation-delay:180ms}
+@keyframes m3-rise{from{opacity:0;transform:translateY(16px)}}
+@media (prefers-reduced-motion:reduce){::view-transition-old(page),::view-transition-new(page),::view-transition-group(page){animation:none}}
+
+/* ---------- Round-2 audit corrections (26 Oct 2026; values from material-web tokens/versions/latest) ---------- */
+/* Focus indicator: 3px secondary, offset 2px (beats the legacy element rule in styles.css). In-card links keep -3px. */
+:is(button,a,input,select,summary,[tabindex]):focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px}
+.service-link:focus-visible,.summary-link:focus-visible,.m3-nav-bar__item:focus-visible,.m3-nav-rail__item:focus-visible,.m3-xrail__item:focus-visible{outline-offset:-3px}
+/* Disabled buttons: colours only (10% container, 38% label), no extra element opacity. */
+.m3-btn:disabled,.m3-icon-btn:disabled,.m3-segment:disabled{opacity:1}
+/* One state layer per button: the legacy hover colour-mix is removed; .m3-state supplies 8%/10%. */
+.primary-button.m3-btn:hover{background:var(--md-sys-color-primary)}
+.secondary-button.m3-btn:hover{background:var(--md-sys-color-secondary-container)}
+.text-button.m3-btn:hover{background:transparent}
+/* Button icons 20px even where markup passes a size. */
+.m3-btn .material-symbols-rounded{font-size:20px!important}
+/* Outlined button label: on-surface-variant (latest outlined button). */
+.m3-btn--outlined{color:var(--md-sys-color-on-surface-variant)}
+/* Navigation spacing: bar 0 gap, collapsed rail 4px between items, expanded rail 0; bar item padding fits 64px. */
+.m3-nav-bar{gap:0}.m3-xrail{gap:4px}.m3-xrail.is-expanded{gap:0}.m3-nav-rail{gap:4px}
+.m3-nav-bar__item{padding:6px 0 6px}
+/* Collapsed rail: hover 8% / pressed 10% on the indicator. Expanded rail: the whole pill carries the layers. */
+.m3-xrail__item:hover .m3-nav-indicator::before{opacity:var(--md-sys-state-hover-state-layer-opacity)}
+.m3-xrail__item:active .m3-nav-indicator::before{opacity:var(--md-sys-state-pressed-state-layer-opacity)}
+.m3-xrail.is-expanded .m3-xrail__item:active:not([aria-current=page]),.m3-xrail.is-expanded .m3-xrail__item:focus-visible:not([aria-current=page]){background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,transparent)}
+.m3-xrail.is-expanded .m3-xrail__item[aria-current=page]:hover{background:color-mix(in srgb,var(--md-sys-color-on-secondary-container) 8%,var(--md-sys-color-secondary-container))}
+.m3-xrail.is-expanded .m3-xrail__item[aria-current=page]:active,.m3-xrail.is-expanded .m3-xrail__item[aria-current=page]:focus-visible{background:color-mix(in srgb,var(--md-sys-color-on-secondary-container) 10%,var(--md-sys-color-secondary-container))}
+.m3-xrail.is-expanded .m3-xrail__item:focus-visible .m3-nav-indicator::before{opacity:0}
+/* Expanded rail: 8px icon-to-label space, icon 16px from the pill edge. */
+.m3-xrail.is-expanded .m3-xrail__item{gap:8px;padding-left:16px}
+.m3-xrail.is-expanded .m3-xrail__indicator{width:24px}
+/* Connected groups: pressed layer 10%. */
+.segments button:active,.m3-segment:active{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container))}
+.segments button.selected:active,.segments button[aria-pressed=true]:active{background:color-mix(in srgb,var(--md-sys-color-on-primary) 10%,var(--md-sys-color-primary))}
+/* Letter-spacing per type role. */
+.m3-nav-bar__item,.m3-nav-rail__item,.m3-xrail__item{letter-spacing:var(--md-sys-typescale-label-medium-tracking)}
+.m3-xrail.is-expanded .m3-xrail__item{letter-spacing:var(--md-sys-typescale-label-large-tracking)}
+.m3-list-item__headline,.m3-search-bar,.m3-search-view__input{letter-spacing:var(--md-sys-typescale-body-large-tracking)}
+.m3-list-item__trailing{letter-spacing:var(--md-sys-typescale-label-small-tracking)}
+.m3-top-app-bar__title{letter-spacing:var(--md-sys-typescale-title-large-tracking)}
+.m3-dialog__headline{letter-spacing:var(--md-sys-typescale-headline-small-tracking)}
+/* Cards: the M3 filled card token (surface-container-highest); a card inside a card drops to surface-container. */
+.panel,.service-card,.m3-card--outlined,.m3-card.m3-card--outlined.panel,.m3-card--filled{background:var(--md-sys-color-surface-container-highest)}
+.panel .panel,.panel .m3-card,.panel .service-card,.m3-card .panel,.panel .m3-card--outlined,.panel .pc-power,.panel .ai-offline,.m3-card .pc-power,.m3-card .ai-offline{background:var(--md-sys-color-surface-container)}
+.service-card:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container-highest))}
+.service-card:focus-within{background:var(--md-sys-color-surface-container-highest)}
+.service-card:has(:focus-visible),.service-card:active{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container-highest))}
+/* Text field focus outline 3px. */
+.m3-field:focus-within{box-shadow:inset 0 0 0 3px var(--md-sys-color-primary)}
+/* Circular progress: 40px default, 24px small, 4px stroke at any size. */
+.m3-circular-progress.m3-circular-progress--small{width:24px;height:24px}
+.m3-circular-progress circle{stroke-width:4px;vector-effect:non-scaling-stroke}
+/* Elevation: search bar level 3; top app bar level 2 once content scrolls under it. */
+.m3-search-bar{box-shadow:var(--md-sys-elevation-level3)}
+.m3-top-app-bar.is-scrolled{box-shadow:var(--md-sys-elevation-level2)}
+/* Issue chips: outline-variant, 16px padding, 8px gap. */
+.issue-chip{padding:0 16px;gap:8px}
+.issue-chip.soft{border:1px solid var(--md-sys-color-outline-variant)}
+/* Keep the top app bar still during page transitions; only the content fades through. */
+.m3-top-app-bar{view-transition-name:topbar}
+::view-transition-old(topbar),::view-transition-new(topbar){animation:none}
+/* Phones: 48dp touch targets that survive scroll containers (padding gives the ::after room). */
+@media (max-width:599px){
+  .quick-actions{padding-top:8px;padding-bottom:8px}
+  .quick-actions>.m3-btn::after{top:-8px;bottom:-8px}
+  .segments{padding-top:4px;padding-bottom:4px}
+  main input:not([type=checkbox]):not([type=radio]),main select,main summary,.copy-ip{min-height:48px}
+  .service-card a[target=_blank]{min-width:48px}
+}
+.m3-nav-drawer__close{align-self:flex-end;margin:4px 4px -8px 0}
