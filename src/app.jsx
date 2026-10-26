@@ -1,4 +1,4 @@
-import {Icon,Button,IconButton,Segmented,Chip,BadgeHost,Card,CardHeader,LinearProgress,IndeterminateProgress,Spinner,TextField,SelectField,Dialog,Snackbar,ListItem,Divider,PageHeader,Section,useWindowClass} from './m3.jsx';
+import {LogoMark,Icon,Button,IconButton,Segmented,Chip,BadgeHost,Card,CardHeader,LinearProgress,IndeterminateProgress,Spinner,TextField,SelectField,Dialog,Snackbar,ListItem,Divider,PageHeader,Section,useWindowClass} from './m3.jsx';
 const {useState,useEffect,useRef,useMemo}=React;
 const valid=v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v));
 const num=(v,dp=0)=>valid(v)?Number(v).toLocaleString(undefined,{maximumFractionDigits:dp}):'—';
@@ -366,7 +366,7 @@ function App(){
  const navName=(id,label)=>id==='services'?`${label} ${catalog.length}`:label;
  const updBadge=upd?.pending>0?upd.pending:undefined;
  const drawerItems=modal=>navigation.map(([id,label,icon])=><button key={id} type="button" className="m3-nav-drawer__item m3-state nav-item" onClick={()=>navigate(id)} aria-current={view===id?'page':undefined}><Icon name={icon} size={24}/><span>{label}</span>{id==='services'&&<span className="m3-nav-drawer__badge">{catalog.length}</span>}{id==='updates'&&updBadge&&<span className="m3-nav-drawer__badge" aria-label={`${updBadge} pending`}>{updBadge}</span>}</button>);
- const drawerBody=modal=><><a className="m3-nav-drawer__brand" href="#" onClick={ev=>{ev.preventDefault();navigate('overview')}}><Icon name="layers" size={28}/>homelab</a>{drawerItems(modal)}<div className="m3-nav-drawer__footer"><Divider/><p className="m3-nav-drawer__meta m3-body-medium"><span className="live-dot"/> Local network 192.168.0.0/24 · {num(sourceFresh(data.netalertx)?data.netalertx.connected:null)} devices</p></div></>;
+ const drawerBody=modal=><><a className="m3-nav-drawer__brand" href="#" onClick={ev=>{ev.preventDefault();navigate('overview')}}><LogoMark size={32}/>homelab</a>{drawerItems(modal)}<div className="m3-nav-drawer__footer"><Divider/><p className="m3-nav-drawer__meta m3-body-medium"><span className="live-dot"/> Local network 192.168.0.0/24 · {num(sourceFresh(data.netalertx)?data.netalertx.connected:null)} devices</p></div></>;
  const railItem=([id,label,icon],extra='')=><button key={id} type="button" className={'m3-nav-rail__item nav-item '+extra} onClick={()=>navigate(id)} aria-current={view===id?'page':undefined} aria-label={navName(id,label)+(id==='updates'&&updBadge?` ${updBadge} pending`:'')}><span className="m3-nav-indicator"><BadgeHost count={id==='updates'?updBadge:undefined}><Icon name={icon} size={24}/></BadgeHost></span><span className="m3-nav-label">{SHORT[id]}</span></button>;
  // Expressive navigation rail: collapsed 96px (icon in a 56x32 indicator, label below) or expanded (icon + label in a 56px pill).
  const railExpanded=win==='large'?railPref:(win==='expanded'&&railModal);
@@ -375,7 +375,7 @@ function App(){
  const modalDrawer=(win==='compact'||(win==='medium'&&menu))&&<><div className="m3-scrim" style={menu?undefined:{display:'none'}} onMouseDown={()=>setMenu(false)} aria-hidden="true"/><nav className={'m3-nav-drawer is-modal'+(win==='compact'?' sidebar':'')+(menu?' open':'')} aria-label="Navigation menu" ref={el=>{if(el)el.inert=!menu}}>{drawerBody(true)}</nav></>;
  const shell=<>
  {(win==='expanded'||win==='large')&&<><nav className={'m3-xrail sidebar'+(railExpanded?' is-expanded':'')+(win==='expanded'&&railModal?' is-modal':'')} aria-label="Navigation">
-  <div className="m3-xrail__top"><IconButton icon={railExpanded?'menu_open':'menu'} label={railExpanded?'Collapse navigation':'Expand navigation'} touch aria-expanded={railExpanded} onClick={()=>win==='large'?setRailPref(!railPref):setRailModal(!railModal)}/>{railExpanded&&<span className="m3-xrail__brand"><Icon name="layers" size={24}/>homelab</span>}</div>
+  <div className="m3-xrail__top"><IconButton icon={railExpanded?'menu_open':'menu'} label={railExpanded?'Collapse navigation':'Expand navigation'} touch aria-expanded={railExpanded} onClick={()=>win==='large'?setRailPref(!railPref):setRailModal(!railModal)}/>{railExpanded&&<span className="m3-xrail__brand"><LogoMark size={32}/>homelab</span>}</div>
   {navigation.map(n=>xrailItem(n))}
   {railExpanded&&<p className="m3-xrail__meta m3-body-small"><span className="live-dot"/> Local network · {num(sourceFresh(data.netalertx)?data.netalertx.connected:null)} devices</p>}
  </nav>{win==='expanded'&&railModal&&<div className="m3-scrim" onMouseDown={()=>setRailModal(false)} aria-hidden="true"/>}</>}

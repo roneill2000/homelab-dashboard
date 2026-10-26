@@ -22,12 +22,15 @@ for (const [w, h, mobile] of WIDTHS) for (const theme of ['dark', 'light']) {
   for (const view of VIEWS) {
     if (only.length && !only.includes(slug(view))) continue;
     // Works with the old sidebar and the new M3 navigation: open the menu if the destination is not visible.
-    const target = page.getByRole('button', { name: new RegExp('^' + view.replace(/[&]/g, '\\&') + '( \\d+)?$') }).first();
+    // Only navigation buttons (a page can contain other buttons with the same words, e.g. an "Updates" panel).
+    // Names can carry a count or a badge: "All services 28", "Updates 1 pending".
+    const name = new RegExp('^' + view.replace(/[&]/g, '\\&') + '( \\d+)?( \\d+ pending)?$');
+    const target = page.locator('nav').getByRole('button', { name }).filter({ visible: true }).first();
     if (!(await target.isVisible().catch(() => false))) {
       const opener = page.getByRole('button', { name: 'Open navigation' }).first();
       if (await opener.isVisible().catch(() => false)) await opener.click();
     }
-    await target.click({ timeout: 5000 }).catch(e => console.log('NAV FAIL', w, theme, view, e.message.split('\n')[0]));
+    await page.locator('nav').getByRole('button', { name }).filter({ visible: true }).first().click({ timeout: 5000 }).catch(e => console.log('NAV FAIL', w, theme, view, e.message.split('\n')[0]));
     await page.waitForTimeout(700); await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: `${dir}/${w}-${theme}-${slug(view)}.png`, fullPage: true });
   }

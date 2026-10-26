@@ -9,6 +9,16 @@ export function Icon({name='grid',size=20,filled=false,className='',style,...pro
   return <span className={`material-symbols-rounded${filled?' is-filled':''}${className?' '+className:''}`} style={{fontSize:size,...style}} aria-hidden="true" {...props}>{SYMBOLS[name]||name}</span>;
 }
 
+// Homelab logo: M3 app-icon style. Tonal tile (primary-container) with a house whose body is a three-unit server rack.
+// brand-icon.svg is the same mark in the dark-theme colours for the favicon and app manifest.
+export function LogoMark({size=32}){
+  const bars=[252,302,352];
+  return <svg className="m3-logo" width={size} height={size} viewBox="0 0 512 512" aria-hidden="true">
+    <rect width="512" height="512" rx="128" fill="var(--md-sys-color-primary-container)"/>
+    <path d="M256 112 L404 230 Q412 236 412 246 V372 Q412 400 384 400 H128 Q100 400 100 372 V246 Q100 236 108 230 Z" fill="var(--md-sys-color-on-primary-container)" stroke="var(--md-sys-color-on-primary-container)" strokeWidth="16" strokeLinejoin="round"/>
+    {bars.map(y=><g key={y}><rect x="152" y={y} width="208" height="34" rx="12" fill="var(--md-sys-color-primary-container)"/><circle cx="330" cy={y+17} r="8" fill="var(--md-sys-color-on-primary-container)"/></g>)}</svg>;
+}
+
 const cx=(...a)=>a.filter(Boolean).join(' ');
 
 // Buttons. variant: 'filled' (main action), 'tonal' (secondary), 'outlined' (tertiary), 'text' (low emphasis), 'error'.
