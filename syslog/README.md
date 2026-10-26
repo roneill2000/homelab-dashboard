@@ -12,3 +12,5 @@ rsyslog on Proxmox receives UDP 514 and writes one file per sender to `/var/log/
 
 Install: copy both `.conf` files to `/etc/rsyslog.d/`, run `rsyslogd -N1`, then `systemctl restart rsyslog`.
 Rotation: `/etc/logrotate.d/` keeps 12 weekly files.
+
+`syslog-monitor.py` is the live copy of Proxmox `/usr/local/bin/syslog-monitor.py` (added to the repo 26 Oct 2026; it was edited live and never tracked).
