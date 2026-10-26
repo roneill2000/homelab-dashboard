@@ -56,3 +56,12 @@
 .issue-chip{min-height:32px;border-radius:var(--md-sys-shape-corner-small);border:0;background:var(--md-custom-amber-container);color:var(--md-custom-on-amber-container);
   font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font)}
 .issue-chip.soft{border:1px solid var(--md-sys-color-outline);background:transparent;color:var(--md-sys-color-on-surface)}
+
+/* Big metric numbers -> display-small (headline-medium on phones) */
+.summary-stat strong,.net-now strong,.storage-values strong,.storage-grid .storage-values strong{
+  font-family:var(--md-sys-typescale-display-small-font);font-size:var(--md-sys-typescale-display-small-size);
+  font-weight:var(--md-sys-typescale-display-small-weight);line-height:var(--md-sys-typescale-display-small-line-height);
+  letter-spacing:var(--md-sys-typescale-display-small-tracking);font-variant-numeric:tabular-nums}
+@media (max-width:599px){.summary-stat strong,.net-now strong,.storage-values strong,.storage-grid .storage-values strong{
+  font-family:var(--md-sys-typescale-headline-medium-font);font-size:var(--md-sys-typescale-headline-medium-size);
+  line-height:var(--md-sys-typescale-headline-medium-line-height)}}
