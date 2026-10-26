@@ -123,9 +123,9 @@ export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialo
     </div></>;
 }
 
-// Snackbar (role=status so screen readers announce it).
+// Snackbar. Render it inside an always-mounted role=status region (App does) so screen readers announce it.
 export function Snackbar({children,action,onAction,onClose}){
-  return <div className="m3-snackbar" role="status"><span className="m3-snackbar__text">{children}</span>
+  return <div className="m3-snackbar"><span className="m3-snackbar__text">{children}</span>
     {action&&<Button variant="text" onClick={onAction}>{action}</Button>}
     {onClose&&<IconButton icon="close" label="Dismiss" onClick={onClose}/>}</div>;
 }

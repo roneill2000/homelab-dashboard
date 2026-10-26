@@ -321,10 +321,6 @@ select{background:var(--md-sys-color-surface-container-low);border:1px solid var
   .storage-explainer{padding:17px 0}
   .storage-explainer svg{display:none}
 }
-@media(prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
-  .service-card:hover{transform:none}
-}
 .page-footer{justify-content:flex-end}
 .storage-explainer{display:block;padding:16px 0;color:var(--md-sys-color-on-surface-variant)}
 .storage-explainer summary{cursor:pointer;font-size:14px;min-height:32px}
@@ -812,7 +808,7 @@ h1{font-size:36px}
 .updates-actions button{min-height:44px}
 .update-list{display:grid;gap:8px;margin-top:16px}
 .update-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,2fr) auto;align-items:center;gap:14px;padding:10px 12px;border:1px solid var(--md-sys-color-outline-variant);border-radius:10px}
-.update-row.skipped,.update-row.current{opacity:.75}
+.update-row.skipped,.update-row.current{color:var(--md-sys-color-on-surface-variant)}
 .update-row.failed{border-color:color-mix(in srgb,var(--md-custom-pink),transparent 50%)}
 .update-detail{color:var(--md-sys-color-on-surface-variant);font-size:14px;min-width:0;overflow-wrap:anywhere}
 .update-detail small{display:block;font-family:ui-monospace,monospace;color:var(--md-sys-color-on-surface);margin-top:4px}

@@ -120,3 +120,27 @@
 .segments button.selected:hover,.segments button[aria-pressed=true]:hover,.m3-segment[aria-pressed=true]:hover{background:color-mix(in srgb,var(--md-sys-color-on-primary) 8%,var(--md-sys-color-primary))}
 /* Expanded rail items: 16px leading space to the icon. */
 .m3-xrail.is-expanded .m3-xrail__item{padding-left:4px}
+
+/* ---------- Corrections from the 26 Oct 2026 interaction/accessibility audit ---------- */
+/* 1. Focus ring inside clipped cards (service cards and summary stats clip their overflow). */
+.service-link:focus-visible,.summary-link:focus-visible{outline-offset:-3px;border-radius:inherit}
+/* 3. 48dp touch targets on phones: keep the 40dp visual size, extend the hit area (M3 touch-target rule). */
+@media (max-width:599px){
+  .m3-btn,.segments button,.issue-chip,.text-button{position:relative}
+  .m3-btn::after,.segments button::after,.issue-chip::after{content:'';position:absolute;left:0;right:0;top:-4px;bottom:-4px}
+  .issue-chip::after{top:-8px;bottom:-8px}
+  .pin-button{width:48px;height:48px}
+  main a:not([class]){display:inline-block;min-height:48px;line-height:48px}
+}
+/* 4. Focus layer on navigation items; state layers on chips, pin buttons and service cards. */
+.m3-nav-bar__item:focus-visible .m3-nav-indicator::before,.m3-nav-rail__item:focus-visible .m3-nav-indicator::before,.m3-xrail__item:focus-visible .m3-nav-indicator::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
+.m3-nav-bar__item:focus-visible,.m3-nav-rail__item:focus-visible,.m3-xrail__item:focus-visible{outline-offset:-3px}
+.issue-chip,.pin-button{position:relative;isolation:isolate}
+.issue-chip::before,.pin-button::before{content:'';position:absolute;inset:0;border-radius:inherit;background:currentColor;opacity:0;z-index:-1;pointer-events:none;transition:opacity var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+.pin-button{border-radius:var(--md-sys-shape-corner-full)}
+.issue-chip:hover::before,.pin-button:hover::before{opacity:var(--md-sys-state-hover-state-layer-opacity)}
+.issue-chip:focus-visible::before,.pin-button:focus-visible::before,.issue-chip:active::before,.pin-button:active::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
+.service-card:focus-within{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container))}
+.service-card:active{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container))}
+/* 7. Neutral badges at full opacity in the readable role. */
+.badge.neutral{opacity:1;color:var(--md-sys-color-on-surface-variant)}
