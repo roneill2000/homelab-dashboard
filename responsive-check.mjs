@@ -12,9 +12,9 @@ for(const [width,height] of [[360,800],[412,915],[448,998],[998,448],[1440,1000]
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(process.env.DASHBOARD_URL||'http://127.0.0.1:8799/',{waitUntil:'domcontentloaded'});
  await page.getByRole('heading',{name:'Overview',exact:true}).waitFor();
- for(const view of ['Overview','Storage','All services 29','Hosts & containers']){
+ for(const view of ['Overview','Storage',/^All services \d+$/,'Hosts & containers']){
   if(width<=760)await page.getByRole('button',{name:'Open navigation',exact:true}).click();
-  await page.getByRole('button',{name:view,exact:true}).click();
+  await page.getByRole('button',typeof view==='string'?{name:view,exact:true}:{name:view}).click();
   await page.evaluate(()=>document.fonts.ready);
   const overflow=await page.evaluate(()=>{
    const bad=[...document.querySelectorAll('.panel,.service-card,.fleet-row,.summary-stat')].filter(e=>e.scrollWidth>e.clientWidth+2).map(e=>({class:e.className,width:e.clientWidth,scroll:e.scrollWidth}));

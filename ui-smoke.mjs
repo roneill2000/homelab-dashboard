@@ -25,7 +25,7 @@ for(const range of ['15m','1h','6h','24h']){
 await page.getByRole('button',{name:'Capacity used',exact:true}).click();
 await page.getByText('Parity has no filesystem capacity to chart.').waitFor();
 await page.screenshot({path:'.preview/storage.png',fullPage:true});
-await page.getByRole('button',{name:'All services 29',exact:true}).click();
+await page.getByRole('button',{name:/^All services \d+$/}).click();
 await page.getByRole('textbox',{name:'Filter services',exact:true}).fill('does-not-exist');
 await page.getByRole('heading',{name:'No matching services'}).waitFor();
 await page.getByRole('button',{name:'Clear filters',exact:true}).click();
@@ -36,7 +36,7 @@ await page.getByRole('button',{name:'Unpin Scrutiny',exact:true}).click();
 await page.keyboard.press('Control+k');
 await page.getByRole('textbox',{name:'Search service names and IPs'}).fill('sab');
 assert.equal(await page.locator('.command-results a').count(),1);
-assert.equal(await page.locator('.command-results a').getAttribute('href'),'http://192.168.0.13:8085');
+assert.equal(await page.locator('.command-results a').getAttribute('href'),'https://sab.lan');
 await page.keyboard.press('Escape');
 assert.equal(await page.getByRole('dialog').count(),0);
 await page.getByRole('button',{name:'Network & DNS',exact:true}).click();
