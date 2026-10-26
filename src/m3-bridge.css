@@ -1,0 +1,19 @@
+/* TEMPORARY bridge: the pre-M3 class rules in styles.css read these legacy variables.
+   They now point at Material 3 colour roles, so old markup renders in the new theme.
+   Delete this file in the final task, once no rule in styles.css uses --bg/--panel/--text etc. */
+:root{
+  --bg:var(--md-sys-color-surface);
+  --sidebar:var(--md-sys-color-surface-container-low);
+  --panel:var(--md-sys-color-surface-container-low);
+  --panel2:var(--md-sys-color-surface-container);
+  --hover:var(--md-sys-color-surface-container-high);
+  --border:var(--md-sys-color-outline-variant);
+  --text:var(--md-sys-color-on-surface);
+  --muted:var(--md-sys-color-on-surface-variant);
+  --faint:var(--md-sys-color-on-surface-variant);
+  --accent:var(--md-sys-color-primary);
+  --accent-soft:var(--md-sys-color-secondary-container);
+  --shadow:var(--md-sys-elevation-level1);
+  --font:var(--md-ref-typeface-plain);
+  --heading:var(--md-ref-typeface-brand);
+}

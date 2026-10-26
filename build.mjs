@@ -1,8 +1,13 @@
 import { build } from 'esbuild';
 import { readFile, writeFile } from 'node:fs/promises';
+import { m3TokensCss } from './m3-tokens.mjs';
+import { ICONS } from './m3-icons.mjs';
 const result = await build({entryPoints:['src/app.jsx'],bundle:true,write:false,jsxFactory:'React.createElement',jsxFragment:'React.Fragment',target:'es2020',minify:true});
-const css = await readFile('src/styles.css','utf8');
+// CSS order matters: generated colour roles, M3 system tokens, legacy bridge, legacy rules, M3 components (win ties).
+const parts = ['src/m3-sys.css', 'src/m3-bridge.css', 'src/styles.css', 'src/m3-components.css'];
+const css = m3TokensCss() + (await Promise.all(parts.map(p => readFile(p, 'utf8').catch(() => '')))).join('\n');
+const symbols = `https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=${[...new Set(ICONS)].sort().join(',')}&display=block`;
 const js = result.outputFiles[0].text.replaceAll('</script','<\\/script');
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#0b1119"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><title>Homelab · Control room</title><style>${css}</style><script src="/static/react.js"></script><script src="/static/react-dom.js"></script><script>/*__INITIAL_TELEMETRY_SLOT__*/</script></head><body><div id="root"></div><noscript>This dashboard needs JavaScript to display live telemetry.</noscript><script>${js}</script></body></html>`;
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#0f1512"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${symbols}"><title>Homelab · Control room</title><style>${css}</style><script src="/static/react.js"></script><script src="/static/react-dom.js"></script><script>/*__INITIAL_TELEMETRY_SLOT__*/</script></head><body><div id="root"></div><noscript>This dashboard needs JavaScript to display live telemetry.</noscript><script>${js}</script></body></html>`;
 await writeFile('index.html',html);
 console.log(`Built index.html (${Math.round(html.length/1024)} KiB)`);

@@ -1,0 +1,8 @@
+// Every Material Symbols Rounded icon the dashboard uses. build.mjs requests only these from Google Fonts.
+// When markup uses a new icon name, add it here (any order; build.mjs sorts them).
+export const ICONS = [
+  'apps', 'arrow_back', 'arrow_drop_down', 'arrow_forward', 'cancel', 'check', 'check_circle', 'close', 'cloud',
+  'content_copy', 'dark_mode', 'dns', 'error', 'expand_less', 'expand_more', 'folder', 'hard_drive', 'home', 'info',
+  'lan', 'light_mode', 'menu', 'menu_book', 'monitoring', 'more_horiz', 'notifications', 'open_in_new', 'play_circle',
+  'refresh', 'schedule', 'search', 'shield', 'sports_esports', 'stacks', 'star', 'terminal', 'warning', 'wifi',
+];
