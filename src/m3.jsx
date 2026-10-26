@@ -57,12 +57,28 @@ export function CardHeader({icon,title,subtitle,trailing,headingLevel=3}){
     <div style={{flex:1,minWidth:0}}><H className="m3-card__title">{title}</H>{subtitle&&<p className="m3-card__subtitle">{subtitle}</p>}</div>{trailing}</div>;
 }
 
-// Determinate linear progress. value/max numbers; tone: undefined (primary or card accent) | warning | error.
-export function LinearProgress({value,max=100,tone,label,className,...props}){
-  const pct=Number.isFinite(Number(value))&&max>0?Math.max(0,Math.min(100,Number(value)/max*100)):0;
-  return <div className={cx('m3-linear-progress',tone&&'m3-linear-progress--'+tone,className)} role="progressbar" aria-label={label}
-    aria-valuemin={0} aria-valuemax={max} aria-valuenow={Number.isFinite(Number(value))?Number(value):undefined} {...props}>
-    <div className="m3-linear-progress__bar" style={{width:pct+'%'}}/></div>;
+// Determinate linear progress, M3 Expressive: active indicator, 4px gap, track, 4px stop dot at the end.
+// wavy: the active part is a moving sine wave (amplitude 3px, wavelength 40px, height 10px) - use it while something is
+// actually in progress (uploads, updates). Flat for static values such as disk usage. Values: m3-expressive.css.
+export function LinearProgress({value,max=100,tone,label,wavy,color,className,...props}){
+  const ref=useRef();const [w,setW]=useState(0);
+  useEffect(()=>{const el=ref.current;if(!el)return;setW(el.clientWidth);const ro=new ResizeObserver(([e])=>setW(e.contentRect.width));ro.observe(el);return()=>ro.disconnect()},[]);
+  const num=Number(value),ok=Number.isFinite(num)&&max>0,pct=ok?Math.max(0,Math.min(100,num/max*100)):0;
+  const T=4,A=3,L=40,GAP=4,STOP=4,H=wavy?10:T,mid=H/2,cap=T/2;
+  const ink=color||(tone==='warning'?'var(--md-custom-amber)':tone==='error'?'var(--md-sys-color-error)':'var(--accent,var(--md-sys-color-primary))');
+  const end=Math.max(0,w*pct/100);const actEnd=Math.max(cap,end-cap);
+  let wave='';if(wavy&&end>cap){for(let x=-L;x<=actEnd+L;x+=2)wave+=(wave?'L':'M')+x.toFixed(1)+' '+(mid+A*Math.sin(2*Math.PI*x/L)).toFixed(2)}
+  const trackStart=pct>0?end+GAP+cap:cap,trackEnd=w-cap-(pct<100?STOP+2:0);
+  const id=useRef('lp'+Math.random().toString(36).slice(2)).current;
+  return <div ref={ref} className={cx('m3-xprogress',wavy&&'m3-xprogress--wavy',className)} style={{height:H}} role="progressbar" aria-label={label}
+    aria-valuemin={0} aria-valuemax={max} aria-valuenow={ok?num:undefined} {...props}>
+    {w>0&&<svg width={w} height={H} aria-hidden="true">
+      {trackStart<trackEnd&&<line x1={trackStart} y1={mid} x2={trackEnd} y2={mid} className="m3-xprogress__track" strokeWidth={T} strokeLinecap="round"/>}
+      {pct<100&&<circle cx={w-STOP/2} cy={mid} r={STOP/2} style={{fill:ink}}/>}
+      {pct>0&&(wavy?<><clipPath id={id}><rect x="0" y="0" width={end} height={H}/></clipPath>
+        <path d={wave} clipPath={`url(#${id})`} className="m3-xprogress__wave" style={{stroke:ink}} strokeWidth={T} strokeLinecap="round" fill="none"/></>
+        :<line x1={cap} y1={mid} x2={actEnd} y2={mid} style={{stroke:ink}} strokeWidth={T} strokeLinecap="round"/>)}
+    </svg>}</div>;
 }
 export function IndeterminateProgress({label='Loading'}){
   return <div className="m3-linear-progress m3-linear-progress--indeterminate" role="progressbar" aria-label={label}><div className="m3-linear-progress__bar"/></div>;

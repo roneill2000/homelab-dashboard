@@ -1,0 +1,50 @@
+/* Material 3 Expressive components and motion. Loaded last. Token values: src/m3-expressive.css (generated). */
+
+/* ---------- Linear progress (flat and wavy) ---------- */
+.m3-xprogress{position:relative;width:100%;display:block;margin-top:6px;overflow:hidden;contain:inline-size}
+.m3-xprogress svg{display:block;overflow:visible}
+.m3-xprogress__track{stroke:var(--md-sys-color-secondary-container)}
+.m3-xprogress__wave{animation:m3-wave 1s linear infinite}
+@keyframes m3-wave{to{transform:translateX(40px)}}
+
+/* ---------- Shape morph on press (buttons and icon buttons go from round to rounded-square) ---------- */
+.m3-btn,.m3-icon-btn,.primary-button,.secondary-button{transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+  box-shadow var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects),
+  padding var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
+.m3-btn:active:not(:disabled),.primary-button:active:not(:disabled),.secondary-button:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
+.m3-icon-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
+
+/* ---------- Standard button group (Overview quick actions): 12px gap; the pressed button widens ~15% ---------- */
+.quick-actions{gap:var(--md-comp-button-group-standard-gap)}
+.quick-actions>.m3-btn:active:not(:disabled){padding-left:30px;padding-right:30px}
+
+/* ---------- Connected button group (replaces segmented buttons in Expressive) ----------
+   2px gaps, outer corners full, inner corners 8px (4px while pressed), the selected item becomes fully round. */
+.segments,.m3-segmented{gap:var(--md-comp-button-group-connected-gap);box-shadow:none;border:0;background:transparent;overflow-x:auto;overflow-y:hidden;padding:0;max-width:100%;scrollbar-width:none}
+.segments button,.m3-segment{border:0;margin:0;border-radius:var(--md-comp-button-group-connected-inner-corner);
+  background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface-variant);
+  transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+    background-color var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+.segments button:first-child,.m3-segment:first-child{border-radius:var(--md-sys-shape-corner-full) var(--md-comp-button-group-connected-inner-corner) var(--md-comp-button-group-connected-inner-corner) var(--md-sys-shape-corner-full)}
+.segments button:last-child,.m3-segment:last-child{border-radius:var(--md-comp-button-group-connected-inner-corner) var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) var(--md-comp-button-group-connected-inner-corner)}
+.segments button:only-child,.m3-segment:only-child{border-radius:var(--md-sys-shape-corner-full)}
+.segments button:active,.m3-segment:active{border-radius:var(--md-comp-button-group-connected-pressed-inner-corner)}
+.segments button.selected,.segments button[aria-pressed=true],.m3-segment[aria-pressed=true]{border-radius:var(--md-sys-shape-corner-full);
+  background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
+.segments button:hover,.m3-segment:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container-high))}
+.segments button.selected:hover,.segments button[aria-pressed=true]:hover,.m3-segment[aria-pressed=true]:hover{background:color-mix(in srgb,var(--md-sys-color-on-secondary-container) 8%,var(--md-sys-color-secondary-container))}
+.m3-segment .m3-segment__check{display:none}
+
+/* ---------- Springy motion for surfaces ---------- */
+.m3-nav-drawer.is-modal{transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial),visibility 0s linear var(--md-sys-motion-spring-expressive-default-spatial-duration)}
+.m3-nav-drawer.is-modal.open{transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial),visibility 0s}
+.m3-dialog{animation:m3-dialog-in var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
+.m3-snackbar{animation:m3-snack-in var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
+[aria-current=page]>.m3-nav-indicator{animation:m3-indicator-in var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
+@keyframes m3-indicator-in{from{transform:scaleX(.5);opacity:.6}}
+.m3-nav-drawer__item{transition:background-color var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+
+/* ---------- Expressive shapes: bigger corners on large surfaces ---------- */
+.panel,.service-card,.m3-card{border-radius:var(--md-sys-shape-corner-large-increased)}
+.m3-dialog,.m3-search-view{border-radius:var(--md-sys-shape-corner-extra-large-increased)}
+@media (max-width:839px){.m3-search-view{border-radius:0}}
