@@ -1,10 +1,12 @@
 // Generates the Material 3 colour tokens for the dashboard (light + dark) from one seed colour.
 // Used by build.mjs (bundled with esbuild: the 0.4.0 package's ESM imports omit file extensions, so plain Node cannot load it).
 // Reference implementation: @material/material-color-utilities 0.4.0, colour spec 2025 (the M3 Expressive / Android 16 spec).
-import { argbFromHex, hexFromArgb, Hct, SchemeTonalSpot, MaterialDynamicColors, DynamicColor, customColor } from '@material/material-color-utilities';
+import { argbFromHex, hexFromArgb, Hct, SchemeFidelity, DynamicScheme, TonalPalette, MaterialDynamicColors, DynamicColor, customColor } from '@material/material-color-utilities';
 export const SPEC = '2025';
 
-export const SEED = '#7de5c0';
+// Twilight pine (Ryan, 26 Oct 2026): deep Pacific-Northwest evergreen. Fidelity keeps the seed's own shade as the
+// primary container and pairs it with a cedar/rust tertiary; TonalSpot would have softened it to mint.
+export const SEED = '#1f4d45';
 // Service and chart accents. Each name becomes --md-custom-<name>, --md-custom-on-<name>,
 // --md-custom-<name>-container and --md-custom-on-<name>-container, harmonised toward the seed.
 export const CUSTOM = {
@@ -19,7 +21,14 @@ const ROLES = Object.getOwnPropertyNames(Object.getPrototypeOf(DC))
 const kebab = s => s.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
 
 function block(isDark) {
-  const scheme = new SchemeTonalSpot(Hct.fromInt(argbFromHex(SEED)), isDark, 0, SPEC);
+  const seed = Hct.fromInt(argbFromHex(SEED));
+  const fidelity = new SchemeFidelity(seed, isDark, 0, SPEC);
+  // Fidelity's own neutrals are near-grey; tint surfaces and outlines with the seed hue (chroma 10 / 14) so the
+  // page reads as pine at dusk. Accent palettes stay Fidelity's. Contrast is still computed by the library.
+  const scheme = new DynamicScheme({ sourceColorHct: seed, variant: fidelity.variant, contrastLevel: 0, isDark, specVersion: SPEC,
+    platform: fidelity.platform, primaryPalette: fidelity.primaryPalette, secondaryPalette: fidelity.secondaryPalette,
+    tertiaryPalette: fidelity.tertiaryPalette, errorPalette: fidelity.errorPalette,
+    neutralPalette: TonalPalette.fromHueAndChroma(seed.hue, 10), neutralVariantPalette: TonalPalette.fromHueAndChroma(seed.hue, 14) });
   const lines = ROLES.map(k => `--md-sys-color-${kebab(k)}:${hexFromArgb(DC[k]().getArgb(scheme))}`);
   for (const [name, hex] of Object.entries(CUSTOM)) {
     const c = customColor(argbFromHex(SEED), { name, value: argbFromHex(hex), blend: true })[isDark ? 'dark' : 'light'];

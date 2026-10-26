@@ -516,19 +516,19 @@ def patch_pihole_vip(source):
 
 
 # Same mark as brand-icon.svg (dark-theme primary-container / on-primary-container). Keep the two in sync.
-BRAND_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="128" fill="#2c5b4b"/><path d="M256 112 L404 230 Q412 236 412 246 V372 Q412 400 384 400 H128 Q100 400 100 372 V246 Q100 236 108 230 Z" fill="#bceed8" stroke="#bceed8" stroke-width="16" stroke-linejoin="round"/><rect x="152" y="252" width="208" height="34" rx="12" fill="#2c5b4b"/><circle cx="330" cy="269" r="8" fill="#bceed8"/><rect x="152" y="302" width="208" height="34" rx="12" fill="#2c5b4b"/><circle cx="330" cy="319" r="8" fill="#bceed8"/><rect x="152" y="352" width="208" height="34" rx="12" fill="#2c5b4b"/><circle cx="330" cy="369" r="8" fill="#bceed8"/></svg>'
+# Dark-theme surface (generated, seed #1f4d45, Fidelity, spec 2025): manifest theme/background colour.
+BRAND_SURFACE = '#091613'
+BRAND_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="128" fill="#1f4d45"/><path d="M256 112 L404 230 Q412 236 412 246 V372 Q412 400 384 400 H128 Q100 400 100 372 V246 Q100 236 108 230 Z" fill="#8ebdb2" stroke="#8ebdb2" stroke-width="16" stroke-linejoin="round"/><rect x="152" y="252" width="208" height="34" rx="12" fill="#1f4d45"/><circle cx="330" cy="269" r="8" fill="#8ebdb2"/><rect x="152" y="302" width="208" height="34" rx="12" fill="#1f4d45"/><circle cx="330" cy="319" r="8" fill="#8ebdb2"/><rect x="152" y="352" width="208" height="34" rx="12" fill="#1f4d45"/><circle cx="330" cy="369" r="8" fill="#8ebdb2"/></svg>'
 
 
 def patch_m3_brand(source):
-    """Material 3 app icon (brand-icon.svg) for /icon.svg, and manifest colours from the generated M3 dark surface."""
+    """Material 3 app icon (brand-icon.svg) for /icon.svg and manifest colours from the generated M3 dark surface.
+    Idempotent and re-runnable: it rewrites the icon and colours every deploy, so palette changes reach the server."""
     import re
-    marker = '# HOMELAB_M3_BRAND_V1'
-    if marker in source:
-        return source
-    icon = BRAND_ICON_SVG
-    source, n = re.subn(r'ICON_SVG = """.*?"""', lambda m: 'ICON_SVG = """' + icon + '"""', source, count=1, flags=re.S)
+    source, n = re.subn(r'ICON_SVG = """.*?"""', lambda m: 'ICON_SVG = """' + BRAND_ICON_SVG + '"""', source, count=1, flags=re.S)
     assert n == 1, 'ICON_SVG not found'
-    source = source.replace('"background_color": "#060913"', '"background_color": "#0b0f0d"').replace('"theme_color": "#060913"', '"theme_color": "#0b0f0d"')
-    source += '\n' + marker + '\n'
+    source = re.sub(r'"(background_color|theme_color)": "#[0-9a-fA-F]{6}"', lambda m: '"' + m.group(1) + '": "' + BRAND_SURFACE + '"', source)
+    if '# HOMELAB_M3_BRAND_V1' not in source:
+        source += '\n# HOMELAB_M3_BRAND_V1\n'
     compile(source, '<dashboard>', 'exec')
     return source

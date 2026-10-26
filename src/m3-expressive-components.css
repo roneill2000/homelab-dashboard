@@ -273,3 +273,6 @@
 /* Chart live region: always mounted for screen readers; visually collapsed while no sample is selected. */
 .chart-tooltip.is-empty{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:0!important;border:0!important;
   overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;background:none!important;box-shadow:none!important}
+
+/* Wordmark: Google Sans Flex 500 (Ryan, 26 Oct 2026), like Google's own app wordmarks. */
+.m3-xrail__brand,.m3-nav-drawer__brand,.m3-top-app-bar__brand{font-family:var(--md-ref-typeface-brand);font-weight:500;letter-spacing:-0.2px}
