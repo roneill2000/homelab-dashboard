@@ -135,7 +135,8 @@
 /* 4. Focus layer on navigation items; state layers on chips, pin buttons and service cards. */
 .m3-nav-bar__item:focus-visible .m3-nav-indicator::before,.m3-nav-rail__item:focus-visible .m3-nav-indicator::before,.m3-xrail__item:focus-visible .m3-nav-indicator::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
 .m3-nav-bar__item:focus-visible,.m3-nav-rail__item:focus-visible,.m3-xrail__item:focus-visible{outline-offset:-3px}
-.issue-chip,.pin-button{position:relative;isolation:isolate}
+.issue-chip{position:relative;isolation:isolate}
+.pin-button{isolation:isolate}
 .issue-chip::before,.pin-button::before{content:'';position:absolute;inset:0;border-radius:inherit;background:currentColor;opacity:0;z-index:-1;pointer-events:none;transition:opacity var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
 .pin-button{border-radius:var(--md-sys-shape-corner-full)}
 .issue-chip:hover::before,.pin-button:hover::before{opacity:var(--md-sys-state-hover-state-layer-opacity)}
@@ -144,3 +145,39 @@
 .service-card:active{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container))}
 /* 7. Neutral badges at full opacity in the readable role. */
 .badge.neutral{opacity:1;color:var(--md-sys-color-on-surface-variant)}
+
+/* ---------- Visual-audit changes (26 Oct 2026) ---------- */
+/* 1. Overview hero row: the four headline stats become separate tonal tiles with display-size numbers.
+      Services = primary-container, DNS = secondary-container, Devices and Log events = surface-container-high. */
+.summary-grid{background:transparent;border:0;border-radius:0;box-shadow:none;gap:12px;overflow:visible}
+.summary-grid>.summary-stat{border:0!important;border-radius:var(--md-sys-shape-corner-large);padding:20px;min-width:0}
+.summary-grid>.summary-stat:nth-child(1){background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container)}
+.summary-grid>.summary-stat:nth-child(2){background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface)}
+.summary-grid>.summary-stat:nth-child(3){background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
+.summary-grid>.summary-stat:nth-child(4){background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface)}
+.summary-grid>.summary-stat :is(small,p,em){color:inherit;opacity:1}
+.summary-grid>.summary-stat strong{font-family:var(--md-sys-typescale-display-medium-font);font-size:var(--md-sys-typescale-display-medium-size);
+  line-height:var(--md-sys-typescale-display-medium-line-height);font-weight:var(--md-sys-typescale-display-medium-weight);letter-spacing:var(--md-sys-typescale-display-medium-tracking);color:inherit}
+.summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height)}
+.summary-grid>.summary-stat .summary-icon{background:transparent;border:0;color:inherit}
+.summary-grid>.summary-stat.summary-link:hover{filter:brightness(1.04)}
+@media (max-width:599px){.summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-display-small-size);line-height:var(--md-sys-typescale-display-small-line-height)}}
+/* 2. One icon colour role for every service; colour is kept for status (dots, chips). */
+.service-icon,.m3-accent-icon{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
+.service-card .service-icon{border:0}
+/* 3. Phones: Overview quick actions become one horizontally scrolling row of assist chips. */
+@media (max-width:599px){
+  .quick-actions{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;gap:8px;margin-left:-16px;margin-right:-16px;padding:4px 16px}
+  .quick-actions::-webkit-scrollbar{display:none}
+  .quick-actions>*{flex:0 0 auto;width:auto!important}
+  .quick-actions>.m3-btn{min-height:32px;height:32px;padding:0 16px 0 8px;border-radius:var(--md-sys-shape-corner-small);background:transparent;
+    box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant);color:var(--md-sys-color-on-surface);gap:8px}
+  .quick-actions>.m3-btn .material-symbols-rounded{font-size:18px;color:var(--md-sys-color-primary)}
+  .quick-actions>.pc-power{flex-wrap:nowrap;padding:4px 4px 4px 12px;gap:8px;border-radius:var(--md-sys-shape-corner-small);white-space:nowrap}
+  .quick-actions>.pc-power *{white-space:nowrap}
+  .quick-actions>.pc-power .m3-btn{min-height:32px;height:32px;padding:0 12px}
+}
+/* 4. Chart unit above the y axis. */
+.chart-unit{font-weight:500}
+@media (max-width:419px){.summary-grid>.summary-stat{padding:16px}.summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-headline-small-size);line-height:var(--md-sys-typescale-headline-small-line-height)}}
+.summary-grid>.summary-stat strong{overflow-wrap:anywhere}
