@@ -1,0 +1,39 @@
+schema: spec-driven
+
+context: |
+  The repo is PUBLIC on GitHub: never put IPs-with-credentials, tokens, passwords, ntfy topics or API keys in specs or tasks.
+  Single user (Ryan). No login, accounts or auth UI.
+  The dashboard is one React file (src/app.jsx + src/styles.css) bundled by build.mjs into index.html; deploy.py ships it to LXC 104. Keep that pipeline.
+  Must work at phone width with no horizontal scroll, in light and dark mode, and keep passing the existing Playwright checks (*-check.mjs, ui-smoke.mjs, accessibility-check.mjs, responsive-check.mjs).
+  Commits carry no Co-Authored-By or other AI credit lines.
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
