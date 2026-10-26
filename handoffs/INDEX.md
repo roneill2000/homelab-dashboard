@@ -2,7 +2,9 @@
 
 | Workstream | Latest | Next action |
 | --- | --- | --- |
-| homelab-dashboard | [2026-10-22 Terra review](2026-10-22-homelab-terra-review.md) | Keep custom Google client; check publishing state, leave Testing and reauthorize with Ryan. Select additions from Terra review. |
+| homelab-dashboard | [2026-10-26 M3 Expressive, handoff to Codex](2026-10-26-homelab-m3-codex.md) | Google OAuth publish + rclone reconnect before ~28 Oct; Kasm in backup coverage; fix 5 stale checks. |
+
+Earlier: [2026-10-22 Terra review](2026-10-22-homelab-terra-review.md).
 
 Earlier: [2026-10-22 backups, Qwen and ops](2026-10-22-homelab-backups-qwen-ops.md).
 

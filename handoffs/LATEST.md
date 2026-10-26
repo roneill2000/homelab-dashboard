@@ -1,3 +1,1 @@
-2026-10-22-homelab-terra-review.md
-
-Three Terra reviews reconciled against source and live checks. Keep custom Google OAuth client; shared-client advice superseded. Feature/tool shortlist and evidence in private/AUDIT-TERRA-2026-10-22.md (local only).
+Latest: [2026-10-26 M3 Expressive, handoff to Codex](2026-10-26-homelab-m3-codex.md)
