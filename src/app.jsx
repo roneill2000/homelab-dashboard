@@ -147,7 +147,8 @@ const gpuColors=['var(--md-custom-teal)','var(--md-custom-blue)','var(--md-custo
 const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat',speed:168.3}, // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
  'qwen3.6-35b-moe':{role:'General use',speed:82.1}, // measured 22 Oct 2026: 48K context, 100% CUDA0
- 'qwen3.8-27b':{role:'Reasoning',speed:54.6} // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
+ 'qwen3.8-27b':{role:'Reasoning',speed:54.6}, // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
+ 'qwen3.8-27b-uncensored':{role:'Uncensored',speed:54.6} // OrcaRouter IQ4_XS 48K ctx + ngram-mod
 };
 function inlineMd(text,key){
  const out=[];const re=/\*\*([^*\n]+?)\*\*|`([^`\n]+)`/g;let last=0,m,i=0;
