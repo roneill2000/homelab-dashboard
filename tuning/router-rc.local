@@ -1,0 +1,38 @@
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+
+. /lib/functions/gl_util.sh
+remount_ubifs
+
+# 1. Enable Bridge Hairpinning for Qualcomm ECM Fast-Path Acceleration
+for dev in eth1.1 mld0 wlan1 wlan2; do
+    bridge link set dev $dev hairpin on 2>/dev/null || true
+done
+
+# 2. Balance Wireless Data-Path Interrupts off CPU0 onto CPU1-3
+[ -f /proc/irq/131/smp_affinity ] && echo 2 > /proc/irq/131/smp_affinity
+[ -f /proc/irq/132/smp_affinity ] && echo 4 > /proc/irq/132/smp_affinity
+[ -f /proc/irq/118/smp_affinity ] && echo 8 > /proc/irq/118/smp_affinity
+
+# 3. Wi-Fi Multicast-to-Unicast & IGMP Snooping (Querier disabled to prevent waking sleeping IoT devices)
+for dev in mld0 wlan1 wlan2 eth1.1; do
+    [ -f /sys/class/net/br-lan/brif/$dev/multicast_to_unicast ] && echo 1 > /sys/class/net/br-lan/brif/$dev/multicast_to_unicast 2>/dev/null || true
+done
+[ -f /sys/class/net/br-lan/bridge/multicast_snooping ] && echo 1 > /sys/class/net/br-lan/bridge/multicast_snooping
+[ -f /sys/class/net/br-lan/bridge/multicast_querier ] && echo 0 > /sys/class/net/br-lan/bridge/multicast_querier
+
+# 4. Balanced IoT 2.4GHz target power (20 dBm = 100 mW)
+iw wlan06 set txpower fixed 20 2>/dev/null || iwconfig wlan06 txpower 20 2>/dev/null || true
+
+# 5. ECM hardware acceleration bypass for WireGuard & QUIC (prevents conntrack desync on UDP tunnels)
+[ -f /proc/sys/net/ecm/udp_denied_ports ] && {
+    echo "add 500" > /proc/sys/net/ecm/udp_denied_ports 2>/dev/null
+}
+
+for q in /sys/class/net/eth0/queues/rx-* /sys/class/net/eth1/queues/rx-* /sys/class/net/eth1.1/queues/rx-*; do echo 8 > "$q/rps_cpus" 2>/dev/null || true; done
+echo layer2+3 > /sys/class/net/mld0/bonding/xmit_hash_policy 2>/dev/null
+
+# Lock CPU governor to performance (1.5 GHz)
+echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || true
+
+exit 0

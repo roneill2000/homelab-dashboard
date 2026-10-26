@@ -1,0 +1,24 @@
+#!/bin/bash
+# Probes both Pi-holes; writes a line matching the syslog-monitor pattern
+# "DNS-HEALTH FAIL" after 2 consecutive failures (once per outage), and a
+# RECOVERED line when the server answers again.
+LOG="${DNS_HEALTH_LOG:-/var/log/remote/dns-health.log}"
+ST="${DNS_HEALTH_STATE:-/run/dns-health}"
+TARGETS="${DNS_HEALTH_TARGETS:-192.168.0.11:pihole-primary 192.168.0.10:pihole-replica 192.168.0.8:pihole-vip}"
+mkdir -p "$ST"
+for t in $TARGETS; do
+  ip=${t%%:*}; name=${t##*:}
+  if dig @"$ip" example.com +time=2 +tries=1 +short 2>/dev/null | grep -qE '^[0-9a-fA-F:.]+$'; then
+    if [ -f "$ST/$ip.alerted" ]; then
+      echo "$(date -Is) $name dns-health: RECOVERED $ip answering DNS again" >> "$LOG"
+      rm -f "$ST/$ip.alerted"
+    fi
+    rm -f "$ST/$ip.fails"
+  else
+    n=$(( $(cat "$ST/$ip.fails" 2>/dev/null || echo 0) + 1 )); echo $n > "$ST/$ip.fails"
+    if [ "$n" -ge 2 ] && [ ! -f "$ST/$ip.alerted" ]; then
+      echo "$(date -Is) $name dns-health: DNS-HEALTH FAIL $ip not answering DNS ($n consecutive failed probes)" >> "$LOG"
+      touch "$ST/$ip.alerted"
+    fi
+  fi
+done
