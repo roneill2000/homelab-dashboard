@@ -33,6 +33,9 @@ const run = (cmd, args, ms) => new Promise(resolve => {
 
 let preview = null;
 if (!process.env.DASHBOARD_URL) {
+  // Refuse to run if something already serves the preview port: the checks would test that server's build, not this one.
+  let busy = false; try { await fetch(URL); busy = true; } catch {}
+  if (busy) { console.log(`BAD  ${URL} is already in use (another preview.py?). Stop it first: pkill -f "python3 preview.py"`); process.exit(1); }
   preview = spawn('python3', ['preview.py'], { stdio: 'ignore' });
   for (let i = 0; i < 60; i++) {
     try { if ((await fetch(URL)).ok) break; } catch {}
