@@ -8,7 +8,9 @@
 
 ## Rules (apply to every task)
 
-- Work in `/mnt/share/repos/homelab-dashboard` on branch `m3-redesign`. First run `git checkout m3-redesign && git pull`.
+- Work in the homelab repo on branch `m3-redesign` (Ryan pushes it to the share repo `/mnt/share/repos/homelab-dashboard`; use your usual clone of that repo, run `git fetch` there, then `git checkout m3-redesign`).
+- One-time setup before task 1: `npm install`, then `npx playwright install chromium-headless-shell`. Google Chrome and `python3` must be installed (the checks use both). Then run `npm run check` once on the untouched branch: it must end with `ALL CHECKS OK`. If it does not, STOP and tell Ryan (the problem is the environment, not your work).
+- `npm run check` retries a failed script once. A line ending `(passed on retry)` counts as OK.
 - One task = one commit. Commit message = the task's title. **No `Co-Authored-By` or any other AI credit line.**
 - After every task, run `npm run build` and then `npm run check`. The last line must be exactly `ALL CHECKS OK`.
   If it is not: run `git checkout -- .`, STOP, and report the `BAD` lines to Ryan. Do not try to fix the failure yourself.
