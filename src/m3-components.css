@@ -13,7 +13,8 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important}}
 
 /* Material Symbols Rounded (loaded by build.mjs from Google Fonts) */
-.material-symbols-rounded{font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;font-size:24px;line-height:1;
+/* width/height/overflow keep the box icon-sized before the font loads (otherwise the ligature name shows as wide text) */
+.material-symbols-rounded{width:1em;height:1em;overflow:hidden;font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;font-size:24px;line-height:1;
   letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;
   -webkit-font-feature-settings:'liga';font-feature-settings:'liga';-webkit-font-smoothing:antialiased;
   font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;user-select:none;flex-shrink:0}
@@ -236,6 +237,10 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-app{min-height:100vh;display:grid;grid-template-columns:1fr;background:var(--md-sys-color-surface)}
 .m3-app__main{min-width:0;padding:0 16px calc(96px + env(safe-area-inset-bottom))}
 .m3-app__content{max-width:1440px;margin:0 auto}
+/* Columns switch instantly with CSS breakpoints; the main area is always the last column, so the brief moment
+   before React swaps the rail/drawer after a resize can never squeeze or overflow the page. The rail and drawer
+   are also hidden by CSS outside their breakpoints. */
+.m3-app__main{grid-column:-2/-1}
 @media (min-width:600px){.m3-app{grid-template-columns:80px 1fr}.m3-app__main{padding:0 24px 32px}}
 @media (min-width:1200px){.m3-app{grid-template-columns:360px 1fr}}
 
@@ -327,3 +332,24 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))}
 .m3-grid--dense{grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:12px}
 @media (min-width:600px){.m3-grid{gap:24px}}
+
+/* ---------- Additions used by the app shell ---------- */
+.m3-icon-btn--touch{width:48px;height:48px}
+.m3-nav-drawer.is-modal{display:flex;position:fixed;z-index:45;left:0;top:0;border-radius:0 var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large) 0;
+  transform:translateX(-100%);visibility:hidden;box-shadow:none;animation:none;
+  transition:transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-accelerate),visibility 0s linear var(--md-sys-motion-duration-medium2)}
+.m3-nav-drawer.is-modal.open{transform:none;visibility:visible;box-shadow:var(--md-sys-elevation-level1);
+  transition:transform var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized-decelerate),visibility 0s}
+.m3-nav-drawer__brand{display:flex;align-items:center;gap:12px;padding:16px 16px 20px;color:var(--md-sys-color-on-surface);text-decoration:none;
+  font:700 22px/28px var(--md-ref-typeface-brand)}
+.m3-nav-drawer__brand .material-symbols-rounded{color:var(--md-sys-color-primary)}
+.m3-nav-drawer__meta{padding:8px 16px;color:var(--md-sys-color-on-surface-variant)}
+.m3-top-app-bar__brand{display:inline-flex;align-items:center;gap:8px;color:var(--md-sys-color-on-surface);font:700 22px/28px var(--md-ref-typeface-brand)}
+.m3-top-app-bar__brand .material-symbols-rounded{color:var(--md-sys-color-primary)}
+.m3-top-app-bar__actions{display:flex;align-items:center;gap:4px;margin-left:auto}
+.m3-page-header__meta{text-align:right;color:var(--md-sys-color-on-surface-variant)}
+@media (max-width:839px){.m3-page-header__meta{display:none}}
+.m3-search-view .command-results a{display:flex}
+.m3-search-view__empty{padding:24px 16px;color:var(--md-sys-color-on-surface-variant)}
+.spinning .material-symbols-rounded{animation:m3-spin 1s linear infinite}
+@media (max-width:419px){.m3-top-app-bar__brand-text,.live-chip__text{display:none}.live-chip.has-icon{padding:0 4px}}
