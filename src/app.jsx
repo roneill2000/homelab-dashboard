@@ -34,7 +34,7 @@ function Chart({labels={},points=[],keys=['read_bps','write_bps'],colors=['var(-
  {selected&&<line x1={x(selected)} x2={x(selected)} y1="10" y2={H-25} className="chart-cursor"/>}
  {start&&<text x="42" y={H-3} className="chart-label">{new Date(start*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</text>}{end&&<text x={W-10} textAnchor="end" y={H-3} className="chart-label">{new Date(end*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</text>}
  </svg>{clean.length<2&&<div className="chart-empty"><span className="live-dot"/>Collecting live samples…</div>}
- {<div className="chart-tooltip" role="status" aria-live="polite" hidden={!selected}>{selected&&<>{new Date(selected.ts*1000).toLocaleTimeString()} · {keys.map((k,i)=><span key={k} style={{color:colors[i]}}>{(labels[k]||k.split('_')[0])} {valid(selected[k])?num(selected[k]/divisor,1):'—'} {unit} </span>)}</>}</div>}
+ {<div className={'chart-tooltip'+(selected?'':' is-empty')} role="status" aria-live="polite">{selected&&<>{new Date(selected.ts*1000).toLocaleTimeString()} · {keys.map((k,i)=><span key={k} style={{color:colors[i]}}>{(labels[k]||k.split('_')[0])} {valid(selected[k])?num(selected[k]/divisor,1):'—'} {unit} </span>)}</>}</div>}
  </div>
 }
 function Meter({value,label,detail,color,active}){return <div className="meter"><div><span>{label}</span><span className="mono">{detail??`${num(value)}%`}</span></div><LinearProgress value={bounded(value)} color={color} wavy={active} label={label}/></div>}
