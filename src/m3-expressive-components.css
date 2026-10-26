@@ -48,3 +48,38 @@
 .panel,.service-card,.m3-card{border-radius:var(--md-sys-shape-corner-large-increased)}
 .m3-dialog,.m3-search-view{border-radius:var(--md-sys-shape-corner-extra-large-increased)}
 @media (max-width:839px){.m3-search-view{border-radius:0}}
+
+/* ---------- Expressive navigation rail (expanded window class and up) ----------
+   Collapsed: 96px, items 64px tall, icon in a 56x32 indicator with the label under it.
+   Expanded: 280px (spec range 220-360), items 56px tall, icon + label in a full-width pill.
+   On 840-1199px the expanded rail is modal (overlays the page, surface-container, corner-large, level 2). */
+.m3-xrail{display:flex;flex-direction:column;position:sticky;top:0;z-index:30;height:100vh;width:var(--md-comp-nav-rail-collapsed-width);overflow-y:auto;overflow-x:hidden;
+  padding:0 0 20px;background:var(--md-sys-color-surface);scrollbar-width:none;
+  transition:width var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
+.m3-xrail.is-expanded{width:280px}
+.m3-xrail.is-modal{position:fixed;left:0;top:0;z-index:45;background:var(--md-sys-color-surface-container);border-radius:0 var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large) 0;box-shadow:var(--md-sys-elevation-level2)}
+.m3-xrail__top{display:flex;align-items:center;gap:12px;min-height:var(--md-comp-nav-rail-top-space);padding:16px 24px 20px}
+.m3-xrail:not(.is-expanded) .m3-xrail__top{justify-content:center;padding:16px 0 20px}
+.m3-xrail__brand{display:inline-flex;align-items:center;gap:8px;color:var(--md-sys-color-on-surface);white-space:nowrap;
+  font:var(--md-sys-typescale-title-large-weight) var(--md-sys-typescale-title-large-size)/var(--md-sys-typescale-title-large-line-height) var(--md-sys-typescale-title-large-font)}
+.m3-xrail__brand .material-symbols-rounded{color:var(--md-sys-color-primary)}
+.m3-xrail__item{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%;min-height:var(--md-comp-nav-rail-item-height);padding:6px 0;border:0;background:transparent;cursor:pointer;
+  color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font);white-space:nowrap}
+.m3-xrail .m3-xrail__indicator{width:var(--md-comp-nav-rail-vertical-indicator-width);height:var(--md-comp-nav-rail-vertical-indicator-height);flex-shrink:0}
+.m3-xrail__item[aria-current=page]{color:var(--md-sys-color-on-surface);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
+.m3-xrail__count{display:none}
+.m3-xrail.is-expanded .m3-xrail__item{flex-direction:row;gap:12px;min-height:var(--md-comp-nav-rail-item-short-height);width:auto;margin:0 12px;padding:0 16px 0 0;border-radius:var(--md-sys-shape-corner-full);position:relative;isolation:isolate;
+  font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
+  transition:background-color var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+.m3-xrail.is-expanded .m3-xrail__indicator{width:48px;height:24px;background:transparent!important;animation:none}
+.m3-xrail.is-expanded .m3-xrail__item[aria-current=page]{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);font-weight:var(--md-sys-typescale-label-large-weight-prominent)}
+.m3-xrail.is-expanded .m3-xrail__item:hover:not([aria-current=page]){background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,transparent)}
+.m3-xrail.is-expanded .m3-xrail__count{display:inline;margin-left:auto}
+.m3-xrail__meta{margin:auto 0 0;padding:16px 28px 0;color:var(--md-sys-color-on-surface-variant);white-space:nowrap}
+/* Grid: 80px narrow rail on medium, 96px collapsed rail from 840px, 280px expanded rail from 1200px unless collapsed. */
+@media (min-width:840px){.m3-app{grid-template-columns:96px 1fr}}
+@media (min-width:1200px){.m3-app{grid-template-columns:280px 1fr}.m3-app.m3-app--rail-collapsed{grid-template-columns:96px 1fr}}
+.m3-app{transition:grid-template-columns var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
+/* Modal drawer on phones/tablets uses the modal rail colours. */
+.m3-nav-drawer.is-modal{background:var(--md-sys-color-surface-container);box-shadow:none}
+.m3-nav-drawer.is-modal.open{box-shadow:var(--md-sys-elevation-level2)}
