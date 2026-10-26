@@ -1,0 +1,58 @@
+/* Material 3 look for the pre-M3 classes still used by the views (styles.css). Loaded after styles.css.
+   Each rule maps one legacy class to its M3 component (component-tokens.md has the source values).
+   As each view moves to the React components in src/m3.jsx, its legacy classes stop being used; delete a rule
+   here only when `grep -c 'className="<class>' src/app.jsx` is 0. */
+
+/* .panel -> outlined card (container surface, 1px outline-variant, medium shape) */
+.panel{background:var(--md-sys-color-surface);border:1px solid var(--md-sys-color-outline-variant);border-radius:var(--md-sys-shape-corner-medium);box-shadow:none;padding:16px}
+.panel:hover{border-color:var(--md-sys-color-outline-variant)}
+@media (min-width:600px){.panel{padding:20px}}
+.panel-title h3{font:var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--md-sys-typescale-title-medium-font);letter-spacing:var(--md-sys-typescale-title-medium-tracking)}
+.panel-title p{color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font)}
+
+/* .icon-tile -> 40px tonal icon container (secondary-container, medium shape) */
+.icon-tile{width:40px;height:40px;border:0;border-radius:var(--md-sys-shape-corner-medium);background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
+
+/* Section headings -> title-large */
+.section-heading h2,main h2{font:var(--md-sys-typescale-title-large-weight) var(--md-sys-typescale-title-large-size)/var(--md-sys-typescale-title-large-line-height) var(--md-sys-typescale-title-large-font);letter-spacing:var(--md-sys-typescale-title-large-tracking);color:var(--md-sys-color-on-surface)}
+.section-heading p{color:var(--md-sys-color-on-surface-variant)}
+.section-heading{margin:32px 0 16px}
+
+/* .segments -> segmented buttons (40px, 1px outline, full shape, selected = secondary-container) */
+.segments{gap:0;padding:0;border:0;background:transparent;border-radius:var(--md-sys-shape-corner-full);overflow:hidden;box-shadow:inset 0 0 0 1px var(--md-sys-color-outline);flex-wrap:nowrap;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.segments button{position:relative;min-height:40px;min-width:48px;padding:0 12px;border-radius:0;border-left:1px solid var(--md-sys-color-outline);color:var(--md-sys-color-on-surface);
+  font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);letter-spacing:var(--md-sys-typescale-label-large-tracking);white-space:nowrap}
+.segments button:first-child{border-left:0;padding-left:16px}
+.segments button:last-child{padding-right:16px}
+.segments button.selected,.segments button[aria-pressed=true]{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);box-shadow:none}
+.segments button:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,transparent)}
+.segments button.selected:hover,.segments button[aria-pressed=true]:hover{background:color-mix(in srgb,var(--md-sys-color-on-secondary-container) 8%,var(--md-sys-color-secondary-container))}
+
+/* Buttons: .primary-button -> filled, .secondary-button -> tonal, .text-button -> text */
+.primary-button,.secondary-button{min-height:40px;padding:0 24px;border:0;border-radius:var(--md-sys-shape-corner-full);gap:8px;
+  font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);letter-spacing:var(--md-sys-typescale-label-large-tracking)}
+.primary-button{background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
+.primary-button:hover{background:color-mix(in srgb,var(--md-sys-color-on-primary) 8%,var(--md-sys-color-primary));box-shadow:var(--md-sys-elevation-level1)}
+.secondary-button{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
+.secondary-button:hover{background:color-mix(in srgb,var(--md-sys-color-on-secondary-container) 8%,var(--md-sys-color-secondary-container));box-shadow:var(--md-sys-elevation-level1)}
+.primary-button:disabled,.secondary-button:disabled{opacity:1;background:color-mix(in srgb,var(--md-sys-color-on-surface) 12%,transparent);color:color-mix(in srgb,var(--md-sys-color-on-surface) 38%,transparent);box-shadow:none}
+.text-button{min-height:40px;padding:0 12px;border-radius:var(--md-sys-shape-corner-full);color:var(--md-sys-color-primary);
+  font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font)}
+.text-button:hover{color:var(--md-sys-color-primary);background:color-mix(in srgb,var(--md-sys-color-primary) 8%,transparent)}
+.text-button.inline{min-height:0;padding:0;border-radius:0;color:var(--md-sys-color-primary);background:none}
+
+/* .notice -> warning banner (amber custom colour container, medium shape) */
+.notice{border:0;border-radius:var(--md-sys-shape-corner-medium);background:var(--md-custom-amber-container);color:var(--md-custom-on-amber-container);padding:12px 16px}
+
+/* .track -> linear progress (4px, surface-container-highest track, primary or accent indicator) */
+.track{height:4px;border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-surface-container-highest)}
+.track i{border-radius:inherit;transition:width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard)}
+
+/* .service-card -> outlined card with a state layer instead of the lift-on-hover */
+.service-card{background:var(--md-sys-color-surface);border:1px solid var(--md-sys-color-outline-variant);border-radius:var(--md-sys-shape-corner-medium)}
+.service-card:hover{transform:none;border-color:var(--md-sys-color-outline-variant);box-shadow:var(--md-sys-elevation-level1)}
+
+/* Overview issue chips -> assist chips (32px, small shape) */
+.issue-chip{min-height:32px;border-radius:var(--md-sys-shape-corner-small);border:0;background:var(--md-custom-amber-container);color:var(--md-custom-on-amber-container);
+  font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font)}
+.issue-chip.soft{border:1px solid var(--md-sys-color-outline);background:transparent;color:var(--md-sys-color-on-surface)}
