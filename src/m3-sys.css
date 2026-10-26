@@ -1,7 +1,8 @@
 /* Material 3 system tokens. Values from material-components/material-web tokens/versions/v0_192 (commit 60c0cfa58ad1, 2025-10-07). Generated; do not edit by hand. */
 :root{
-  --md-ref-typeface-brand:'Manrope',system-ui,sans-serif;
-  --md-ref-typeface-plain:'DM Sans',system-ui,sans-serif;
+  --md-ref-typeface-brand:'Google Sans Flex','Google Sans',Roboto,system-ui,sans-serif;
+  --md-ref-typeface-code:'Google Sans Code','Roboto Mono',ui-monospace,monospace;
+  --md-ref-typeface-plain:'Roboto Flex',Roboto,system-ui,sans-serif;
   --md-sys-typescale-body-large-font:var(--md-ref-typeface-plain);
   --md-sys-typescale-body-large-line-height:1.5rem;
   --md-sys-typescale-body-large-size:1rem;

@@ -127,8 +127,10 @@ export function ListItem({icon,headline,supporting,trailing,href,onClick,classNa
 export const Divider=({inset})=><hr className={cx('m3-divider',inset&&'m3-divider--inset')}/>;
 
 // Page and section headers. PageHeader renders the page <h1>; Section renders an <h2>.
-export function PageHeader({title,subtitle,eyebrow,trailing}){
-  return <div className="m3-page-header"><div>{eyebrow&&<p className="m3-label-large m3-on-surface-variant" style={{margin:'0 0 4px'}}>{eyebrow}</p>}
+// large: the expanded part of an M3 large top app bar (headline-large title); the small title in the top app bar
+// takes over when the page scrolls.
+export function PageHeader({title,subtitle,eyebrow,trailing,large}){
+  return <div className={cx('m3-page-header',large&&'m3-page-header--large')}><div>{eyebrow&&<p className="m3-label-large m3-on-surface-variant" style={{margin:'0 0 4px'}}>{eyebrow}</p>}
     <h1 className="m3-page-header__title">{title}</h1>{subtitle&&<p className="m3-page-header__subtitle">{subtitle}</p>}</div>{trailing}</div>;
 }
 export function Section({title,actions,children,className,id,...props}){

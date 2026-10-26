@@ -48,3 +48,9 @@ Stored key `homelab.theme.v2` unchanged. On a first visit with no stored value, 
 ## Migration / Rollback
 
 Nothing is deployed by this change. To ship: Ryan reviews screenshots, merges `m3-redesign`, and runs `deploy.py`. Rollback: redeploy the previous `index.html` from `main`.
+
+### D7. Android feel (26 Oct 2026, after Ryan's review)
+- Fonts are Google's own, from Google Fonts: Google Sans Flex (`--md-ref-typeface-brand`: display, headline, title), Roboto Flex (`--md-ref-typeface-plain`: body, label, numbers with tabular figures), Google Sans Code (`--md-ref-typeface-code`: logs and evidence).
+- Large top app bar: the page title is headline-large with the date and weather beneath; the small title fades into the 64 px bar on scroll. The clock was removed.
+- Cards are filled (`surface-container`, corner-large 16 px, no border); a card inside a card uses `surface-container-high`. Status pills, the Gaming PC box, the summary grid and service icons use tonal fills instead of outlines. Text fields, selects and segmented buttons keep their M3 outlines.
+- These rules live at the end of `src/m3-components.css` (loaded last) and `src/m3-legacy.css`.

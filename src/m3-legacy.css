@@ -65,3 +65,11 @@
 @media (max-width:599px){.summary-stat strong,.net-now strong,.storage-values strong,.storage-grid .storage-values strong{
   font-family:var(--md-sys-typescale-headline-medium-font);font-size:var(--md-sys-typescale-headline-medium-size);
   line-height:var(--md-sys-typescale-headline-medium-line-height)}}
+
+/* ---------- Android feel (26 Oct 2026): filled cards, Roboto Flex numbers ---------- */
+/* Numbers and addresses in Roboto Flex with tabular figures; log lines and evidence stay monospace. */
+.mono,.device-label,.chart-label,.service-address,.update-detail small,.ip-square{font-family:var(--md-ref-typeface-plain);font-variant-numeric:tabular-nums}
+/* Phones: segmented buttons stay one row and share the width (they scroll sideways if they cannot fit). */
+@media (max-width:599px){.activity-toolbar .segments button,.gpu-toolbar .segments button{flex:1 0 auto}}
+/* Code and log text: Google Sans Code */
+.log-message,.log-entry-details .log-message,.evidence-source pre,code,pre{font-family:var(--md-ref-typeface-code)}

@@ -353,3 +353,30 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-search-view__empty{padding:24px 16px;color:var(--md-sys-color-on-surface-variant)}
 .spinning .material-symbols-rounded{animation:m3-spin 1s linear infinite}
 @media (max-width:419px){.m3-top-app-bar__brand-text,.live-chip__text{display:none}.live-chip.has-icon{padding:0 4px}}
+
+/* ---------- Android feel (26 Oct 2026): large top app bar ---------- */
+/* Expanded state: large headline under the 64px bar. Collapsed state: the small title fades into the bar on scroll. */
+.m3-page-header--large{margin:4px 0 24px;padding-top:24px}
+.m3-page-header--large .m3-page-header__title{font:var(--md-sys-typescale-headline-large-weight) var(--md-sys-typescale-headline-large-size)/var(--md-sys-typescale-headline-large-line-height) var(--md-sys-typescale-headline-large-font);letter-spacing:var(--md-sys-typescale-headline-large-tracking)}
+.m3-page-header--large .m3-page-header__subtitle{font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font);color:var(--md-sys-color-on-surface-variant);margin-top:4px}
+.m3-top-app-bar .m3-top-app-bar__title{flex:0 1 auto;margin-left:8px;opacity:0;transform:translateY(4px);
+  transition:opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard)}
+.m3-top-app-bar.is-scrolled .m3-top-app-bar__title{opacity:1;transform:none}
+@media (min-width:600px){.m3-top-app-bar .m3-top-app-bar__title{margin-left:0}}
+@media (min-width:840px){.m3-search-bar-wrap{order:2}.m3-top-app-bar__actions{order:3}}
+.m3-top-app-bar .m3-icon-btn,.m3-top-app-bar .m3-chip,.m3-top-app-bar__actions{flex-shrink:0}
+.m3-top-app-bar .m3-top-app-bar__title{min-width:0;flex:1 1 auto}
+
+/* Android feel: filled cards (loaded last so it overrides the outlined-card rules above). */
+/* Cards are filled surface containers with no border (Android style); a card inside a card steps up one level. */
+.panel,.service-card,.m3-card--outlined,.m3-card.m3-card--outlined.panel{background:var(--md-sys-color-surface-container);border:0;box-shadow:none;border-radius:var(--md-sys-shape-corner-large)}
+.service-card:hover{box-shadow:none;background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container))}
+.panel .panel,.panel .m3-card,.panel .service-card,.m3-card .panel,.panel .m3-card--outlined{background:var(--md-sys-color-surface-container-high)}
+/* Android feel: tonal fills instead of outlines on containers, pills and icons. */
+.summary-grid,.pc-power,.ai-offline{border:0;background:var(--md-sys-color-surface-container);border-radius:var(--md-sys-shape-corner-large)}
+.panel .pc-power,.panel .ai-offline,.m3-card .pc-power,.m3-card .ai-offline{background:var(--md-sys-color-surface-container-high)}
+.badge{border:0;border-radius:var(--md-sys-shape-corner-small);padding:2px 8px;background:var(--md-sys-color-surface-container-highest);color:var(--md-sys-color-on-surface-variant);
+  font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font)}
+.badge.good{background:var(--md-custom-green-container);color:var(--md-custom-on-green-container);border:0}
+.badge.bad{background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container);border:0}
+.service-icon{border:0;border-radius:var(--md-sys-shape-corner-medium);background:color-mix(in srgb,var(--service-color) 18%,var(--md-sys-color-surface-container-high))}
