@@ -479,3 +479,37 @@ def patch_remove_kasm(source):
     source = ''.join(lines) + '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_pihole_vip(source):
+    """Expose Pi-hole VRRP floating VIP (192.168.0.8) in pihole telemetry, port_targets, and ip_matrix."""
+    marker = '# HOMELAB_PIHOLE_VIP_V1'
+    if marker in source:
+        return source
+    if "'vip': '192.168.0.8'" not in source:
+        source = source.replace("'secondary': {'ip': '192.168.0.10'", "'vip': '192.168.0.8', 'secondary': {'ip': '192.168.0.10'", 1)
+    tree = ast.parse(source)
+    fn = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix'), None)
+    if fn is not None:
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                name = node.targets[0].id
+                if name == 'port_targets' and isinstance(node.value, ast.Dict):
+                    if not any(getattr(k, 'value', None) == 'pihole_vip' for k in node.value.keys):
+                        node.value.keys.append(ast.Constant('pihole_vip'))
+                        node.value.values.append(ast.parse("('192.168.0.8', 53)", mode='eval').body)
+                elif name == 'known' and isinstance(node.value, ast.Dict):
+                    if not any(getattr(k, 'value', None) == 8 for k in node.value.keys):
+                        node.value.keys.append(ast.Constant(8))
+                        node.value.values.append(ast.parse("('Pi-hole DNS VIP', 'VRRP Floating IP', 'http://192.168.0.11/admin', checks.get('pihole_vip', False))", mode='eval').body)
+            if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
+                vals = [getattr(e, 'value', None) for e in node.iter.elts]
+                if 8 not in vals and 6 in vals:
+                    idx = vals.index(6) + 1
+                    node.iter.elts.insert(idx, ast.Constant(8))
+        lines = source.splitlines(keepends=True)
+        lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn)) + '\n']
+        source = ''.join(lines)
+    source += '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

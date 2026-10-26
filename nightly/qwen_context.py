@@ -16,9 +16,9 @@ CAPABILITIES = ('Available observations: host CPU/RAM, guests/containers, disk c
                 'No arbitrary SSH, internet search, private notes, file contents, chat history, or configuration writes. '
                 'General knowledge questions are allowed; distinguish them from observed local facts.')
 RECORDED = {
-    'as_of': '2026-10-25',
+    'as_of': '2026-10-26',
     'facts': ['Proxmox .3; Unraid .4; Homepage .2; Open WebUI .16:3000; Memos .18:5230.',
-              'Both Pi-hole DNS servers (Primary LXC 106 at .11 and Secondary Orange Pi at .10) resolve through local Unbound recursive DNS (127.0.0.1#5335) with DNSSEC, qname-minimisation, prefetch, and serve-expired enabled; synced via nebula-sync.',
+              'Both Pi-hole DNS servers (Primary LXC 106 at .11 and Secondary Orange Pi at .10, both v6.5/FTL v6.8) resolve through local Unbound recursive DNS (127.0.0.1#5335) with DNSSEC, qname-minimisation, prefetch, and serve-expired, and share floating VRRP VIP 192.168.0.8 (keepalived VRRP id 53 unicast, .11 MASTER prio 150, .10 BACKUP prio 100, check_dns.sh; router DHCP option 6 hands out 192.168.0.8, 192.168.0.10; Proxmox dns-health-check.timer probes .11, .10, and .8 every minute).',
               'Orange Pi (.10) runs Ubuntu 26.04 with schedutil governor (480-1512 MHz), mq-deadline on mmcblk1, hardware watchdog (15s) + panic auto-reboot (10s), and official Ubuntu ports APT sources only.',
               'GL-BE9300 router (.1) CPU governor is locked to performance (1.5 GHz across all 4 cores). Proxmox (.3) and Unraid (.4) have Intel HWP dynamic boost enabled.',
               'Desktop .12 is a gaming PC and is intentionally off sometimes; A310 is always available on Unraid.',
@@ -38,6 +38,7 @@ RECORDED = {
               'OpenCode CLI is installed on the gaming PC and uses the local router (default model qwen3.6-35b-moe; bash/edit actions ask first).',
               'OpenCode web UI runs in LXC 114 at http://192.168.0.19:4096 (no login, by Ryan\'s choice); it can SSH to Proxmox and, through it, Unraid, and asks before running commands. It needs the gaming PC on for models.',
               'Zurg (Real-Debrid) is disabled since 2026-10-20 after its rclone mount hung twice; Jellyfin uses local 4TB folders and TorBox only.',
+              'Minecraft (192.168.0.25 on Unraid br0) runs Paper 26.3 on Java 25 (6 GB Aikar + UseCompactObjectHeaders) mounted directly on /mnt/cache/appdata/minecraft/ (bypassing FUSE shfs, sync-chunk-writes=false) with Moonrise 6 worker / 2 I/O threads, ALTERNATE_CURRENT redstone, and Chunky + ChunkyBorder (50,000m Overworld/End borders, 6,250m Nether border).',
               'Jellyfin is 12.2.0 at 192.168.0.17:8096 with legacy token authorization re-enabled for older clients.',
               'Homepage Local AI has Wake PC (Wake-on-LAN magic packet) and Sleep PC (SSH forced command, 60 s on-screen warning, refuses if GPU >= 30% unless forced; cancel with C:/llm/cancel-sleep.cmd). Wake from sleep restores the router; from full shutdown the PC stops at the login screen.',
               'Phone alerts all go to one ntfy.sh topic from: Proxmox notifications (backups etc.), the Proxmox watchdog (Pi-hole DNS on .11 and .10, DuckDNS, WireGuard, root disk), smart-notify, fix-unraid-mount, Unraid (array, parity, disk usage 70/90%, temps, Docker), Scrutiny (drive failures), Uptime Kuma on the Pi, the Pi DDNS script, and homelab-alerts (gaps only: container shares and services, stopped Docker apps, failed updates, stale speed tests, Pi services/disk/temp). NetAlertX alerts on new devices only; Speedtest Tracker ntfy is off.',
@@ -121,7 +122,7 @@ def build(prompt,storage,telemetry,snapshot,now,base,services=None,fleet=None):
     sections['downloads']={name:observed(data,now,'speed queue free_gb active_streams') for name,data in (t.get('media') or {}).items()}
     sections['downloads']['activity']=observed(a.get('latest'),now,'sab_bps rdt_bps read_bps write_bps busy_pct await_ms queue_depth pressure_pct',stamp='ts')
     sections['downloads']['history']=trend(a.get('history',[]),'sab_bps rdt_bps busy_pct')
-    sections['network']={name:observed(t.get(name),now,fields) for name,fields in [('pihole','blocking queries blocked pct clients status'),('speedtest','dl ul ping'),('netalertx','total connected offline')]}
+    sections['network']={name:observed(t.get(name),now,fields) for name,fields in [('pihole','blocking queries blocked pct clients status vip'),('speedtest','dl ul ping'),('netalertx','total connected offline')]}
     sections['network']['notice']='Speedtest is last recorded test, not current throughput. DNS counters are aggregate; no query history.'
     ai=t.get('ai') or storage.get('ai') or {}
     sections['ai']={name:observed(ai.get(name),now,'version' if name=='webui' else '',ttl=90) for name in ('webui','desktop')}

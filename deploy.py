@@ -28,6 +28,7 @@ updated = patch_namespace['patch_opencode'](updated)
 updated = patch_namespace['patch_speedtest_latest_completed'](updated)
 updated = patch_namespace['patch_speedtest_time'](updated)
 updated = patch_namespace['patch_remove_kasm'](updated)
+updated = patch_namespace['patch_pihole_vip'](updated)
 marker = '# HOMELAB_STORAGE_V2'
 if marker not in updated:
     updated = updated.replace('class DashboardHandler(', 'import storage_monitor\nstorage_monitor.start()\n\n'+marker+'\nclass DashboardHandler(', 1)

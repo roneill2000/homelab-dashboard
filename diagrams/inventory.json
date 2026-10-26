@@ -296,7 +296,7 @@
       "host": "orangepi",
       "name": "pihole-FTL",
       "ip": "192.168.0.10",
-      "kind": "docker",
+      "kind": "systemd",
       "ports": [
         53,
         80
@@ -311,6 +311,17 @@
       "kind": "pc",
       "ports": [
         8080
+      ],
+      "status": "running"
+    },
+    {
+      "id": "vrrp-pihole-vip",
+      "host": "proxmox",
+      "name": "pihole-dns-vip (keepalived VRRP 53)",
+      "ip": "192.168.0.8",
+      "kind": "vrrp",
+      "ports": [
+        53
       ],
       "status": "running"
     }
