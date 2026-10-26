@@ -66,7 +66,7 @@
 .m3-xrail__item{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%;min-height:var(--md-comp-nav-rail-item-height);padding:6px 0;border:0;background:transparent;cursor:pointer;
   color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font);white-space:nowrap}
 .m3-xrail .m3-xrail__indicator{width:var(--md-comp-nav-rail-vertical-indicator-width);height:var(--md-comp-nav-rail-vertical-indicator-height);flex-shrink:0}
-.m3-xrail__item[aria-current=page]{color:var(--md-sys-color-on-surface);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
+.m3-xrail__item[aria-current=page]{color:var(--md-sys-color-secondary);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
 .m3-xrail__count{display:none}
 .m3-xrail.is-expanded .m3-xrail__item{flex-direction:row;gap:12px;min-height:var(--md-comp-nav-rail-item-short-height);width:auto;margin:0 12px;padding:0 16px 0 0;border-radius:var(--md-sys-shape-corner-full);position:relative;isolation:isolate;
   font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
@@ -83,3 +83,40 @@
 /* Modal drawer on phones/tablets uses the modal rail colours. */
 .m3-nav-drawer.is-modal{background:var(--md-sys-color-surface-container);box-shadow:none}
 .m3-nav-drawer.is-modal.open{box-shadow:var(--md-sys-elevation-level2)}
+
+/* ---------- Corrections from the 26 Oct 2026 token audit (values from material-web tokens/versions/latest, commit 763a97326fc2) ---------- */
+/* Buttons, small (_md-comp-button-small): 16px leading/trailing space, 20px icon, pressed shape corner-small (8px). Disabled container 10%. */
+.m3-btn,.primary-button,.secondary-button{padding-left:16px;padding-right:16px}
+.m3-btn .material-symbols-rounded{font-size:20px}
+.m3-btn--text{padding-left:12px;padding-right:12px}
+.m3-btn:active:not(:disabled),.primary-button:active:not(:disabled),.secondary-button:active:not(:disabled),.m3-icon-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-small)}
+.m3-btn:disabled,.m3-btn[aria-disabled=true],.primary-button:disabled,.secondary-button:disabled{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,transparent)}
+.m3-btn--text:disabled,.m3-btn--outlined:disabled{background:transparent}
+/* Outlined button and assist chip outline: outline-variant (latest; v0_192 used outline). */
+.m3-btn--outlined{box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant)}
+.m3-chip:not([class*="m3-chip--"]){box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant)}
+/* Standard button group: the pressed button widens by --md-comp-button-group-pressed-width-multiplier (15%). CSS padding
+   cannot read the button's own width, so 16px -> 26px each side approximates 15% for the 130-170px buttons used here. */
+.quick-actions>.m3-btn:active:not(:disabled){padding-left:26px;padding-right:26px}
+/* Navigation bar (_md-comp-nav-bar, Compose NavigationBarTokens): 64px tall, 56x32 indicator, active label secondary. */
+:root{--m3-bottom-nav-height:64px}@media (min-width:600px){:root{--m3-bottom-nav-height:0px}}
+.m3-nav-bar{height:calc(64px + env(safe-area-inset-bottom))}
+.m3-nav-bar__item{padding:6px 0 8px}
+.m3-nav-bar .m3-nav-indicator{width:56px}
+/* Cards: corner-medium (12px) per the card tokens; dialog and docked search view: corner-extra-large (28px). */
+.panel,.service-card,.m3-card,.m3-card.m3-card--outlined.panel{border-radius:var(--md-sys-shape-corner-medium)}
+.m3-dialog{border-radius:var(--md-sys-shape-corner-extra-large)}
+@media (min-width:840px){.m3-search-view{border-radius:var(--md-sys-shape-corner-extra-large)}}
+/* Linear progress track: secondary-container, full shape (_md-comp-progress-indicator). */
+.m3-linear-progress,.track{background:var(--md-sys-color-secondary-container);border-radius:var(--md-sys-shape-corner-full)}
+/* Circular progress: 40px without wave. */
+.m3-circular-progress{width:40px;height:40px}
+/* Lists (latest _md-comp-list): 12px between leading content and text, 10px top/bottom padding. */
+.m3-list-item{gap:12px;padding-top:10px;padding-bottom:10px}
+/* Connected button group = toggle buttons, filled: unselected surface-container, selected primary / on-primary. */
+.segments button,.m3-segment{background:var(--md-sys-color-surface-container);color:var(--md-sys-color-on-surface-variant)}
+.segments button:hover,.m3-segment:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container))}
+.segments button.selected,.segments button[aria-pressed=true],.m3-segment[aria-pressed=true]{background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
+.segments button.selected:hover,.segments button[aria-pressed=true]:hover,.m3-segment[aria-pressed=true]:hover{background:color-mix(in srgb,var(--md-sys-color-on-primary) 8%,var(--md-sys-color-primary))}
+/* Expanded rail items: 16px leading space to the icon. */
+.m3-xrail.is-expanded .m3-xrail__item{padding-left:4px}

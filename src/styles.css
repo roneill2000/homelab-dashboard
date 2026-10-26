@@ -764,11 +764,11 @@ h1{font-size:36px}
 .ai-benchmark strong{font-size:32px;font-variant-numeric:tabular-nums}
 .ai-benchmark em{font-style:normal;font-size:18px;color:var(--md-sys-color-on-surface-variant)}
 .ai-benchmark span{display:block;font-size:14px;color:var(--md-sys-color-on-surface-variant);margin-top:6px}
-.ai-benchmark.live-speed strong{color:var(--md-sys-color-primary);text-shadow:0 0 16px rgba(125,229,192,0.35)}
+.ai-benchmark.live-speed strong{color:var(--md-sys-color-primary);text-shadow:0 0 16px color-mix(in srgb,var(--md-custom-teal) 35%,transparent)}
 .ai-benchmark.live-speed span{color:var(--md-sys-color-primary);font-weight:600;display:flex;align-items:center;gap:6px}
 .ai-benchmark.live-speed span::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--md-sys-color-primary);animation:pulse-speed 1.2s infinite ease-in-out}
 @keyframes pulse-speed{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)}}
-.ai-benchmark.live-speed.recent strong{color:var(--md-custom-purple);text-shadow:0 0 14px rgba(195,165,244,0.3)}
+.ai-benchmark.live-speed.recent strong{color:var(--md-custom-purple);text-shadow:0 0 14px color-mix(in srgb,var(--md-custom-purple) 30%,transparent)}
 .ai-benchmark.live-speed.recent span{color:var(--md-custom-purple)}
 .ai-benchmark.live-speed.recent span::before{background:var(--md-custom-purple);animation:none}
 .ai-summary-model{display:inline-flex;align-items:center;gap:8px}

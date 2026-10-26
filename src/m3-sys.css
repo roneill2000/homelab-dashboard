@@ -1,4 +1,5 @@
-/* Material 3 system tokens. Values from material-components/material-web tokens/versions/v0_192 (commit 60c0cfa58ad1, 2025-10-07). Generated; do not edit by hand. */
+/* Material 3 system tokens. Values from material-components/material-web tokens/versions/v0_192 (commit 60c0cfa58ad1, 2025-10-07),
+   except state focus/pressed = 0.1 from tokens/versions/latest (commit 763a97326fc2) after the 26 Oct 2026 audit. */
 :root{
   --md-ref-typeface-brand:'Google Sans Flex','Google Sans',Roboto,system-ui,sans-serif;
   --md-ref-typeface-code:'Google Sans Code','Roboto Mono',ui-monospace,monospace;
@@ -93,9 +94,9 @@
   --md-sys-shape-corner-none:0px;
   --md-sys-shape-corner-small:8px;
   --md-sys-state-dragged-state-layer-opacity:0.16;
-  --md-sys-state-focus-state-layer-opacity:0.12;
+  --md-sys-state-focus-state-layer-opacity:0.1;
   --md-sys-state-hover-state-layer-opacity:0.08;
-  --md-sys-state-pressed-state-layer-opacity:0.12;
+  --md-sys-state-pressed-state-layer-opacity:0.1;
   --md-sys-motion-duration-extra-long1:700ms;
   --md-sys-motion-duration-extra-long2:800ms;
   --md-sys-motion-duration-extra-long3:900ms;

@@ -259,7 +259,7 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
   background:var(--md-sys-color-surface-container);box-shadow:var(--md-sys-elevation-level2)}
 .m3-nav-bar__item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;padding:12px 0 16px;border:0;background:transparent;
   color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font);cursor:pointer}
-.m3-nav-bar__item[aria-current=page]{color:var(--md-sys-color-on-surface);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
+.m3-nav-bar__item[aria-current=page]{color:var(--md-sys-color-secondary);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
 @media (min-width:600px){.m3-nav-bar{display:none}}
 :root{--m3-bottom-nav-height:80px}@media (min-width:600px){:root{--m3-bottom-nav-height:0px}}
 
@@ -279,7 +279,7 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-nav-rail__menu{margin-bottom:8px}
 .m3-nav-rail__item{display:flex;flex-direction:column;align-items:center;gap:4px;width:80px;min-height:56px;padding:0 0 4px;border:0;background:transparent;cursor:pointer;
   color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font);text-align:center}
-.m3-nav-rail__item[aria-current=page]{color:var(--md-sys-color-on-surface);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
+.m3-nav-rail__item[aria-current=page]{color:var(--md-sys-color-secondary);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
 .m3-nav-rail__item.is-secondary{display:none}
 @media (min-width:600px){.m3-nav-rail{display:flex}}
 @media (min-width:840px){.m3-nav-rail__item.is-secondary{display:flex}.m3-nav-rail__item.is-more{display:none}}
