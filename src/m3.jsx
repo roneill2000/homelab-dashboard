@@ -46,7 +46,7 @@ export function CountUp({value,decimals=0}){
   const n=Number(value),first=Number.isFinite(n)&&!reducedMotion()?0:n,[shown,setShown]=useState(first),from=useRef(first),raf=useRef();
   useEffect(()=>{if(!Number.isFinite(n)){setShown(n);return}const start=from.current;if(start===n||!Number.isFinite(start)||reducedMotion()){from.current=n;setShown(n);return}
     const k=380,z=0.8,w=Math.sqrt(k);let x=0,v=0,last=performance.now();cancelAnimationFrame(raf.current);
-    const step=t=>{const dt=Math.min(0.032,(t-last)/1000);last=t;const a=-k*(x-1)-2*z*w*v;v+=a*dt;x+=v*dt;
+    const step=t=>{const dt=Math.max(0,Math.min(0.032,(t-last)/1000));last=Math.max(last,t);const a=-k*(x-1)-2*z*w*v;v+=a*dt;x+=v*dt;
       if(Math.abs(1-x)<0.002&&Math.abs(v)<0.02){from.current=n;setShown(n);return}from.current=start+(n-start)*x;setShown(from.current);raf.current=requestAnimationFrame(step)};
     raf.current=requestAnimationFrame(step);return()=>cancelAnimationFrame(raf.current)},[n]);
   if(!Number.isFinite(n))return value??'—';
