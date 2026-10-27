@@ -192,8 +192,8 @@ const outputMp4 = '/mnt/share/repos/homelab-dashboard/showcase/demo.mp4';
 console.log('Encoding high-res MP4 (1440x900 native)...');
 execSync(`ffmpeg -y -i "${rawWebm}" -c:v libx264 -pix_fmt yuv420p -movflags +faststart -crf 20 "${outputMp4}"`, { stdio: 'inherit' });
 
-console.log('Encoding crisp, fluid GIF (960px width, lanczos)...');
-const filterStr = 'fps=14,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle';
+console.log('Encoding crisp, fluid 20 fps GIF (800px width, lanczos)...');
+const filterStr = 'fps=20,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle';
 execSync(`ffmpeg -y -i "${rawWebm}" -vf "${filterStr}" "${outputGif}"`, { stdio: 'inherit' });
 
 console.log('Encoding complete. Starting automated visual audit...');
