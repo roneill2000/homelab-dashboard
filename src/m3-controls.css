@@ -314,3 +314,5 @@ html.m3-scroll-locked body{overscroll-behavior:none}
   .ov-actions .quick-actions>.m3-btn{flex:1 1 0;justify-content:center}
 }
 @container (min-width:620px){.ov-actions .quick-actions{flex-wrap:nowrap}}
+/* Local AI: the two launch links wrap together, never one alone under the power card. */
+.ai-task__links{display:inline-flex;flex-wrap:nowrap;align-items:center;gap:4px}

@@ -178,7 +178,7 @@ const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat',speed:168.3}, // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
  'qwen3.6-35b-moe':{role:'General use',speed:82.1}, // measured 22 Oct 2026: 48K context, 100% CUDA0
  'qwen3.8-27b':{role:'Reasoning',speed:54.6}, // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
- 'qwen3.8-27b-uncensored':{role:'Uncensored',speed:51.4} // 27 Oct 2026: Heretic ARA IQ4_XS 3.0 (13.99 GB, all on GPU), 51.38 tok/s over 1,024 tokens, ngram-mod 43% acceptance; replaced the 15.57 GB OrcaRouter build that spilled past 16 GB VRAM
+ 'qwen3.8-27b-uncensored':{role:'Uncensored · abliterated',speed:51.4} // 27 Oct 2026: Heretic ARA IQ4_XS 3.0 (13.99 GB, all on GPU), 51.38 tok/s over 1,024 tokens, ngram-mod 43% acceptance; replaced the 15.57 GB OrcaRouter build that spilled past 16 GB VRAM
 };
 function inlineMd(text,key){
  const out=[];const re=/\*\*([^*\n]+?)\*\*|`([^`\n]+)`/g;let last=0,m,i=0;
@@ -233,7 +233,7 @@ function LocalAI({ai,gpu,compact=false,onOpen,power,onNavigate}){
     {live&&!loaded.length&&<p className="ai-task__note">No model is loaded. Choosing one in Open WebUI loads it (about 30 s).</p>}
     {!live&&<p className="ai-task__note ai-offline" role="status"><strong>{pcStatus}.</strong> It may be off, asleep, or its model server stopped. Wake it to chat; status checks resume automatically.</p>}
     {live&&others.length>0&&<details className="ai-others"><summary>Other models <span className="count">{others.length}</span><Icon name="down" size={20} className="ai-others__chevron"/></summary><div className="ai-model-list">{others.map(modelRow)}</div><p className="source-note">One desktop model loads at a time. Opening a chat with another model switches to it.</p></details>}
-    <div className="ai-task__actions">{power}<a className="m3-btn m3-btn--text m3-state text-button ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer">Open WebUI <Icon name="external" size={16}/></a><a className="m3-btn m3-btn--text m3-state text-button" href="https://opencode.lan" target="_blank" rel="noreferrer">OpenCode <Icon name="external" size={16}/></a></div>
+    <div className="ai-task__actions">{power}<span className="ai-task__links"><a className="m3-btn m3-btn--text m3-state text-button ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer">Open WebUI <Icon name="external" size={16}/></a><a className="m3-btn m3-btn--text m3-state text-button" href="https://opencode.lan" target="_blank" rel="noreferrer">OpenCode <Icon name="external" size={16}/></a></span></div>
     <SourceNote source={web}/>
    </article>
    <AskQwen gpu={gpu} ai={ai} task/>
