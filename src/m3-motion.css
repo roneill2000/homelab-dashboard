@@ -123,3 +123,17 @@
   box-shadow:var(--md-sys-elevation-level2);border-radius:50%}
 .m3-pull:not(.is-refreshing) .m3-loading__shape{animation-play-state:paused}
 .m3-pull.is-refreshing{transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
+/* Shared-element transitions (View Transitions API; m3.jsx withPageTransition / morph). The active nav indicator slides
+   to the new destination; the activated control morphs into the new page title; a picked row morphs into its card. */
+.m3-page-header__title{view-transition-name:page-title}
+[aria-current=page]>.m3-nav-indicator{view-transition-name:nav-indicator}
+@media (prefers-reduced-motion:no-preference){
+  ::view-transition-group(page-title),::view-transition-group(focus-morph){animation-duration:var(--md-sys-motion-spring-expressive-slow-spatial-duration);animation-timing-function:var(--md-sys-motion-spring-expressive-slow-spatial)}
+  ::view-transition-group(nav-indicator){animation-duration:var(--md-sys-motion-spring-expressive-default-spatial-duration);animation-timing-function:var(--md-sys-motion-spring-expressive-default-spatial)}
+  ::view-transition-old(page-title),::view-transition-new(page-title),::view-transition-old(focus-morph),::view-transition-new(focus-morph){height:100%;object-fit:fill}
+  ::view-transition-new(focus-morph){animation:m3-fade-in-only var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects) both}
+  ::view-transition-old(focus-morph){animation:m3-fade-out-only var(--md-sys-motion-spring-fast-effects-duration) var(--md-sys-motion-spring-fast-effects) both}
+  @keyframes m3-fade-in-only{from{opacity:0}}@keyframes m3-fade-out-only{to{opacity:0}}
+  html.vt-local::view-transition-old(page),html.vt-local::view-transition-new(page){animation:none}
+}
+@supports (view-transition-name:none){@media (prefers-reduced-motion:no-preference){[aria-current=page]>.m3-nav-indicator{animation:none}}}

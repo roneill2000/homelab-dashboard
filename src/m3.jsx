@@ -23,9 +23,21 @@ const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)').
 
 // M3 fade-through between pages via the View Transitions API (Chrome, Edge, Safari 18+). The DOM update runs inside the
 // transition (flushSync) so the old and new page are captured; falls back to a plain update elsewhere or with reduced motion.
-export function withPageTransition(update){
+// from: the element that was activated. Its snapshot morphs into the new page's title (shared element); the old title
+// steps aside for the duration so only one element carries the name in each snapshot.
+export function withPageTransition(update,from){
   if(!document.startViewTransition||reducedMotion()){update();return}
-  document.startViewTransition(()=>ReactDOM.flushSync(update));
+  const title=document.querySelector('main h1');
+  if(from&&title&&from!==title){from.style.viewTransitionName='page-title';title.style.viewTransitionName='none'}
+  document.startViewTransition(()=>{ReactDOM.flushSync(update);if(from)from.style.viewTransitionName='';if(title)title.style.viewTransitionName=''});
+}
+// In-page shared element: the activated element morphs into the element matching toSelector after the update (a picked
+// row into its detail card). The page itself holds still (html.vt-local).
+export function morph(update,from,toSelector,after){
+  if(!document.startViewTransition||reducedMotion()||!from){update();after?.();return}
+  document.documentElement.classList.add('vt-local');from.style.viewTransitionName='focus-morph';let target=null;
+  const t=document.startViewTransition(()=>{ReactDOM.flushSync(update);from.style.viewTransitionName='';target=document.querySelector(toSelector);if(target)target.style.viewTransitionName='focus-morph'});
+  t.finished.finally(()=>{if(target)target.style.viewTransitionName='';document.documentElement.classList.remove('vt-local');after?.()});
 }
 
 // Animated number for hero stats: counts up from zero when it first appears, then glides to new values on the

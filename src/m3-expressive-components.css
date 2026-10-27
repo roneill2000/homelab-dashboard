@@ -586,3 +586,7 @@ summary.update-group__title::-webkit-details-marker{display:none}
 .update-list .update-row .update-detail{grid-area:detail;padding-left:52px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-medium-size)}
 .update-list .update-row>.badge,.update-list .update-row>:last-child{grid-area:badge;justify-self:end}
 @media (min-width:840px){.update-list .update-row{grid-template-columns:minmax(0,1.2fr) minmax(0,1.5fr) auto;grid-template-areas:"name detail badge"}.update-list .update-row .update-detail{padding-left:0}}
+/* Storage cards keep their natural height in Compare; parity's capacity note is one quiet line, not an empty chart box. */
+.storage-grid{align-items:start}
+.storage-note{display:flex;gap:8px;align-items:flex-start;margin:8px 0 12px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-medium-size);line-height:1.45}
+.storage-note .material-symbols-rounded{flex-shrink:0;margin-top:1px}
