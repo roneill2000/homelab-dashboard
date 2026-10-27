@@ -590,3 +590,12 @@ summary.update-group__title::-webkit-details-marker{display:none}
 /* Chart readout floats over the top of the plot at every size, so showing it never moves the page. */
 .chart-tooltip,.activity-panel .chart-tooltip{position:absolute;top:-4px;left:40px;right:auto;bottom:auto;max-width:calc(100% - 48px);flex-wrap:wrap;margin:0;transform:none;z-index:3}
 .chart svg{touch-action:pan-y}
+/* Brand corner: logo plus a live two-line status. Pine when all clear, cedar when something needs attention. */
+.m3-brand{display:flex;align-items:center;gap:12px;min-width:0;color:var(--md-sys-color-on-surface);text-decoration:none;border-radius:var(--md-sys-shape-corner-large)}
+.m3-brand:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:2px}
+.m3-brand__text{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.m3-brand__text strong{font:500 15px/1.25 var(--md-ref-typeface-brand);letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m3-brand__text small{font:400 12px/1.3 var(--md-ref-typeface-plain);color:var(--md-sys-color-on-surface-variant);white-space:nowrap}
+.m3-brand.is-attention .m3-brand__text strong{color:var(--md-sys-color-tertiary)}
+.m3-brand.is-stale .m3-brand__text strong{color:var(--md-sys-color-on-surface-variant)}
+.m3-xrail__brand.m3-brand{flex:1}

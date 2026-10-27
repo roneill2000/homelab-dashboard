@@ -150,3 +150,6 @@
 ::view-transition-group(navbar),::view-transition-group(navrail){animation:none}
 ::view-transition-old(navbar),::view-transition-old(navrail){display:none}
 ::view-transition-new(navbar),::view-transition-new(navrail){animation:none}
+/* Pull-to-refresh exit: shrink, rise and fade back where it came from. */
+.m3-pull.is-leaving{opacity:0;transform:translateY(-8px) scale(.3) rotate(200deg);
+  transition:transform 340ms cubic-bezier(.3,0,.8,.15),opacity 300ms cubic-bezier(.3,0,1,1) 40ms}

@@ -391,7 +391,10 @@ function App(){
  const sheetDown=ev=>{if(win==='compact'&&sheet&&menu)sheetDrag.current={y:ev.clientY,t:performance.now(),dy:0,el:ev.currentTarget,id:ev.pointerId}};
  const sheetMove=ev=>{const d=sheetDrag.current;if(!d)return;d.dy=Math.max(0,ev.clientY-d.y);if(d.dy>8&&!d.captured){d.captured=true;d.el.setPointerCapture?.(d.id);d.el.style.transition='none';d.el.style.animation='none'}if(d.captured)d.el.style.transform=`translateY(${d.dy}px)`};
  const sheetUp=()=>{const d=sheetDrag.current;sheetDrag.current=null;if(!d?.captured)return;const flick=d.dy/Math.max(1,performance.now()-d.t)>0.6;const reset=()=>{d.el.style.transition='';d.el.style.transform='';d.el.style.animation=''};if(d.dy>100||flick){setMenu(false);requestAnimationFrame(reset)}else reset()};
- const [pull,setPull]=useState(0),[pullHold,setPullHold]=useState(false);
+ const [pull,setPull]=useState(0),[pullHold,setPullHold]=useState(false),[pullShown,setPullShown]=useState(false),[pullLeaving,setPullLeaving]=useState(false);
+ const pullActive=pull>0||refreshing||pullHold;
+ // Leaving: the indicator stays mounted for 360 ms so it can shrink, rise and fade (the reverse of its entrance).
+ useEffect(()=>{if(win!=='compact')return;if(pullActive){setPullShown(true);setPullLeaving(false);return}if(!pullShown)return;setPullLeaving(true);const t=setTimeout(()=>{setPullShown(false);setPullLeaving(false)},360);return()=>clearTimeout(t)},[pullActive,win]);
  useEffect(()=>{if(win!=='compact')return;let y0=null,dist=0;
   const start=ev=>{if(window.scrollY>0||command||menu||document.querySelector('.m3-dialog'))return;y0=ev.touches[0].clientY;dist=0};
   const move=ev=>{if(y0===null)return;if(window.scrollY>0){y0=null;setPull(0);return}dist=Math.max(0,ev.touches[0].clientY-y0)*0.5;setPull(Math.min(110,dist))};
@@ -448,7 +451,12 @@ function App(){
  const navName=(id,label)=>id==='services'?`${label} ${catalog.length}`:label;
  const updBadge=upd?.pending>0?upd.pending:undefined;
  const drawerItems=modal=>navigation.map(([id,label,icon])=><button key={id} type="button" className="m3-nav-drawer__item m3-state nav-item" onClick={()=>navigate(id)} aria-current={view===id?'page':undefined}><Icon name={icon} size={24}/><span className="m3-nav-drawer__label">{label}</span>{id==='services'&&<span className="m3-nav-drawer__badge">{catalog.length}</span>}{id==='updates'&&updBadge&&<span className="m3-nav-drawer__badge" aria-label={`${updBadge} pending`}>{updBadge}</span>}</button>);
- const drawerBody=modal=><>{modal&&<span className="m3-sheet__handle" aria-hidden="true"/>}{modal&&<IconButton icon="close" label="Close navigation" className="m3-nav-drawer__close" touch onClick={()=>setMenu(false)}/>}<a className="m3-nav-drawer__brand" href="#" onClick={ev=>{ev.preventDefault();navigate('overview')}}><LogoMark size={32}/>homelab</a>{drawerItems(modal)}<div className="m3-nav-drawer__footer"><Divider/><p className="m3-nav-drawer__meta m3-body-medium"><span className="live-dot"/> Local network 192.168.0.0/24 · {num(sourceFresh(data.netalertx)?data.netalertx.connected:null)} devices</p></div></>;
+ // Brand corner = logo + live status (Ryan, 27 Oct): what the homelab is doing right now, and a way back to Overview.
+ const hard=issues.filter(i=>!i.soft).length;
+ const brandTitle=!fresh?'Waiting for data':hard?`${hard} ${hard===1?'thing needs':'things need'} attention`:'All clear';
+ const brandSub=fresh?`${online} of ${known.length} services`:'Telemetry is reconnecting';
+ const brand=cls=><a className={cls+' m3-brand'+(hard?' is-attention':'')+(!fresh?' is-stale':'')} href="#/overview" aria-label={`Overview. ${brandTitle}, ${brandSub}`} onClick={ev=>{ev.preventDefault();navigate('overview')}}><LogoMark size={32}/><span className="m3-brand__text"><strong>{brandTitle}</strong><small>{brandSub}</small></span></a>;
+ const drawerBody=modal=><>{modal&&<span className="m3-sheet__handle" aria-hidden="true"/>}{modal&&<IconButton icon="close" label="Close navigation" className="m3-nav-drawer__close" touch onClick={()=>setMenu(false)}/>}{brand('m3-nav-drawer__brand')}{drawerItems(modal)}<div className="m3-nav-drawer__footer"><Divider/><p className="m3-nav-drawer__meta m3-body-medium"><span className="live-dot"/> Local network 192.168.0.0/24 · {num(sourceFresh(data.netalertx)?data.netalertx.connected:null)} devices</p></div></>;
  const railItem=([id,label,icon],extra='')=><button key={id} type="button" className={'m3-nav-rail__item nav-item '+extra} onClick={()=>navigate(id)} aria-current={view===id?'page':undefined} aria-label={navName(id,label)+(id==='updates'&&updBadge?` ${updBadge} pending`:'')}><span className="m3-nav-indicator"><BadgeHost count={id==='updates'?updBadge:undefined}><Icon name={icon} size={24}/></BadgeHost></span><span className="m3-nav-label">{SHORT[id]}</span></button>;
  // Expressive navigation rail: collapsed 96px (icon in a 56x32 indicator, label below) or expanded (icon + label in a 56px pill).
  const railExpanded=win==='large'?railPref:(win==='expanded'&&railModal);
@@ -459,7 +467,7 @@ function App(){
  const jump=id=>{const el=document.getElementById(id);if(!el)return;el.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});el.focus({preventScroll:true})};
  const shell=<>
  {(win==='expanded'||win==='large')&&<><nav className={'m3-xrail sidebar'+(railExpanded?' is-expanded':'')+(win==='expanded'&&railModal?' is-modal':'')} aria-label="Navigation" role={win==='expanded'&&railModal?'dialog':undefined} aria-modal={win==='expanded'&&railModal?'true':undefined} onKeyDown={win==='expanded'&&railModal?trapTab:undefined}>
-  <div className="m3-xrail__top"><IconButton icon={railExpanded?'menu_open':'menu'} label={railExpanded?'Collapse navigation':'Expand navigation'} touch aria-expanded={railExpanded} onClick={()=>win==='large'?setRailPref(!railPref):setRailModal(!railModal)}/>{railExpanded&&<span className="m3-xrail__brand"><LogoMark size={32}/>homelab</span>}</div>
+  <div className="m3-xrail__top"><IconButton icon={railExpanded?'menu_open':'menu'} label={railExpanded?'Collapse navigation':'Expand navigation'} touch aria-expanded={railExpanded} onClick={()=>win==='large'?setRailPref(!railPref):setRailModal(!railModal)}/>{railExpanded&&brand('m3-xrail__brand')}</div>
   {navigation.map(n=>xrailItem(n))}
   {railExpanded&&<p className="m3-xrail__meta m3-body-small"><span className="live-dot"/> Local network · {num(sourceFresh(data.netalertx)?data.netalertx.connected:null)} devices</p>}
  </nav>{win==='expanded'&&railModal&&<div className="m3-scrim" onClick={()=>setRailModal(false)} aria-hidden="true"/>}</>}
@@ -476,7 +484,7 @@ function App(){
    <IconButton icon={theme==='dark'?'sun':'moon'} label={theme==='dark'?'Switch to light':'Switch to dark'} touch className="theme-toggle" onClick={()=>setTheme(v=>v==='dark'?'light':'dark')}/>
   </div></header>;
  return <div className={`m3-app m3-app--${win}${win==='large'&&!railPref?' m3-app--rail-collapsed':''} app`}><a href="#main" className="skip">Skip to content</a>{shell}{modalDrawer}
- {win==='compact'&&(pull>0||refreshing||pullHold)&&<div className={'m3-pull'+(refreshing||pullHold?' is-refreshing':'')} style={{'--pull':refreshing||pullHold?72:pull}} aria-hidden="true"><LoadingIndicator contained label="Refreshing"/></div>}
+ {win==='compact'&&pullShown&&<div className={'m3-pull'+(refreshing||pullHold?' is-refreshing':'')+(pullLeaving?' is-leaving':'')} style={{'--pull':refreshing||pullHold||pullLeaving?72:pull}} aria-hidden="true"><LoadingIndicator contained label="Refreshing"/></div>}
  <main id="main" className="m3-app__main"><div className="m3-app__content">{topBar}<PageHeader large title={view==='overview'?'Overview':navigation.find(n=>n[0]===view)?.[1]} subtitle={[new Date(now).toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}),data.weather?.temp_f!==undefined?`${data.weather.temp_f}°F · ${data.weather.desc}`:null].filter(Boolean).join(' · ')}/>
  {!fresh&&<div className="notice warning"><Icon name="clock" size={18}/><span>{error?'Connection interrupted. Showing the last received readings.':'Waiting for fresh telemetry. Values may be out of date.'}</span></div>}
  {view==='overview'&&<>
