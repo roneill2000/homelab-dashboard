@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend, patch_compression, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import patch_backend, patch_compression, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -232,6 +232,50 @@ class CompressionTests(unittest.TestCase):
         self.assertEqual(patch_compression(out), out)
         with self.assertRaises(ValueError):
             patch_compression('class DashboardHandler(BaseHTTPRequestHandler):\n    pass\n')
+
+
+class InlineSafeTests(unittest.TestCase):
+    PAGE = ('<!doctype html><html><head><title>x</title></head><body><script src="/static/react.js"></script>'
+            '<script>/*__INITIAL_TELEMETRY_SLOT__*/</script><script>app()</script></body></html>')
+    SRC = ('import json\n'
+           'def render(INDEX_HTML, TELEMETRY):\n'
+           '    if True:\n'
+           '        if True:\n'
+           '            initial_json = json.dumps(TELEMETRY)\n'
+           '            rendered = INDEX_HTML.replace(\n'
+           '                "/*__INITIAL_TELEMETRY_SLOT__*/",\n'
+           '                f"window.__INITIAL_TELEMETRY__ = {initial_json};"\n'
+           '            )\n'
+           '            return rendered\n')
+
+    def render(self, telemetry):
+        ns = {}
+        exec(compile(patch_inline_safe(self.SRC), 'inline', 'exec'), ns)
+        return ns['render'](self.PAGE, telemetry)
+
+    def test_hostile_log_line_cannot_close_the_script(self):
+        import json, re
+        msg = 'segfault at 0 </script><script>steal()</script> & \u2028 <!--'
+        out = self.render({'syslog': {'latest_event': {'msg': msg}}})
+        self.assertNotIn('steal()</script>', out)
+        self.assertEqual(out.lower().count('</script'), 3)
+        data = re.search(r'window.__INITIAL_TELEMETRY__ = (.*?);</script>', out).group(1)
+        self.assertEqual(json.loads(data)['syslog']['latest_event']['msg'], msg)
+
+    def test_every_page_script_gets_this_response_nonce_and_csp(self):
+        import re
+        out = self.render({})
+        nonce = re.search(r"script-src 'nonce-([^']+)'", out).group(1)
+        self.assertEqual(len(re.findall('<script nonce="' + re.escape(nonce) + '"', out)), 3)
+        self.assertNotIn('<script>', out)
+        self.assertLess(out.index('Content-Security-Policy'), out.index('<script'))
+        self.assertNotEqual(nonce, re.search(r"nonce-([^']+)'", self.render({})).group(1))
+
+    def test_idempotent_and_refuses_drifted_source(self):
+        out = patch_inline_safe(self.SRC)
+        self.assertEqual(patch_inline_safe(out), out)
+        with self.assertRaises(ValueError):
+            patch_inline_safe('def render(): pass\n')
 
 
 if __name__ == '__main__':

@@ -605,3 +605,37 @@ def patch_compression(source):
     source = source.replace(handler, marker + '\n' + COMPRESSION_HELPERS + handler + COMPRESSION_SEND)
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+INLINE_SAFE_OLD = '''            rendered = INDEX_HTML.replace(
+                "/*__INITIAL_TELEMETRY_SLOT__*/",
+                f"window.__INITIAL_TELEMETRY__ = {initial_json};"
+            )
+'''
+
+INLINE_SAFE_NEW = r'''            # HOMELAB_INLINE_SAFE_V1: telemetry carries raw syslog text. Escape it so no log line can close the
+            # inline <script>, and allow only this response's own scripts (nonce) in case anything slips through.
+            for raw, safe in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"), (" ", "\\u2028"), (" ", "\\u2029")):
+                initial_json = initial_json.replace(raw, safe)
+            import secrets
+            nonce = secrets.token_urlsafe(16)
+            csp = f"script-src 'nonce-{nonce}'; object-src 'none'; base-uri 'none'"
+            rendered = INDEX_HTML.replace("<script", f'<script nonce="{nonce}"').replace(
+                "<head>", f'<head><meta http-equiv="Content-Security-Policy" content="{csp}">', 1
+            ).replace(
+                "/*__INITIAL_TELEMETRY_SLOT__*/",
+                f"window.__INITIAL_TELEMETRY__ = {initial_json};"
+            )
+'''
+
+
+def patch_inline_safe(source):
+    """Close the stored-XSS path from syslog text into the page: escape the inlined telemetry and add a nonce CSP.
+    The nonce is applied to INDEX_HTML before telemetry is inserted, so injected text can never carry it."""
+    if '# HOMELAB_INLINE_SAFE_V1' in source:
+        return source
+    if source.count(INLINE_SAFE_OLD) != 1:
+        raise ValueError('page render block changed; inline-safety patch not applied')
+    source = source.replace(INLINE_SAFE_OLD, INLINE_SAFE_NEW)
+    compile(source, '<dashboard>', 'exec')
+    return source
