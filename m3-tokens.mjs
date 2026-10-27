@@ -24,11 +24,12 @@ function block(isDark) {
   const seed = Hct.fromInt(argbFromHex(SEED));
   const fidelity = new SchemeFidelity(seed, isDark, 0, SPEC);
   // Fidelity's own neutrals are near-grey; tint surfaces and outlines with the seed hue (chroma 10 / 14) so the
-  // page reads as pine at dusk. Accent palettes stay Fidelity's. Contrast is still computed by the library.
+  // page reads as pine at dusk. Light theme uses less tint (4 / 7): at light tones the same chroma reads as mint (Ryan, 27 Oct).
+  // Accent palettes stay Fidelity's. Contrast is still computed by the library.
   const scheme = new DynamicScheme({ sourceColorHct: seed, variant: fidelity.variant, contrastLevel: 0, isDark, specVersion: SPEC,
     platform: fidelity.platform, primaryPalette: fidelity.primaryPalette, secondaryPalette: fidelity.secondaryPalette,
     tertiaryPalette: fidelity.tertiaryPalette, errorPalette: fidelity.errorPalette,
-    neutralPalette: TonalPalette.fromHueAndChroma(seed.hue, 10), neutralVariantPalette: TonalPalette.fromHueAndChroma(seed.hue, 14) });
+    neutralPalette: TonalPalette.fromHueAndChroma(seed.hue, isDark ? 10 : 4), neutralVariantPalette: TonalPalette.fromHueAndChroma(seed.hue, isDark ? 14 : 7) });
   const lines = ROLES.map(k => `--md-sys-color-${kebab(k)}:${hexFromArgb(DC[k]().getArgb(scheme))}`);
   for (const [name, hex] of Object.entries(CUSTOM)) {
     const c = customColor(argbFromHex(SEED), { name, value: argbFromHex(hex), blend: true })[isDark ? 'dark' : 'light'];
