@@ -499,3 +499,13 @@ h2 .count,h3 .count,.section-heading .count{border:0;background:none;padding:0 0
 .service-card h3 .service-state{margin-left:0}
 .ai-task .ai-model.is-featured,.ai-model--row{flex-direction:row}
 .ai-model--row .m3-btn{flex-shrink:0}
+/* Chart series come from --md-chart-1..5 (m3-tokens.mjs, validated per theme). Inspected samples get an 9px marker per
+   series with a surface ring, and the marker springs in. */
+.legend.read{background:var(--md-chart-1)}
+.legend.write{background:var(--md-chart-2)}
+.chart-point{stroke:var(--md-sys-color-surface-container-high);stroke-width:2;transform-box:fill-box;transform-origin:center}
+@media (prefers-reduced-motion:no-preference){.chart-point{animation:m3-pop var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial) backwards}}
+/* Tooltip values wear text colour; a swatch beside each carries the series identity. */
+.chart-tooltip{background:var(--md-sys-color-surface-container-highest);color:var(--md-sys-color-on-surface);border:0;border-radius:var(--md-sys-shape-corner-small);box-shadow:var(--md-sys-elevation-level2)}
+.chart-tooltip__item{display:inline-flex;align-items:center;gap:6px}
+.chart-tooltip__item i{display:inline-block;width:12px;height:4px;border-radius:2px}

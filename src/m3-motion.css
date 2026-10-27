@@ -99,3 +99,27 @@
 :is(.segments button,.m3-segment):is([aria-pressed=true],.selected){animation:m3-select var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
 @keyframes m3-select{from{transform:scale(.92)}}
 }
+/* Service icons sit on a Material shape that names their category (media clover, AI soft burst, network 4-sided cookie,
+   infrastructure 12-sided cookie, tools sunny). The shape is drawn on ::before so the status dot is not clipped; on hover
+   or focus it morphs to a circle and turns a little. Outside the reduced-motion guard on purpose: shapes are static
+   identity, only the morph is motion (transition removed below for Reduce motion). */
+.service-card .service-icon{position:relative;isolation:isolate;background:none!important;border-radius:0}
+.service-card .service-icon::before{content:'';position:absolute;inset:-2px;z-index:-1;clip-path:var(--m3-shape-cookie-12);
+  background:color-mix(in srgb,var(--service-color) 22%,var(--md-sys-color-surface-container-highest));
+  transition:clip-path var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial),
+             transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
+.service-card[data-group=media] .service-icon::before{clip-path:var(--m3-shape-clover-4)}
+.service-card[data-group=ai] .service-icon::before{clip-path:var(--m3-shape-soft-burst)}
+.service-card[data-group=network] .service-icon::before{clip-path:var(--m3-shape-cookie-4)}
+.service-card[data-group=infra] .service-icon::before{clip-path:var(--m3-shape-cookie-12)}
+.service-card[data-group=cloud] .service-icon::before{clip-path:var(--m3-shape-sunny)}
+.service-card:is(:hover,:focus-within) .service-icon::before{clip-path:var(--m3-shape-circle);transform:rotate(30deg)}
+@media (prefers-reduced-motion:reduce){.service-card .service-icon::before{transition:none}.service-card:is(:hover,:focus-within) .service-icon::before{transform:none}}
+/* Phone gestures (app.jsx): the More sheet follows a downward drag; pull-to-refresh shows the contained loading shape,
+   which turns with the pull and morphs once the refresh runs. Native pull-to-refresh is turned off so ours is the only one. */
+.m3-nav-drawer.is-sheet{touch-action:none}
+@media (max-width:599px){html{overscroll-behavior-y:contain}}
+.m3-pull{position:fixed;left:50%;top:0;z-index:40;margin-left:-24px;transform:translateY(calc(var(--pull) * 1px - 48px)) rotate(calc(var(--pull) * 4deg));opacity:min(1,calc(var(--pull) / 48));pointer-events:none;
+  box-shadow:var(--md-sys-elevation-level2);border-radius:50%}
+.m3-pull:not(.is-refreshing) .m3-loading__shape{animation-play-state:paused}
+.m3-pull.is-refreshing{transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}

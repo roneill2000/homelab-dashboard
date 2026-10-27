@@ -1,7 +1,7 @@
 // Generates the Material 3 colour tokens for the dashboard (light + dark) from one seed colour.
 // Used by build.mjs (bundled with esbuild: the 0.4.0 package's ESM imports omit file extensions, so plain Node cannot load it).
 // Reference implementation: @material/material-color-utilities 0.4.0, colour spec 2025 (the M3 Expressive / Android 16 spec).
-import { argbFromHex, hexFromArgb, Hct, SchemeFidelity, DynamicScheme, TonalPalette, MaterialDynamicColors, DynamicColor, customColor } from '@material/material-color-utilities';
+import { argbFromHex, hexFromArgb, Hct, SchemeFidelity, DynamicScheme, TonalPalette, MaterialDynamicColors, DynamicColor, customColor, Blend } from '@material/material-color-utilities';
 export const SPEC = '2025';
 
 // Twilight pine (Ryan, 26 Oct 2026): deep Pacific-Northwest evergreen. Fidelity keeps the seed's own shade as the
@@ -36,6 +36,13 @@ function block(isDark) {
     lines.push(`--md-custom-${name}:${hexFromArgb(c.color)}`, `--md-custom-on-${name}:${hexFromArgb(c.onColor)}`,
       `--md-custom-${name}-container:${hexFromArgb(c.colorContainer)}`, `--md-custom-on-${name}-container:${hexFromArgb(c.onColorContainer)}`);
   }
+  // Chart series --md-chart-1..5: pine (primary hue), cedar (tertiary hue), then blue, amber and violet harmonised to the
+  // seed. Tone/chroma per theme were chosen with the dataviz palette validator (lightness band, chroma floor, colour-blind
+  // separation of neighbours, >= 3:1 against the card surface): dark tone 60 / chroma 48, light tone 50 / chroma 70.
+  const [tone, chroma] = isDark ? [60, 48] : [50, 70];
+  const harmonised = hex => Hct.fromInt(Blend.harmonize(argbFromHex(hex), seed.toInt())).hue;
+  [fidelity.primaryPalette.hue, fidelity.tertiaryPalette.hue, harmonised(CUSTOM.blue), harmonised(CUSTOM.amber), harmonised(CUSTOM.purple)]
+    .forEach((h, i) => lines.push(`--md-chart-${i + 1}:${hexFromArgb(Hct.from(h, chroma, tone).toInt())}`));
   return lines.join(';');
 }
 

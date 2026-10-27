@@ -56,5 +56,20 @@ try{
   const bb=await sheet.boundingBox();expect(Math.round(bb.y+bb.height)).toBeGreaterThanOrEqual(914);
   expect(await p.evaluate(()=>document.activeElement.textContent)).toContain('Storage');
   await p.keyboard.press('Escape');await p.waitForTimeout(500);expect(await p.evaluate(()=>document.activeElement.textContent)).toContain('More');await p.close()});
+
+ const drag=async(p,x,y0,y1,steps=8)=>{const c=await p.context().newCDPSession(p);await c.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y:y0}]});
+  for(let i=1;i<=steps;i++){await c.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y0+(y1-y0)*i/steps}]});await p.waitForTimeout(16)}
+  return async()=>{await c.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await c.detach()}};
+ await test('phone: swiping the More sheet down dismisses it; a short drag springs back',async()=>{
+  const p=await b.newPage({viewport:{width:412,height:915},isMobile:true,hasTouch:true});await p.goto(base+'#/storage');await p.waitForTimeout(800);
+  await p.getByRole('button',{name:'More'}).click();await p.waitForTimeout(600);const sheet=p.locator('.m3-nav-drawer.is-sheet');
+  let release=await drag(p,206,640,680);await release();await p.waitForTimeout(500);await expect(sheet).toHaveClass(/open/);
+  release=await drag(p,206,640,900,10);await release();await p.waitForTimeout(700);await expect(sheet).not.toHaveClass(/open/);
+  expect(await interactive(p,'#main')).toBe(true);await p.close()});
+ await test('phone: pulling down at the top refreshes and shows the loading shape',async()=>{
+  const p=await b.newPage({viewport:{width:412,height:915},isMobile:true,hasTouch:true});await p.goto(base);await p.waitForTimeout(900);
+  let telemetry=0;p.on('request',r=>{if(r.url().includes('/api/telemetry'))telemetry++});
+  const release=await drag(p,206,300,560,10);await expect(p.locator('.m3-pull')).toHaveCount(1);const before=telemetry;await release();
+  await p.waitForTimeout(400);expect(telemetry).toBeGreaterThan(before);await p.close()});
 }finally{await b.close()}
 if(failures){console.log(`${failures} FAILED`);process.exit(1)}console.log('PASS: overlay and interaction regressions');
