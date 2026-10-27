@@ -290,3 +290,27 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .ov-status__note b{color:var(--md-sys-color-on-surface);font-weight:500}
 /* Manual-update exception: a route to where the update is done. */
 .update-detail__link{display:flex;width:fit-content;align-items:center;gap:4px;margin-top:4px;color:var(--md-sys-color-primary);font-weight:500;min-height:32px}
+/* What changed filter: always its own row under the description, every label whole, nothing scrolls. Phones get a
+   3 x 2 grid of the same connected segments. */
+.section-heading:has(>.timeline-filter){flex-wrap:wrap}
+.section-heading:has(>.timeline-filter)>div:first-child{flex:1 1 100%}
+.section-heading>.timeline-filter{flex:0 0 auto;max-width:100%;flex-wrap:nowrap}
+.segments.timeline-filter>button{flex:0 0 auto;white-space:nowrap}
+/* The description has the full row here (the generic phone cap of 170-220px is for headings with controls beside them). */
+.section-heading:has(>.timeline-filter) p{max-width:none}
+@media (max-width:519px){
+  .section-heading>.timeline-filter{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));flex-basis:100%;gap:2px;border-radius:0;overflow:visible;clip-path:none}
+  .segments.timeline-filter>button{width:100%;padding-inline:8px;border-radius:8px}
+  .segments.timeline-filter>button:nth-child(1){border-top-left-radius:20px}.segments.timeline-filter>button:nth-child(3){border-top-right-radius:20px}
+  .segments.timeline-filter>button:nth-child(4){border-bottom-left-radius:20px}.segments.timeline-filter>button:nth-child(6){border-bottom-right-radius:20px}
+  .segments.timeline-filter>button:is(.selected,[aria-pressed=true]){border-radius:20px}
+}
+/* Quick actions never leave one control alone on a line: all three in a row when they fit the column, otherwise the
+   PC card takes the first row and the two buttons share the second at equal width (container width, not viewport,
+   because the Overview column narrows when Backups sits beside it). */
+.ov-actions{container-type:inline-size}
+@container (max-width:619px){
+  .ov-actions .quick-actions>.pc-power{flex:1 1 100%}
+  .ov-actions .quick-actions>.m3-btn{flex:1 1 0;justify-content:center}
+}
+@container (min-width:620px){.ov-actions .quick-actions{flex-wrap:nowrap}}
