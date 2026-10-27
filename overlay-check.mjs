@@ -71,5 +71,10 @@ try{
   let telemetry=0;p.on('request',r=>{if(r.url().includes('/api/telemetry'))telemetry++});
   const release=await drag(p,206,300,560,10);await expect(p.locator('.m3-pull')).toHaveCount(1);const before=telemetry;await release();
   await p.waitForTimeout(400);expect(telemetry).toBeGreaterThan(before);await p.close()});
+ for(const [w,h] of [[412,915],[1440,900]]) await test(`${w}px: Overview "Read the report" lands on the log review in one press`,async()=>{
+  const p=await b.newPage({viewport:{width:w,height:h},isMobile:w<600,hasTouch:w<600});await p.goto(base);await p.waitForTimeout(900);
+  const go=p.locator('.ov-status',{has:p.getByRole('heading',{name:'Nightly log review'})}).getByRole('button',{name:'Read the report'});
+  await go.scrollIntoViewIfNeeded();await go.click();await expect(p).toHaveURL(/#\/infra$/);
+  await expect.poll(()=>p.evaluate(()=>{const r=document.getElementById('infra-logs')?.getBoundingClientRect();return !!r&&r.top>=0&&r.top<innerHeight&&document.activeElement?.id==='infra-logs'}),{timeout:4000}).toBe(true);await p.close()});
 }finally{await b.close()}
 if(failures){console.log(`${failures} FAILED`);process.exit(1)}console.log('PASS: overlay and interaction regressions');

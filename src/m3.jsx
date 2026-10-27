@@ -25,11 +25,12 @@ const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)').
 // transition (flushSync) so the old and new page are captured; falls back to a plain update elsewhere or with reduced motion.
 // from: the element that was activated. Its snapshot morphs into the new page's title (shared element); the old title
 // steps aside for the duration so only one element carries the name in each snapshot.
+// Resolves once the new page is on screen (after the transition, or two frames when there is none).
 export function withPageTransition(update,from){
-  if(!document.startViewTransition||reducedMotion()){update();return}
+  if(!document.startViewTransition||reducedMotion()){update();return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}
   const title=document.querySelector('main h1');
   if(from&&title&&from!==title){from.style.viewTransitionName='page-title';title.style.viewTransitionName='none'}
-  document.startViewTransition(()=>{ReactDOM.flushSync(update);if(from)from.style.viewTransitionName='';if(title)title.style.viewTransitionName=''});
+  return document.startViewTransition(()=>{ReactDOM.flushSync(update);if(from)from.style.viewTransitionName='';if(title)title.style.viewTransitionName=''}).finished.catch(()=>{});
 }
 // In-page shared element: the activated element morphs into the element matching toSelector after the update (a picked
 // row into its detail card). The page itself holds still (html.vt-local).
