@@ -46,7 +46,7 @@ await page.getByRole('dialog').waitFor();
 await page.getByRole('button',{name:'Cancel',exact:true}).click();
 assert.equal(await page.getByRole('dialog').count(),0);
 await page.setViewportSize({width:390,height:844});
-await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+await page.getByRole('button',{name:/^(More|Open navigation)$/}).click();
 await page.getByRole('button',{name:'Storage',exact:true}).click();
 assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
 await page.screenshot({path:'.preview/mobile.png',fullPage:true});

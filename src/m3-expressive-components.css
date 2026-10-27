@@ -380,22 +380,24 @@
 .ov-hero .summary-grid>.summary-stat{min-height:0}
 
 
-/* Phone "More": the modal navigation as an M3 bottom sheet (drag handle, 28px top corners, destinations as a 3-column grid). */
+/* Phone "More": the modal navigation as an M3 bottom sheet (drag handle, 28px top corners, single-column 56dp M3 list). */
 .m3-sheet__handle{display:none}
-.m3-nav-drawer.is-modal.is-sheet{top:auto;bottom:0;left:0;right:0;width:auto;max-width:640px;margin:0 auto;height:auto;max-height:85vh;padding:0 16px calc(20px + env(safe-area-inset-bottom));
+.m3-nav-drawer.is-modal.is-sheet{top:auto;bottom:0;left:0;right:0;width:auto;max-width:640px;margin:0 auto;height:auto;max-height:85vh;padding:0 0 calc(20px + env(safe-area-inset-bottom));
   border-radius:var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0;background:var(--md-sys-color-surface-container-low);
-  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-content:start;transform:translateY(105%);
+  display:flex;flex-direction:column;align-content:start;transform:translateY(105%);
   transition:transform var(--md-sys-motion-spring-default-spatial-duration) var(--md-sys-motion-spring-default-spatial),visibility 0s linear var(--md-sys-motion-spring-default-spatial-duration)}
 .m3-nav-drawer.is-modal.is-sheet.open{transform:none;transition:visibility 0s;animation:m3-sheet-in var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
 @keyframes m3-sheet-in{from{transform:translateY(105%)}}
-.is-sheet .m3-sheet__handle{display:block;grid-column:1/-1;justify-self:center;width:32px;height:4px;margin:16px 0 8px;border-radius:2px;background:var(--md-sys-color-on-surface-variant);opacity:.4}
+.is-sheet .m3-sheet__handle{display:block;align-self:center;width:32px;height:4px;margin:16px 0 12px;border-radius:2px;background:var(--md-sys-color-on-surface-variant);opacity:.4}
+.is-sheet .m3-sheet__title{margin:0;padding:0 16px 8px;font:var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--md-sys-typescale-title-medium-font);color:var(--md-sys-color-on-surface)}
 .is-sheet .m3-nav-drawer__brand,.is-sheet .m3-nav-drawer__footer{display:none}
-.is-sheet .m3-nav-drawer__close{position:absolute;top:4px;right:4px;margin:0}
-.is-sheet .m3-nav-drawer__item{flex-direction:column;justify-content:center;gap:6px;min-height:88px;padding:12px 4px;border-radius:var(--md-sys-shape-corner-large);text-align:center;
-  background:var(--md-sys-color-surface-container-high);font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/1.25 var(--md-sys-typescale-label-large-font)}
-.is-sheet .m3-nav-drawer__item[aria-current=page]{background:var(--md-sys-color-secondary-container)}
-.is-sheet .m3-nav-drawer__badge{position:absolute;top:8px;right:10px;margin:0}
-.is-sheet .m3-nav-drawer__item{position:relative}
+.is-sheet .m3-nav-drawer__close{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.is-sheet .m3-nav-drawer__item{display:flex;flex-direction:row;align-items:center;gap:16px;min-height:56px;height:56px;padding:0 16px;border-radius:0;text-align:left;
+  background:transparent;font:var(--md-sys-typescale-title-medium-weight) 14px/1.25 var(--md-sys-typescale-title-medium-font);color:var(--md-sys-color-on-surface);position:relative}
+.is-sheet .m3-nav-drawer__item .material-symbols-rounded{font-size:24px;width:24px;height:24px;color:var(--md-sys-color-on-surface-variant)}
+.is-sheet .m3-nav-drawer__item[aria-current=page]{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border-radius:var(--md-sys-shape-corner-full);margin:0 8px;padding:0 8px}
+.is-sheet .m3-nav-drawer__item[aria-current=page] .material-symbols-rounded{color:var(--md-sys-color-on-secondary-container)}
+.is-sheet .m3-nav-drawer__badge{position:absolute;top:18px;right:16px;margin:0}
 @media (prefers-reduced-motion:reduce){.m3-nav-drawer.is-modal.is-sheet,.m3-nav-drawer.is-modal.is-sheet.open{transition:none;animation:none}}
 /* Medium (600-839px) rail carries every destination; scrolls on short landscape screens. */
 .m3-nav-rail{scrollbar-width:none}

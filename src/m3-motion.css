@@ -71,7 +71,7 @@
 .is-sheet.open .m3-sheet__handle{animation:m3-handle var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 120ms backwards}
 @keyframes m3-handle{from{transform:scaleX(.3)}}
 .is-sheet.open .m3-nav-drawer__item{animation:m3-arrive var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial) backwards}
-.is-sheet.open .m3-nav-drawer__item:nth-of-type(3n+2){animation-delay:30ms}.is-sheet.open .m3-nav-drawer__item:nth-of-type(3n){animation-delay:60ms}
+.is-sheet.open .m3-nav-drawer__item:nth-of-type(2){animation-delay:30ms}.is-sheet.open .m3-nav-drawer__item:nth-of-type(3){animation-delay:60ms}.is-sheet.open .m3-nav-drawer__item:nth-of-type(4){animation-delay:90ms}.is-sheet.open .m3-nav-drawer__item:nth-of-type(5){animation-delay:120ms}
 .m3-snackbar{animation:m3-snack var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial) backwards}
 @keyframes m3-snack{from{opacity:0;transform:translateY(24px) scale(.9)}}
 

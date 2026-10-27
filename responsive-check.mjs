@@ -13,7 +13,12 @@ for(const [width,height] of [[360,800],[412,915],[448,998],[998,448],[1440,1000]
  await page.goto(process.env.DASHBOARD_URL||'http://127.0.0.1:8799/',{waitUntil:'domcontentloaded'});
  await page.getByRole('heading',{name:'Overview',exact:true}).waitFor();
  for(const view of ['Overview','Storage',/^All services \d+$/,'Hosts & containers']){
-  if(width<=760)await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+  const isSheetItem = view === 'Storage' || view === 'Hosts & containers';
+  if(width < 600 && isSheetItem){
+    await page.getByRole('button',{name:'More'}).click();
+  } else if(width >= 600 && width <= 760){
+    await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+  }
   await page.getByRole('button',typeof view==='string'?{name:view,exact:true}:{name:view}).click();
   await page.evaluate(()=>document.fonts.ready);
   const overflow=await page.evaluate(()=>{

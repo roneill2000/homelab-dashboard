@@ -27,7 +27,7 @@ try{
   expect(await p.evaluate(()=>document.activeElement!==document.body&&document.activeElement.getClientRects().length>0)).toBe(true);await p.close()});
 
  await test('drawer open across 448 -> 700 -> 448: rail and bar stay inert while it is open',async()=>{
-  const p=await open(448,900);await p.getByRole('button',{name:'Open navigation',exact:true}).click();await p.waitForTimeout(300);
+  const p=await open(448,900);await p.getByRole('button',{name:/^(More|Open navigation)$/}).click();await p.waitForTimeout(300);
   await p.setViewportSize({width:700,height:900});await p.waitForTimeout(400);
   expect(await interactive(p,'.m3-nav-rail')).toBe(false);expect(await interactive(p,'#main')).toBe(false);
   await p.setViewportSize({width:448,height:900});await p.waitForTimeout(400);expect(await interactive(p,'.m3-nav-bar')).toBe(false);
