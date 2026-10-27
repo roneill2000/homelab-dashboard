@@ -114,6 +114,7 @@ python3 deploy.py
 - The dashboard runs only on the local network or VPN and is not exposed to the internet.
 - Actions that change something (DNS pauses, clearing log alerts, updates, PC power) need an `X-Dashboard-Action` header and a same-origin request, and the UI asks for confirmation first.
 - The update runner uses one SSH key that Proxmox accepts only from the dashboard host and only for `status`, `check` and `start`. Runs wait while a backup, parity check, mover or local model is busy.
+- The page runs only its own scripts (a Content-Security-Policy with a new nonce on every load), and the live data embedded in it is escaped, so text from a log line can never run as code.
 - No secrets are stored in the repository or sent to the browser. Integrations read their tokens from root-only files on each host.
 
 ## License
