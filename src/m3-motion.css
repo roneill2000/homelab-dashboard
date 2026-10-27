@@ -143,3 +143,10 @@
 .m3-btn,.primary-button,.secondary-button,.issue-chip,.section-jump,.quick-actions>.m3-btn{--md-sys-shape-corner-full:20px}
 .segments button,.m3-segment{--md-sys-shape-corner-full:24px}
 .m3-icon-btn{--md-sys-shape-corner-full:20px}.m3-icon-btn--touch{--md-sys-shape-corner-full:24px}
+/* The navigation gets its own view-transition layer, painted after (above) the page, and holds still: without it the
+   rising page snapshot was drawn over the bottom bar for the length of the transition. */
+.m3-nav-bar{view-transition-name:navbar}
+.m3-nav-rail,.m3-xrail{view-transition-name:navrail}
+::view-transition-group(navbar),::view-transition-group(navrail){animation:none}
+::view-transition-old(navbar),::view-transition-old(navrail){display:none}
+::view-transition-new(navbar),::view-transition-new(navrail){animation:none}
