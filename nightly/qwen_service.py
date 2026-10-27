@@ -28,7 +28,7 @@ PC_MODEL = 'qwen3.8-27b'
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Qwen3.8-27B · gaming PC'
 A310_LABEL = 'Gemma 4 E4B · A310'
-PC_NAMES = {'qwen3.8-27b': 'Qwen3.8-27B', 'gemma-4-26b-a4b': 'Gemma 4 26B MoE', 'qwen3.6-35b-moe': 'Qwen3.6 35B MoE'}
+PC_NAMES = {'qwen3.8-27b': 'Qwen3.8-27B', 'qwen3.8-27b-uncensored': 'Qwen3.8-27B Uncensored', 'gemma-4-26b-a4b': 'Gemma 4 26B MoE', 'qwen3.6-35b-moe': 'Qwen3.6 35B MoE'}
 # Model choices: 'a310' (Gemma 4 E4B; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
 # 'auto' (27B if the PC is on),
 # 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves.
