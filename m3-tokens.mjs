@@ -13,12 +13,17 @@ export const CUSTOM = {
   teal: '#7de5c0', green: '#a8d798', cyan: '#8acfe2', blue: '#7dacf5', indigo: '#9aadee',
   purple: '#c3a5f4', pink: '#f49b99', orange: '#ef9c65', amber: '#f4cf7d',
 };
-// Every colour role the 2025 spec defines (methods on a MaterialDynamicColors instance that return a DynamicColor).
-const DC = new MaterialDynamicColors();
-const ROLES = Object.getOwnPropertyNames(Object.getPrototypeOf(DC))
-  .filter(k => k !== 'constructor' && typeof DC[k] === 'function' && DC[k].length === 0 && !/PaletteKeyColor$/.test(k))
-  .filter(k => { try { return DC[k]() instanceof DynamicColor; } catch { return false; } });
+// Every colour role the 2025 spec defines (static DynamicColor properties on MaterialDynamicColors).
+const ROLES = Object.getOwnPropertyNames(MaterialDynamicColors)
+  .filter(k => !/PaletteKeyColor$/.test(k))
+  .filter(k => {
+    try {
+      const val = MaterialDynamicColors[k];
+      return val instanceof DynamicColor || (typeof val === 'function' && val() instanceof DynamicColor);
+    } catch { return false; }
+  });
 const kebab = s => s.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+const getDynamicColor = k => typeof MaterialDynamicColors[k] === 'function' ? MaterialDynamicColors[k]() : MaterialDynamicColors[k];
 
 function block(isDark) {
   const seed = Hct.fromInt(argbFromHex(SEED));
@@ -30,7 +35,7 @@ function block(isDark) {
     platform: fidelity.platform, primaryPalette: fidelity.primaryPalette, secondaryPalette: fidelity.secondaryPalette,
     tertiaryPalette: fidelity.tertiaryPalette, errorPalette: fidelity.errorPalette,
     neutralPalette: TonalPalette.fromHueAndChroma(seed.hue, isDark ? 10 : 4), neutralVariantPalette: TonalPalette.fromHueAndChroma(seed.hue, isDark ? 14 : 7) });
-  const lines = ROLES.map(k => `--md-sys-color-${kebab(k)}:${hexFromArgb(DC[k]().getArgb(scheme))}`);
+  const lines = ROLES.map(k => `--md-sys-color-${kebab(k)}:${hexFromArgb(getDynamicColor(k).getArgb(scheme))}`);
   for (const [name, hex] of Object.entries(CUSTOM)) {
     const c = customColor(argbFromHex(SEED), { name, value: argbFromHex(hex), blend: true })[isDark ? 'dark' : 'light'];
     lines.push(`--md-custom-${name}:${hexFromArgb(c.color)}`, `--md-custom-on-${name}:${hexFromArgb(c.onColor)}`,

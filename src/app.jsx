@@ -381,9 +381,50 @@ const VIEWS=['overview','services','ai','media','network','fleet','storage','inf
 function App(){
  const [data,setData]=useState(window.__INITIAL_TELEMETRY__?.updated_at?window.__INITIAL_TELEMETRY__:{}),[storage,setStorage]=useState(null),[error,setError]=useState(false),[storageError,setStorageError]=useState(false),[view,setView]=useState(()=>{const h=location.hash.replace(/^#\/?/,'');return VIEWS.includes(h)?h:'overview'}),[search,setSearch]=useState(''),[command,setCommand]=useState(false),[range,setRange]=useState(3600),[capacity,setCapacity]=useState(false),[now,setNow]=useState(Date.now()),[refreshing,setRefreshing]=useState(false),[toast,setToast]=useState(''),[dialog,setDialog]=useState(null),[busy,setBusy]=useState(false),[menu,setMenu]=useState(false),[filter,setFilter]=useState('all');
  const [compare,setCompare]=useState(()=>window.innerWidth>=840),[diskPick,setDiskPick]=useState('cache');const [category,setCategory]=useState('all');useEffect(()=>setCategory('all'),[view]);const [favorites,setFavorites]=useStored('homelab.favorites.v2',['pve','jellyfin','sabnzbd','files','guacamole','router']);const [theme,setTheme]=useStored('homelab.theme.v2',window.matchMedia?.('(prefers-color-scheme: light)').matches?'light':'dark');const win=useWindowClass();const [railPref,setRailPref]=useStored('homelab.rail.v1',true);const [railModal,setRailModal]=useState(false);const navOpener=useRef(null);const [sheet,setSheet]=useState(false);
+ const [dialogActive,setDialogActive]=useState(false);
+ useEffect(()=>{
+  const onOpen=()=>setDialogActive(true),onClose=()=>setDialogActive(false);
+  window.addEventListener('m3:dialog-open',onOpen);window.addEventListener('m3:dialog-close',onClose);
+  return()=>{window.removeEventListener('m3:dialog-open',onOpen);window.removeEventListener('m3:dialog-close',onClose)}
+ },[]);
+ const anyOverlay=Boolean(menu||command||dialog||dialogActive||(win==='expanded'&&railModal));
+ const overlayPushedRef=useRef(false),ignoreNextPopRef=useRef(false),viewRef=useRef(view);
+ viewRef.current=view;
+ const closeAllOverlays=()=>{
+  setMenu(false);setSheet(false);setCommand(false);setDialog(null);setRailModal(false);
+  window.dispatchEvent(new CustomEvent('m3:close-all-overlays'));
+ };
+ useEffect(()=>{
+  if(anyOverlay){
+   if(!overlayPushedRef.current){
+    overlayPushedRef.current=true;
+    history.pushState({overlay:true},'');
+   }
+  }else if(overlayPushedRef.current){
+   overlayPushedRef.current=false;
+   ignoreNextPopRef.current=true;
+   history.back();
+  }
+ },[anyOverlay]);
  // A modal navigation (phone/tablet drawer, or the expanded rail on 840-1199px) makes the rest of the page inert, moves focus in, and returns it on close.
  const navModal=(menu&&(win==='compact'||win==='medium'))||(railModal&&win==='expanded');
- useEffect(()=>{const on=()=>{const h=location.hash.replace(/^#\/?/,'');const v=VIEWS.includes(h)?h:'overview';navigatedRef.current=true;withPageTransition(()=>{setView(v);setSearch('');setFilter('all')})};window.addEventListener('popstate',on);return()=>window.removeEventListener('popstate',on)},[]);
+ useEffect(()=>{
+  const on=ev=>{
+   if(ev.state?.overlay)return;
+   if(ignoreNextPopRef.current){ignoreNextPopRef.current=false;return}
+   if(overlayPushedRef.current){
+    overlayPushedRef.current=false;
+    closeAllOverlays();
+    return;
+   }
+   const h=location.hash.replace(/^#\/?/,'');const v=VIEWS.includes(h)?h:'overview';
+   if(v!==viewRef.current){
+    navigatedRef.current=true;
+    withPageTransition(()=>{setView(v);setSearch('');setFilter('all')});
+   }
+  };
+  window.addEventListener('popstate',on);return()=>window.removeEventListener('popstate',on);
+ },[]);
  useEffect(()=>{const label=view==='overview'?'Overview':navigation.find(n=>n[0]===view)?.[1];document.title=`${label} · Homelab`;
   if(navigatedRef.current&&!navModal){navigatedRef.current=false;requestAnimationFrame(()=>document.querySelector('main h1')?.focus({preventScroll:true}))}},[view,navModal]);
  const trapTab=ev=>{if(ev.key!=='Tab')return;const n=tabbables(ev.currentTarget);if(!n.length)return;
@@ -413,7 +454,21 @@ function App(){
  const notify=msg=>{setToast(msg);clearTimeout(toastTimer.current);toastTimer.current=setTimeout(()=>setToast(''),3600)};
  const lastSource=useRef(null);useEffect(()=>{const on=ev=>{const el=ev.target.closest?.('button,a,[role=button]');lastSource.current=el&&el.closest('main')&&!el.closest('.m3-nav-bar,.m3-nav-rail,.m3-xrail,.m3-nav-drawer')?{el,t:performance.now()}:null};document.addEventListener('pointerdown',on,true);document.addEventListener('keydown',on,true);return()=>{document.removeEventListener('pointerdown',on,true);document.removeEventListener('keydown',on,true)}},[]);
  const navigatedRef=useRef(false);// section: element id to scroll to and focus once the new page is showing (Overview shortcuts into a long page).
- const navigate=(v,section)=>{if(v!==view){navigatedRef.current=true;if(location.hash!=='#/'+v)history.pushState(null,'','#/'+v);const src=lastSource.current&&performance.now()-lastSource.current.t<1500&&lastSource.current.el.isConnected?lastSource.current.el:null;lastSource.current=null;withPageTransition(()=>{setView(v);setSearch('');setFilter('all')},src).then(()=>section&&jump(section))}else{setSearch('');setFilter('all');if(section)jump(section)}setMenu(false);setRailModal(false);window.scrollTo({top:0,behavior:'instant'})};
+ const navigate=(v,section)=>{
+  if(overlayPushedRef.current){
+   overlayPushedRef.current=false;
+   history.replaceState(null,'','#/'+v);
+  }else if(location.hash!=='#/'+v) history.pushState(null,'','#/'+v);
+  if(v!==view){
+   navigatedRef.current=true;
+   const src=lastSource.current&&performance.now()-lastSource.current.t<1500&&lastSource.current.el.isConnected?lastSource.current.el:null;
+   lastSource.current=null;
+   withPageTransition(()=>{setView(v);setSearch('');setFilter('all')},src).then(()=>section&&jump(section));
+  }else{
+   setSearch('');setFilter('all');if(section)jump(section);
+  }
+  setMenu(false);setRailModal(false);window.scrollTo({top:0,behavior:'instant'});
+ };
  useEffect(()=>{document.documentElement.dataset.theme=theme},[theme]);
  const [upd,setUpd]=useState(null),[fleet,setFleet]=useState(null);
  useEffect(()=>{let alive=true;async function get(){try{const r=await fetch('/api/fleet',{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();if(alive)setFleet(d)}catch{}}get();const iv=setInterval(get,60000);return()=>{alive=false;clearInterval(iv)}},[]);

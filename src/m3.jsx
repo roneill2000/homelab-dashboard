@@ -189,7 +189,10 @@ export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialo
   const box=useRef();
   useEffect(()=>{const previous=document.activeElement;(initialFocusRef?.current||box.current?.querySelector('button'))?.focus();
     const others=[...document.body.children].filter(el=>el!==box.current?.parentElement&&!el.contains(box.current));const was=others.map(el=>el.inert);others.forEach(el=>{el.inert=true});const unlock=lockScroll();
-    return()=>{unlock();others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus()}},[]);
+    window.dispatchEvent(new CustomEvent('m3:dialog-open'));
+    const handleClose = () => onClose?.();
+    window.addEventListener('m3:close-all-overlays', handleClose);
+    return()=>{unlock();others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus();window.removeEventListener('m3:close-all-overlays', handleClose);window.dispatchEvent(new CustomEvent('m3:dialog-close'))}},[onClose]);
   const keys=ev=>{if(ev.key==='Escape'){ev.stopPropagation();onClose?.();return}if(ev.key!=='Tab')return;const n=tabbables(box.current);
     if(!n.length)return;if(ev.shiftKey&&document.activeElement===n[0]){ev.preventDefault();n.at(-1).focus()}
     else if(!ev.shiftKey&&document.activeElement===n.at(-1)){ev.preventDefault();n[0].focus()}};
