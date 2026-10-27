@@ -1,0 +1,60 @@
+// Overlay and interaction regressions from the 26 Oct independent audit: enlarged-chart tab order, background inertness
+// across window-class changes, scroll locking under scrims, quick actions that re-flow when pressed, Ask focus on Local AI,
+// and the phone More sheet. Every POST is aborted.
+import {chromium} from 'playwright';import {expect} from '@playwright/test';
+const base=process.env.DASHBOARD_URL||'http://127.0.0.1:8799/';
+const b=await chromium.launch({channel:process.env.PW_CHANNEL,headless:true});
+let failures=0;const test=async(name,fn)=>{try{await fn();console.log('PASS',name)}catch(e){failures++;console.log('FAIL',name,String(e.message||e).split('\n')[0])}};
+const open=async(w,h,hash='')=>{const p=await b.newPage({viewport:{width:w,height:h}});await p.route('**/api/action/**',r=>r.request().method()==='POST'?r.abort():r.continue());
+  await p.route('**/api/qwen',r=>r.request().method()==='POST'?r.abort():r.continue());await p.goto(base+hash);await p.waitForTimeout(900);return p};
+const interactive=async(p,sel)=>p.evaluate(s=>{const el=document.querySelector(s);return !!el&&!el.closest('[inert]')},sel);
+try{
+ await test('enlarged chart: Tab reaches the chart and Close, arrows inspect, Escape restores the opener',async()=>{
+  const p=await open(1440,900,'#/storage');const chart=p.locator('.chart').filter({has:p.locator('.chart__expand')}).first();
+  await chart.hover();const opener=chart.locator('.chart__expand');await opener.click();const dlg=p.getByRole('dialog');await expect(dlg).toBeVisible();
+  const seen=new Set();for(let i=0;i<4;i++){await p.keyboard.press('Tab');seen.add(await p.evaluate(()=>{const a=document.activeElement;return a.tagName==='svg'||a.tagName==='SVG'?'chart':a.textContent.trim()}))}
+  expect([...seen]).toContain('chart');expect([...seen]).toContain('Close');
+  expect(await p.evaluate(()=>!!document.activeElement.closest('[role=dialog]'))).toBe(true);
+  await dlg.locator('svg[role=img]').focus();await p.keyboard.press('Home');await expect(dlg.locator('.chart-tooltip:not(.is-empty)')).toHaveCount(1);
+  await p.keyboard.press('Escape');await p.keyboard.press('Escape');await expect(dlg).toHaveCount(0);
+  expect(await p.evaluate(()=>document.activeElement.getAttribute('aria-label'))).toBe('Open larger chart');await p.close()});
+
+ await test('search open across 1440 -> 448: the new bottom bar is inert; close focuses a visible trigger',async()=>{
+  const p=await open(1440,900);await p.getByRole('button',{name:'Find a service'}).first().click();await expect(p.getByRole('dialog',{name:'Find a service'})).toBeVisible();
+  await p.setViewportSize({width:448,height:900});await p.waitForTimeout(400);
+  expect(await interactive(p,'.m3-nav-bar')).toBe(false);expect(await interactive(p,'#main')).toBe(false);
+  await p.keyboard.press('Escape');await p.waitForTimeout(300);expect(await interactive(p,'.m3-nav-bar')).toBe(true);
+  expect(await p.evaluate(()=>document.activeElement!==document.body&&document.activeElement.getClientRects().length>0)).toBe(true);await p.close()});
+
+ await test('drawer open across 448 -> 700 -> 448: rail and bar stay inert while it is open',async()=>{
+  const p=await open(448,900);await p.getByRole('button',{name:'Open navigation',exact:true}).click();await p.waitForTimeout(300);
+  await p.setViewportSize({width:700,height:900});await p.waitForTimeout(400);
+  expect(await interactive(p,'.m3-nav-rail')).toBe(false);expect(await interactive(p,'#main')).toBe(false);
+  await p.setViewportSize({width:448,height:900});await p.waitForTimeout(400);expect(await interactive(p,'.m3-nav-bar')).toBe(false);
+  await p.keyboard.press('Escape');await p.waitForTimeout(300);expect(await interactive(p,'#main')).toBe(true);await p.close()});
+
+ await test('wheel over the search and chart scrims does not scroll the page',async()=>{
+  const p=await open(1440,800,'#/storage');await p.getByRole('button',{name:'Find a service'}).first().click();await p.mouse.move(1300,700);await p.mouse.wheel(0,600);await p.waitForTimeout(300);
+  expect(await p.evaluate(()=>scrollY)).toBe(0);await p.keyboard.press('Escape');
+  const chart=p.locator('.chart').filter({has:p.locator('.chart__expand')}).first();await chart.hover();await chart.locator('.chart__expand').click();
+  const y0=await p.evaluate(()=>scrollY);await p.mouse.move(20,780);await p.mouse.wheel(0,600);await p.waitForTimeout(300);expect(await p.evaluate(()=>scrollY)).toBe(y0);
+  await p.keyboard.press('Escape');await p.keyboard.press('Escape');await p.mouse.wheel(0,400);await p.waitForTimeout(300);expect(await p.evaluate(()=>scrollY)).toBeGreaterThan(y0);await p.close()});
+
+ for(const w of [600,700,780,840,1000,1440])await test(`pressing a quick action at ${w}px does not re-flow the row`,async()=>{
+  const p=await open(w,1100);const row=p.locator('.quick-actions').first();for(const btn of await row.locator('.m3-btn:not(:disabled)').all()){
+   const before=await row.boundingBox();const bb=await btn.boundingBox();await p.mouse.move(bb.x+bb.width/2,bb.y+bb.height/2);await p.mouse.down();await p.waitForTimeout(250);
+   const during=await row.boundingBox();await p.mouse.move(2,2);await p.mouse.up();expect(Math.round(during.height)).toBe(Math.round(before.height))}
+  await p.close()});
+
+ await test('Local AI: Ask about the homelab is on the page and takes focus from the first viewport',async()=>{
+  const p=await open(412,915,'#/ai');const box=p.getByRole('textbox',{name:'Your question'});await expect(box).toBeVisible();
+  expect((await box.boundingBox()).y).toBeLessThan(915*2);await box.focus();await expect(box).toBeFocused();await p.close()});
+
+ await test('phone More opens a sheet; focus goes in and returns to More',async()=>{
+  const p=await b.newPage({viewport:{width:412,height:915},isMobile:true,hasTouch:true});await p.goto(base+'#/storage');await p.waitForTimeout(800);
+  await p.getByRole('button',{name:'More'}).click();await p.waitForTimeout(500);const sheet=p.locator('.m3-nav-drawer.is-sheet.open');await expect(sheet).toBeVisible();
+  const bb=await sheet.boundingBox();expect(Math.round(bb.y+bb.height)).toBeGreaterThanOrEqual(914);
+  expect(await p.evaluate(()=>document.activeElement.textContent)).toContain('Storage');
+  await p.keyboard.press('Escape');await p.waitForTimeout(500);expect(await p.evaluate(()=>document.activeElement.textContent)).toContain('More');await p.close()});
+}finally{await b.close()}
+if(failures){console.log(`${failures} FAILED`);process.exit(1)}console.log('PASS: overlay and interaction regressions');

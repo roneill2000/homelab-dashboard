@@ -4,11 +4,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 const tokensJs = (await build({entryPoints:['m3-tokens.mjs'],bundle:true,platform:'node',format:'esm',write:false})).outputFiles[0].text;
 const { m3TokensCss } = await import('data:text/javascript;base64,' + Buffer.from(tokensJs).toString('base64'));
 import { ICONS } from './m3-icons.mjs';
+import { m3ShapesCss } from './m3-shapes.mjs';
 const result = await build({entryPoints:['src/app.jsx'],bundle:true,write:false,jsxFactory:'React.createElement',jsxFragment:'React.Fragment',target:'es2020',minify:true});
 // CSS order matters: generated colour roles, M3 system tokens, legacy rules, M3 components, then m3-controls.css
 // (buttons, button groups, chips: their only home) last.
 const parts = ['src/m3-sys.css', 'src/m3-expressive.css', 'src/styles.css', 'src/m3-legacy.css', 'src/m3-components.css', 'src/m3-expressive-components.css', 'src/m3-controls.css'];
-const css = m3TokensCss() + (await Promise.all(parts.map(p => readFile(p, 'utf8').catch(() => '')))).join('\n');
+const css = m3TokensCss() + m3ShapesCss() + (await Promise.all(parts.map(p => readFile(p, 'utf8').catch(() => '')))).join('\n');
 const symbols = `https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=${[...new Set(ICONS)].sort().join(',')}&display=block`;
 const js = result.outputFiles[0].text.replaceAll('</script','<\\/script');
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#091613"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&family=Google+Sans+Code:wght@300..800&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap"><link rel="stylesheet" href="${symbols}"><title>Homelab · Control room</title><style>${css}</style><script src="/static/react.js"></script><script src="/static/react-dom.js"></script><script>/*__INITIAL_TELEMETRY_SLOT__*/</script></head><body><div id="root"></div><noscript>This dashboard needs JavaScript to display live telemetry.</noscript><script>${js}</script></body></html>`;

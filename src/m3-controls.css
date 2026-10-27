@@ -133,7 +133,6 @@
 .m3-btn--text:disabled,.m3-btn--outlined:disabled{background:transparent}
 .m3-btn--outlined{box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant)}
 .m3-chip:not([class*="m3-chip--"]){box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant)}
-.quick-actions>.m3-btn:active:not(:disabled){padding-left:26px;padding-right:26px}
 .segments button,.m3-segment{background:var(--md-sys-color-surface-container);color:var(--md-sys-color-on-surface-variant)}
 .segments button:hover,.m3-segment:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container))}
 .segments button.selected,.segments button[aria-pressed=true],.m3-segment[aria-pressed=true]{background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
@@ -176,7 +175,6 @@
 .ov-status>.m3-btn{margin-left:0}
 .segments button.selected:active,.segments button[aria-pressed=true]:active,.m3-segment[aria-pressed=true]:active{border-radius:var(--md-comp-button-group-connected-pressed-inner-corner)}
 @media (max-width:599px){
-  .quick-actions>.m3-btn:active:not(:disabled){padding-left:8px;padding-right:16px}
   .quick-actions>.m3-btn .material-symbols-rounded{font-size:18px!important}
 }
 /* Disabled wins over hover and pressed (follow-up audit). */
@@ -186,3 +184,86 @@
 /* Hero controls: readable pairs on the pine (or cedar) hero in both themes (follow-up audit: 1.80:1 chip in light). */
 .ov-hero .issue-chip.soft{background:color-mix(in srgb,currentColor 16%,transparent);color:inherit;border:1px solid color-mix(in srgb,currentColor 45%,transparent)}
 .ov-hero .issue-chip:not(.soft){background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container)}
+/* Hero actions, one language (27 Oct 2026): status chips are filled 8px chips; actions are 40px full-round tonal buttons with no
+   outline; the gaming PC is a 56px row with its own trailing button in the hero's inverse colours. */
+.ov-hero .issue-chip.soft{border:0;background:color-mix(in srgb,currentColor 16%,transparent)}
+.ov-hero .quick-actions{gap:8px;align-items:center}
+.ov-hero .quick-actions>.m3-btn,.ov-hero .quick-actions>.m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 20px 0 16px;border-radius:var(--md-sys-shape-corner-full);border:0;box-shadow:none;
+  background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}
+.ov-hero .quick-actions>.m3-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
+.ov-hero .quick-actions>.m3-btn .material-symbols-rounded{color:inherit;font-size:18px!important}
+.ov-hero .quick-actions>.pc-power{min-height:56px;padding:8px 8px 8px 16px;gap:12px;border-radius:var(--md-sys-shape-corner-large);background:color-mix(in srgb,currentColor 12%,transparent);box-shadow:none}
+.ov-hero{--hero-ink:var(--md-sys-color-primary-fixed);--hero-fill:var(--md-sys-color-primary-container)}
+.ov-hero--attention{--hero-ink:var(--md-sys-color-tertiary-fixed);--hero-fill:var(--md-sys-color-tertiary-container)}
+.ov-hero .pc-power .m3-btn,.ov-hero .pc-power .m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 16px 0 12px;border-radius:var(--md-sys-shape-corner-full);border:0;box-shadow:none;
+  background:var(--hero-ink);color:var(--hero-fill);margin-left:auto}
+.ov-hero .pc-power .m3-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
+.ov-hero .pc-power .m3-btn .material-symbols-rounded{color:inherit}
+@media (max-width:599px){
+  .ov-hero .quick-actions>.pc-power{flex:1 1 100%}
+  .ov-hero .quick-actions>.m3-btn{flex:1 1 0;justify-content:center}
+}
+/* Quick actions wrap, so pressing must not change a button's width (it re-flowed the row at 760-840px). The press keeps
+   its shape morph only. */
+html{scrollbar-gutter:stable}
+html.m3-scroll-locked{overflow:hidden}
+html.m3-scroll-locked body{overscroll-behavior:none}
+/* Hero colour (Ryan, 27 Oct 2026: "too mint green... closer to my original twilight pine"). The container stays the seed
+   pine; text is a near-neutral off-white instead of the mint primary-fixed role, and tiles/controls are darker wells cut
+   into the pine instead of mint washes laid over it. Off-white on #1f4d45 measures about 9:1. */
+.ov-hero{--hero-ink:#e6eeea;color:var(--hero-ink)}
+.ov-hero--attention{--hero-ink:#f3e9e5;color:var(--hero-ink)}
+.ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:rgb(4 20 17 / .28)}
+.ov-hero .summary-grid>.summary-stat.summary-link:hover{background:rgb(4 20 17 / .38)}
+.ov-hero__glyph{background:rgb(4 20 17 / .3)}
+.ov-hero .quick-actions>.m3-btn,.ov-hero .quick-actions>.m3-btn:active:not(:disabled),.ov-hero .quick-actions>.pc-power,.ov-hero .issue-chip.soft{background:rgb(4 20 17 / .3)}
+.ov-hero .quick-actions>.m3-btn:hover:not(:disabled){background:rgb(4 20 17 / .4)}
+.ov-hero--attention .summary-grid>.summary-stat,.ov-hero--attention .summary-grid>.summary-stat:nth-child(n),.ov-hero--attention .ov-hero__glyph,
+.ov-hero--attention .quick-actions>.m3-btn,.ov-hero--attention .quick-actions>.pc-power,.ov-hero--attention .issue-chip.soft{background:rgb(30 8 2 / .28)}
+/* Overview quick actions: their own row under the pinned services. Tonal 40px full-round buttons; the gaming PC is a
+   56px row with a filled trailing button. Pressing changes shape only, never width. */
+.ov-actions{margin:0 0 28px}
+.ov-actions .quick-actions{margin:0;padding:0;gap:8px;align-items:center;flex-wrap:wrap;overflow:visible}
+.ov-actions .quick-actions>.m3-btn,.ov-actions .quick-actions>.m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 20px 0 16px;border:0;box-shadow:none;
+  border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
+.ov-actions .quick-actions>.m3-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
+.ov-actions .quick-actions>.m3-btn .material-symbols-rounded{color:inherit;font-size:18px!important}
+.ov-actions .quick-actions>.pc-power{min-height:56px;padding:8px 8px 8px 16px;gap:12px;border-radius:var(--md-sys-shape-corner-large);background:var(--md-sys-color-surface-container-high);box-shadow:none}
+.ov-actions .pc-power .m3-btn,.ov-actions .pc-power .m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 16px 0 12px;margin-left:auto;border:0;box-shadow:none;
+  border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
+.ov-actions .pc-power .m3-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
+.ov-actions .pc-power .m3-btn .material-symbols-rounded{color:inherit}
+@media (max-width:599px){
+  .ov-actions .quick-actions>.pc-power{flex:1 1 100%}
+  .ov-actions .quick-actions>.m3-btn{flex:1 1 0;justify-content:center}
+}
+/* Fields in page toolbars: the filter is an M3 search bar (56px, full round, container-high, no outline); selects are
+   M3 exposed-dropdown fields with a drop-down arrow. The native popup is kept on purpose: phones get the system picker
+   and keyboard/screen-reader behaviour is unchanged. */
+.inline-search{min-height:56px;padding:0 20px 0 16px;gap:12px;border:0;border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-surface-container-high)}
+.inline-search:focus-within{outline:2px solid var(--md-sys-color-primary);outline-offset:-2px}
+.inline-search input{font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/1.2 var(--md-sys-typescale-body-large-font)}
+.inline-search .material-symbols-rounded{font-size:24px!important}
+.m3-select{position:relative;display:inline-flex;align-items:center;flex-shrink:0}
+.m3-select select{appearance:none;-webkit-appearance:none;min-height:56px;margin:0;padding:0 48px 0 16px;border:0;border-radius:var(--md-sys-shape-corner-large);
+  background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface);cursor:pointer;
+  font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/1.2 var(--md-sys-typescale-body-large-font)}
+.m3-select select:hover:not(:disabled){background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container-high))}
+.m3-select select:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:-2px}
+.m3-select select:disabled{opacity:.38;cursor:default}
+.m3-select__icon{position:absolute;right:12px;pointer-events:none;color:var(--md-sys-color-on-surface-variant)}
+.m3-select--qwen select{min-height:48px;max-width:220px}
+@media (max-width:599px){
+  .directory-controls{flex-wrap:nowrap}
+  .m3-select--qwen{flex:1 1 100%}.m3-select--qwen select{max-width:none;width:100%}
+}
+/* Category filters scroll sideways on phones instead of clipping their labels. */
+@media (max-width:839px){
+  .service-categories{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-left:-16px;margin-right:-16px;padding:0 16px;
+    mask-image:linear-gradient(90deg,transparent 0,#000 16px,#000 calc(100% - 32px),transparent)}
+  .service-categories::-webkit-scrollbar{display:none}
+  .service-categories>button{flex:0 0 auto;width:auto}
+}
+/* "A bit darker" (Ryan, 27 Oct 2026): the healthy hero sits a step deeper than the seed pine (#1f4d45 -> about #183d37). */
+.ov-hero{background:color-mix(in srgb,var(--md-sys-color-primary-container) 78%,#000)}
+.ov-hero--attention{background:color-mix(in srgb,var(--md-sys-color-tertiary-container) 82%,#000)}

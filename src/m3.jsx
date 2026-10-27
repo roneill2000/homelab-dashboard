@@ -44,6 +44,19 @@ export function CountUp({value,decimals=0}){
 
 const cx=(...a)=>a.filter(Boolean).join(' ');
 
+// Everything Tab can reach inside root, in order: links, enabled controls and explicit tabindex >= 0, visible and not inert.
+export function tabbables(root){
+  return [...(root?.querySelectorAll('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])')||[])]
+    .filter(el=>el.getClientRects().length&&!el.closest('[inert]')&&getComputedStyle(el).visibility!=='hidden');
+}
+// Background scroll lock shared by every overlay (dialogs, search, modal navigation). Counted, so nested overlays release
+// only when the last one closes. html keeps a stable scrollbar gutter, so locking does not shift the layout.
+let scrollLocks=0;
+export function lockScroll(){
+  if(scrollLocks++===0)document.documentElement.classList.add('m3-scroll-locked');
+  return()=>{if(--scrollLocks===0)document.documentElement.classList.remove('m3-scroll-locked')};
+}
+
 // Buttons. variant: 'filled' (main action), 'tonal' (secondary), 'outlined' (tertiary), 'text' (low emphasis), 'error'.
 // Pass href to render a link styled as a button.
 export function Button({variant='filled',icon,children,className,href,...props}){
@@ -113,6 +126,11 @@ export function LinearProgress({value,max=100,tone,label,wavy,color,className,..
         :<line x1={cap} y1={mid} x2={actEnd} y2={mid} style={{stroke:ink}} strokeWidth={T} strokeLinecap="round"/>)}
     </svg>}</div>;
 }
+// M3 Expressive loading indicator: a shape that morphs through Material's loading sequence while it turns (m3-shapes.mjs).
+// contained = on a circular primary-container. Use it for waits under a few seconds where no progress is known.
+export function LoadingIndicator({label='Loading',small,contained,className}){
+  return <span className={cx('m3-loading',small&&'m3-loading--small',contained&&'m3-loading--contained',className)} role="progressbar" aria-label={label}><span className="m3-loading__shape"/></span>;
+}
 export function IndeterminateProgress({label='Loading'}){
   return <div className="m3-linear-progress m3-linear-progress--indeterminate" role="progressbar" aria-label={label}><div className="m3-linear-progress__bar"/></div>;
 }
@@ -144,9 +162,9 @@ export function SelectField({label,value,onChange,options,dense,className,childr
 export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialog-title',initialFocusRef}){
   const box=useRef();
   useEffect(()=>{const previous=document.activeElement;(initialFocusRef?.current||box.current?.querySelector('button'))?.focus();
-    const others=[...document.body.children].filter(el=>el!==box.current?.parentElement&&!el.contains(box.current));const was=others.map(el=>el.inert);others.forEach(el=>{el.inert=true});
-    return()=>{others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus()}},[]);
-  const keys=ev=>{if(ev.key==='Escape'){ev.stopPropagation();onClose?.();return}if(ev.key!=='Tab')return;const n=[...box.current.querySelectorAll('button:not(:disabled),a[href],input,select')];
+    const others=[...document.body.children].filter(el=>el!==box.current?.parentElement&&!el.contains(box.current));const was=others.map(el=>el.inert);others.forEach(el=>{el.inert=true});const unlock=lockScroll();
+    return()=>{unlock();others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus()}},[]);
+  const keys=ev=>{if(ev.key==='Escape'){ev.stopPropagation();onClose?.();return}if(ev.key!=='Tab')return;const n=tabbables(box.current);
     if(!n.length)return;if(ev.shiftKey&&document.activeElement===n[0]){ev.preventDefault();n.at(-1).focus()}
     else if(!ev.shiftKey&&document.activeElement===n.at(-1)){ev.preventDefault();n[0].focus()}};
   return ReactDOM.createPortal(<div className="m3-dialog-layer"><div className="m3-scrim" onClick={onClose}/>
