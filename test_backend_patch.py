@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import patch_backend, patch_compression, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -163,6 +163,75 @@ class SpeedtestTimeTests(unittest.TestCase):
         out = patch_speedtest_time(src)
         self.assertIn("'tested_at': st.get('created_at')", out)
         self.assertEqual(patch_speedtest_time(out), out)
+
+
+class CompressionTests(unittest.TestCase):
+    SRC = ('from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n'
+           'PAGE = "<html>" + "x" * 5000 + "</html>"\n'
+           'BUNDLE = b"var react = 1;" * 500\n'
+           'class DashboardHandler(BaseHTTPRequestHandler):\n'
+           '    def log_message(self, format, *args):\n'
+           '        pass\n'
+           '    def do_GET(self):\n'
+           '        if self.path == "/static/react.js":\n'
+           '            if True:\n'
+           '                body = BUNDLE\n'
+           '                self.send_response(200)\n'
+           '                self.send_header("Content-Type", "application/javascript; charset=utf-8")\n'
+           '                self.send_header("Cache-Control", "public, max-age=86400")\n'
+           '                self.end_headers()\n'
+           '                self.wfile.write(body)\n'
+           '        else:\n'
+           '            body = PAGE.encode("utf-8")\n'
+           '            self.send_response(200)\n'
+           '            self.send_header("Content-Type", "text/html; charset=utf-8")\n'
+           '            self.send_header("Cache-Control", "no-cache")\n'
+           '            self.end_headers()\n'
+           '            self.wfile.write(body)\n')
+
+    def serve(self):
+        import http.client
+        ns = {}
+        exec(compile(patch_compression(self.SRC), 'compression', 'exec'), ns)
+        server = ns['ThreadingHTTPServer'](('127.0.0.1', 0), ns['DashboardHandler'])
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        def get(path, **headers):
+            conn = http.client.HTTPConnection('127.0.0.1', server.server_address[1])
+            conn.request('GET', path, headers=headers)
+            r = conn.getresponse()
+            return r, r.read()
+        return get
+
+    def test_page_gzipped_only_when_accepted_and_never_cached(self):
+        import gzip
+        get = self.serve()
+        r, body = get('/', **{'Accept-Encoding': 'gzip, deflate, br'})
+        self.assertEqual(r.getheader('Content-Encoding'), 'gzip')
+        self.assertEqual(r.getheader('Cache-Control'), 'no-cache')
+        self.assertIsNone(r.getheader('ETag'))
+        self.assertEqual(gzip.decompress(body).decode(), '<html>' + 'x' * 5000 + '</html>')
+        r, body = get('/')
+        self.assertIsNone(r.getheader('Content-Encoding'))
+        self.assertTrue(body.startswith(b'<html>'))
+
+    def test_bundle_revalidates_with_304(self):
+        get = self.serve()
+        r, _ = get('/static/react.js', **{'Accept-Encoding': 'gzip'})
+        etag = r.getheader('ETag')
+        self.assertTrue(etag.endswith('-gz"'))
+        r, body = get('/static/react.js', **{'Accept-Encoding': 'gzip', 'If-None-Match': etag})
+        self.assertEqual((r.status, body), (304, b''))
+        r, body = get('/static/react.js', **{'If-None-Match': etag})
+        self.assertEqual(r.status, 304)
+        r, body = get('/static/react.js', **{'If-None-Match': '"stale"'})
+        self.assertEqual((r.status, body[:13]), (200, b'var react = 1'))
+
+    def test_idempotent_and_refuses_drifted_source(self):
+        out = patch_compression(self.SRC)
+        self.assertEqual(patch_compression(out), out)
+        with self.assertRaises(ValueError):
+            patch_compression('class DashboardHandler(BaseHTTPRequestHandler):\n    pass\n')
 
 
 if __name__ == '__main__':

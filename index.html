@@ -2368,6 +2368,13 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 @container (min-width:620px){.ov-actions .quick-actions{flex-wrap:nowrap}}
 /* Local AI: the two launch links wrap together, never one alone under the power card. */
 .ai-task__links{display:inline-flex;flex-wrap:nowrap;align-items:center;gap:4px}
+/* Slim Ask bar (Overview) matches the AI page's Ask field: filled, borderless, same corners as the picker. Collapsed it is
+   exactly one 24px line plus 12px padding, so the empty field never shows a scrollbar. */
+.qwen-slim .qwen-input-row textarea{border:0;border-radius:var(--md-sys-shape-corner-large);background:var(--md-sys-color-surface-container-high);padding:12px 16px;line-height:24px}
+.qwen-slim.qwen-collapsed .qwen-input-row textarea{overflow-y:hidden}
+/* Long model names end in an ellipsis; where supported the picker widens to fit the chosen model first. */
+.m3-select--qwen select{text-overflow:ellipsis;white-space:nowrap}
+@media (min-width:600px){@supports (field-sizing:content){.m3-select--qwen select{field-sizing:content;min-width:180px;max-width:300px}}}
 
 /* Entrance animations use fill-mode backwards, so once they end they release transform and hover/press springs work.
    M3 Expressive motion layer (27 Oct 2026, Ryan: "I barely see any animations"). Loaded last. Every effect uses the

@@ -532,3 +532,76 @@ def patch_m3_brand(source):
         source += '\n# HOMELAB_M3_BRAND_V1\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+COMPRESSION_HELPERS = '''
+def _dashboard_etag(body):
+    import hashlib
+    return '"' + hashlib.sha256(body).hexdigest()[:16] + '"'
+
+_DASHBOARD_GZIP = {}
+
+def _dashboard_gzip(body, etag=None):
+    import gzip
+    if etag is None:
+        return gzip.compress(body, compresslevel=6, mtime=0)
+    if etag not in _DASHBOARD_GZIP:
+        _DASHBOARD_GZIP.clear()
+        _DASHBOARD_GZIP[etag] = gzip.compress(body, compresslevel=9, mtime=0)
+    return _DASHBOARD_GZIP[etag]
+
+'''
+
+COMPRESSION_SEND = '''    def _dashboard_send(self, body, content_type, cache_control, etag=None):
+        gz = 'gzip' in self.headers.get('Accept-Encoding', '') and len(body) > 1024
+        if etag:
+            sent = [t.strip().replace('-gz"', '"') for t in self.headers.get('If-None-Match', '').split(',')]
+            if etag in sent:
+                self.send_response(304)
+                self.send_header('ETag', etag[:-1] + '-gz"' if gz else etag)
+                self.send_header('Cache-Control', cache_control)
+                self.send_header('Vary', 'Accept-Encoding')
+                self.end_headers()
+                return
+        if gz:
+            body = _dashboard_gzip(body, etag)
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Cache-Control', cache_control)
+        self.send_header('Vary', 'Accept-Encoding')
+        if etag:
+            self.send_header('ETag', etag[:-1] + '-gz"' if gz else etag)
+        if gz:
+            self.send_header('Content-Encoding', 'gzip')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+'''
+
+
+def patch_compression(source):
+    """Gzip the page and React bundles, and give the bundles an ETag so a reload revalidates with a 304.
+    The page itself stays no-cache: the server bakes live telemetry into it on every request."""
+    marker = '# HOMELAB_COMPRESSION_V1'
+    if marker in source:
+        return source
+    html = ('            self.send_response(200)\n'
+            '            self.send_header("Content-Type", "text/html; charset=utf-8")\n'
+            '            self.send_header("Cache-Control", "no-cache")\n'
+            '            self.end_headers()\n'
+            '            self.wfile.write(body)\n')
+    static = ('                self.send_response(200)\n'
+              '                self.send_header("Content-Type", "application/javascript; charset=utf-8")\n'
+              '                self.send_header("Cache-Control", "public, max-age=86400")\n'
+              '                self.end_headers()\n'
+              '                self.wfile.write(body)\n')
+    handler = 'class DashboardHandler(BaseHTTPRequestHandler):\n'
+    for needle in (html, static, handler):
+        if source.count(needle) != 1:
+            raise ValueError('dashboard handler shape changed; compression patch not applied')
+    source = source.replace(html, '            self._dashboard_send(body, "text/html; charset=utf-8", "no-cache")\n')
+    source = source.replace(static, '                self._dashboard_send(body, "application/javascript; charset=utf-8", "public, max-age=86400", _dashboard_etag(body))\n')
+    source = source.replace(handler, marker + '\n' + COMPRESSION_HELPERS + handler + COMPRESSION_SEND)
+    compile(source, '<dashboard>', 'exec')
+    return source
