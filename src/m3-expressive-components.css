@@ -331,3 +331,55 @@
   color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font)}
 .service-card--row .service-link>div>p{display:block!important}
 .service-card--row .pin-button{display:inline-flex;align-items:center;justify-content:center;padding:0}
+
+/* ---------- Follow-up audit (26 Oct 2026) ---------- */
+/* 1. Hero text: primary-fixed / tertiary-fixed (light tones) on the dark container in BOTH themes, no opacity.
+      Measured: 7.36:1 on the hero, 6.03:1 on its metric tiles; attention 7.42:1 / 6.11:1. */
+.ov-hero{color:var(--md-sys-color-primary-fixed)}
+.ov-hero--attention{color:var(--md-sys-color-tertiary-fixed)}
+.ov-hero__eyebrow,.ov-hero__sub,.ov-hero .summary-grid>.summary-stat :is(small,p,em){opacity:1}
+.ov-hero .summary-grid>.summary-stat em{opacity:1}
+/* 2. Phone hero: compact. Actions wrap (no hidden overflow), metrics become a tight 2x2 without supporting lines. */
+@media (max-width:599px){
+  .ov-hero{gap:14px;padding:18px;margin-bottom:24px}
+  .ov-hero__head{gap:12px;align-items:center}
+  .ov-hero__glyph{width:44px;height:44px}
+  .ov-hero__sub{display:none}
+  .ov-hero .quick-actions{flex-wrap:wrap;overflow:visible;margin:0;padding:0}
+  .ov-hero .quick-actions>*{flex:0 1 auto}
+  .ov-hero .summary-grid{gap:8px}
+  .ov-hero .summary-grid>.summary-stat{padding:12px}
+  .ov-hero .summary-grid>.summary-stat p,.ov-hero .summary-grid>.summary-stat .summary-icon{display:none}
+  .ov-hero .summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-headline-small-size);line-height:var(--md-sys-typescale-headline-small-line-height)}
+  .ov-hero .summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-title-large-size);line-height:var(--md-sys-typescale-title-large-line-height)}
+}
+/* 3. Local AI: the loaded model is featured (full row, primary container); alternatives stay compact. */
+.ai-model-grid>.ai-model.is-featured{grid-column:1/-1;background:var(--md-sys-color-primary-container);color:var(--md-sys-color-primary-fixed);border-radius:var(--md-sys-shape-corner-extra-large)}
+.ai-model-grid>.ai-model.is-featured :is(p,span,small,em){color:inherit}
+.ai-model-grid>.ai-model:not(.is-featured) .ai-benchmark strong{font-size:var(--md-sys-typescale-title-large-size);line-height:var(--md-sys-typescale-title-large-line-height)}
+.ai-model-grid>.ai-model:not(.is-featured) .ai-context{display:none}
+/* Phone service rows keep live details (streams, queue) while plain hostnames stay hidden. */
+@media (max-width:599px){.service-card--row .service-address.is-live{display:block;grid-column:1;grid-row:auto;text-align:left}}
+/* Hero controls inherit the hero's light foreground and sit on tinted surfaces (fixes 1.11:1 / 1.80:1 in light theme). */
+.ov-hero .pc-power{background:color-mix(in srgb,currentColor 12%,transparent);color:inherit}
+.ov-hero .pc-power :is(strong,span,small,p,.pc-label){color:inherit}
+@media (max-width:599px){
+  .ov-hero .quick-actions>.m3-btn{background:color-mix(in srgb,currentColor 12%,transparent);color:inherit;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 45%,transparent)}
+  .ov-hero .quick-actions>.m3-btn .material-symbols-rounded{color:inherit}
+}
+/* Charts open in a large dialog (expand button, or double-click the chart). */
+.chart{position:relative}
+.chart__expand{position:absolute;top:-6px;right:-6px;z-index:2;opacity:0;transition:opacity var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+.chart:hover .chart__expand,.chart__expand:focus-visible{opacity:1}
+@media (hover:none){.chart__expand{opacity:1}}
+.m3-dialog:has(.chart--dialog){width:min(1100px,calc(100vw - 32px));max-width:none}
+.chart--dialog{margin-top:8px}
+.chart-legend-big{display:flex;flex-wrap:wrap;gap:16px;align-items:center;color:var(--md-sys-color-on-surface-variant);
+  font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font)}
+.chart-legend-big span{display:inline-flex;align-items:center;gap:8px}
+.chart-legend-big i{width:16px;height:4px;border-radius:2px;display:inline-block}
+.chart-legend-big__unit{margin-left:auto}
+/* Legacy .summary-stat min-heights (157-174px) don't apply inside the hero; tiles size to their content. */
+.ov-hero .summary-grid>.summary-stat{min-height:0}
+.ai-model-grid>.ai-model.is-featured .badge,.ai-model-grid>.ai-model.is-featured .badge *{color:var(--md-custom-on-green-container)}
+.ai-model-grid>.ai-model.is-featured .badge:not(.good),.ai-model-grid>.ai-model.is-featured .badge:not(.good) *{color:var(--md-sys-color-on-surface-variant)}

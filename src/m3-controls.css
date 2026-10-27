@@ -179,3 +179,10 @@
   .quick-actions>.m3-btn:active:not(:disabled){padding-left:8px;padding-right:16px}
   .quick-actions>.m3-btn .material-symbols-rounded{font-size:18px!important}
 }
+/* Disabled wins over hover and pressed (follow-up audit). */
+.m3-btn:disabled,.m3-btn:disabled:hover,.m3-btn:disabled:active,.m3-btn[aria-disabled=true]:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,transparent);color:color-mix(in srgb,var(--md-sys-color-on-surface) 38%,transparent);box-shadow:none;border-radius:var(--md-sys-shape-corner-full)}
+.m3-btn--text:disabled,.m3-btn--text:disabled:hover,.m3-btn--outlined:disabled,.m3-btn--outlined:disabled:hover{background:transparent}
+.m3-btn:disabled::before{opacity:0!important}
+/* Hero controls: readable pairs on the pine (or cedar) hero in both themes (follow-up audit: 1.80:1 chip in light). */
+.ov-hero .issue-chip.soft{background:color-mix(in srgb,currentColor 16%,transparent);color:inherit;border:1px solid color-mix(in srgb,currentColor 45%,transparent)}
+.ov-hero .issue-chip:not(.soft){background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container)}
