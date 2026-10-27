@@ -1,121 +1,63 @@
 # Homelab Command Center
 
-A React dashboard and telemetry service for a Proxmox and Unraid homelab. The first screen says whether anything needs attention. The other pages cover services, disks, network, backups, updates and the local AI models.
+A React dashboard and telemetry service for a Proxmox and Unraid homelab. The first screen shows whether anything needs attention; dedicated pages cover services, storage, network, backups, updates, and local LLMs.
 
-The 8-page showcase is at [`showcase/Homelab_Command_Center_Showcase.pdf`](showcase/Homelab_Command_Center_Showcase.pdf).
+![Desktop walkthrough](showcase/motion-desktop.gif)
 
-![Desktop walkthrough: Overview, Storage, Network with an enlarged chart, Local AI, and the switch to light theme](showcase/motion-desktop.gif)
+Sharper copies: [desktop MP4](showcase/motion-desktop.mp4), [phone MP4](showcase/motion-phone.mp4). The 8-page showcase PDF is at [`showcase/Homelab_Command_Center_Showcase.pdf`](showcase/Homelab_Command_Center_Showcase.pdf).
 
-Sharper copies of both clips: [desktop MP4](showcase/motion-desktop.mp4), [phone MP4](showcase/motion-phone.mp4).
+## Features
 
-## What it does
-
-- **Overview.** A health card that reads "All clear" or lists what needs attention, with each item linking to its page. Pinned services and quick actions (wake or sleep the gaming PC, pause DNS blocking, check for updates) come next, then backup status and recent activity. On a phone, the health card and four pinned services fit on the first screen.
-- **Services.** 28 self-hosted services grouped by category, with live reachability checks. Unreachable, stale and unmonitored services are labelled in text as well as colour.
-- **Storage.** Free space, read and write rates, latency and SMART health for each drive, plus 24 hours of history. A forecast estimates when the Unraid cache will fill and starts the mover before it does. Parity shows its drive size and health, since it has no filesystem to measure.
-- **Network.** The latest speed test, both Pi-hole DNS servers, and send and receive rates for each host, with one host's history charted at a time.
-- **Local AI.** The model loaded on the gaming PC (RTX 5070 Ti, llama.cpp) comes first with an Open chat button, next to Wake and Sleep controls. A small Gemma model on the Arc A310 answers questions about the homelab and lists the readings it used. Arc A310 usage and history sit below.
-- **Backups and recovery.** Proxmox backup jobs, the off-site restic copy in Google Drive and Unraid parity, with restore test results underneath. A nightly job on the A310 reviews host warning logs after the backups finish.
-- **Updates.** `apt` upgrades for Proxmox containers and image updates for Unraid Docker apps. Each container is snapshotted first, guests update one at a time, and a failure stops the run and shows the rollback command.
-- **Hosts and containers.** Proxmox, Unraid and the Orange Pi, then CPU, memory and state for every VM, container and Docker app.
-- **Alerts.** ntfy push notifications for stale shares, failed services, stopped Docker apps, failed updates, stale speed tests, filling storage, drive health and backups.
-
-Readings carry a timestamp. If a source stops answering, its tile shows a dash instead of zero.
-
-## Design
-
-The interface follows Material 3 Expressive, Google's 2025 update to Material Design. Colours are generated with Google's Material colour library from a single seed colour, for both light and dark themes. Navigation adapts to the window: a bottom bar with a More sheet on phones, a rail on tablets, and a collapsible rail on desktops.
-
-Shapes and motion come from the Expressive spec. The health icon sits in a scalloped shape that changes when something is wrong, each service category has its own icon shape, and the loading indicator morphs between shapes. Pages slide into place, a tapped row turns into the next page's title, and buttons change shape when pressed. On a phone you can pull down to refresh and swipe the More sheet away. The system's Reduce motion setting turns all motion off.
-
-Chart line colours were checked for colour-blind readers in both themes, and text contrast is at least 4.5:1.
+- **Health & Actions:** Immediate status ("All clear" or attention list), pinned services, and quick actions (wake/sleep gaming PC, pause Pi-hole, trigger updates).
+- **Storage & Network:** Real-time throughput, disk latency, SMART health, and 24h rolling history in SQLite. Predicts Unraid cache fills and runs the mover proactively.
+- **Local AI:** Real-time status for llama.cpp on the RTX 5070 Ti (with vision) and a helper model on an Arc A310 for homelab queries and nightly log reviews.
+- **Updates & Backups:** Container `apt` upgrades and Docker image pulls with automatic rollback snapshots. Tracks Proxmox backup jobs and Google Drive restic snapshots.
+- **Mobile & Responsive:** Adapts from phones (bottom bar + More sheet) to ultrawides. Follows Material 3 Expressive motion and color tokens.
 
 <p align="center">
-  <img src="showcase/motion-phone.gif" width="30%" alt="Phone walkthrough: tab changes, category filter, the More sheet and swiping it away" />
+  <img src="showcase/motion-phone.gif" width="30%" alt="Phone walkthrough" />
   &nbsp;
   <img src="showcase/phone.png" width="30%" alt="Overview on a phone" />
   &nbsp;
   <img src="showcase/phone-sheet.png" width="30%" alt="More destinations sheet on a phone" />
 </p>
 
-## Screenshots
-
-| | |
-| :--- | :--- |
-| ![Storage](showcase/storage.png) | ![Network](showcase/network.png) |
-| ![Local AI](showcase/ai.png) | ![Backups and recovery](showcase/infra.png) |
-| ![Updates](showcase/updates.png) | ![Hosts and containers](showcase/fleet.png) |
-
-## Architecture
-
-- **Frontend:** a React 18 single-page app built into one HTML file with esbuild. Layouts work from 360px phones to 3440px ultrawides.
-- **Backend:** a small Python service on Proxmox (LXC 104) that serves `/api/telemetry`, `/api/storage`, `/api/updates` and the guarded action endpoints.
-- **History:** a rolling 24 hours of metrics in SQLite (`metrics.sqlite3`).
-- **Probes:** a Glances AMP probe (`host_probe.py`) reports disk and system counters every 10 seconds.
-
 ## Development
 
-Requires Node.js 18+ and Python 3.10+. Playwright is used for the browser checks.
+Requires Node.js 18+ and Python 3.10+.
 
 ```sh
 npm ci
 npm run build          # writes index.html
 python3 preview.py     # local preview on 127.0.0.1:8799
-npm run check          # 10 Playwright check suites; must end with ALL CHECKS OK
+npm run check          # 10 Playwright check suites
 python3 -m unittest discover -v
 ```
 
-`npm run check` starts the preview itself and covers accessibility, overlays and focus, page content, responsive layouts from 360px to 3440px, the updates flow and more. Every request that would change something is aborted during checks.
-
-To refresh the showcase screenshots, PDF and motion clips from the live dashboard (the clips need `ffmpeg`):
+To refresh the showcase screenshots, PDF, and clips (requires `ffmpeg`):
 
 ```sh
-node showcase/build-showcase.mjs             # screenshots + PDF
-node showcase/build-showcase.mjs --pdf-only  # PDF from the existing screenshots
-node showcase/record-motion.mjs              # motion clips (GIF + MP4), desktop and phone
+node showcase/build-showcase.mjs   # screenshots + PDF
+node showcase/record-motion.mjs    # desktop and phone clips
 ```
-
-The clips are recorded with every animation slowed to a tenth of its speed and captured frame by frame, then played back at real speed at 50 fps. A normal screen recording of a headless browser drops most frames.
 
 ## Deployment
 
-The dashboard runs in a Proxmox LXC under systemd (`homelab-dashboard.service`). Deploy with:
+Runs in a Proxmox LXC under systemd (`homelab-dashboard.service`):
 
 ```sh
 python3 deploy.py
 ```
 
-`deploy.py` backs up the current files to `/opt/homelab-dashboard/backups/`, copies the built `index.html` and backend patches, checks Python syntax and the local API, and rolls back if the health check fails.
-
-## Key files
-
-| Path | What it is |
-| :--- | :--- |
-| `src/app.jsx` | The app: pages, navigation, charts. |
-| `src/m3.jsx` | Material 3 components (buttons, dialogs, progress, loading indicator, page transitions). |
-| `m3-tokens.mjs` | Generates the colour tokens with Material's colour library. |
-| `m3-expressive.mjs`, `m3-shapes.mjs` | Generate the Expressive spring curves, sizes and shape outlines. |
-| `src/m3-motion.css` | Motion, press feedback and transitions. |
-| `backend_patch.py` | Hooks added to the dashboard HTTP server for the storage and telemetry APIs. |
-| `storage_monitor.py` | Disk I/O, filesystem usage and capacity from Glances. |
-| `activity_monitor.py` | Download speeds (SABnzbd, RdtClient) alongside scratch disk I/O and pressure. |
-| `log_monitor.py` | Collects and groups alerts from the syslog monitor. |
-| `cache_guard.py` | Watches the Unraid cache and starts the mover at set thresholds. |
-| `updates/`, `update_proxy.py` | The Proxmox update runner, reached through a restricted SSH key, and its dashboard bridge. |
-| `tools/` | Read-only diagnostics broker and Open WebUI tool. |
-| `nightly/` | Local model runner, GPU probe and context builders for questions and the nightly log review. |
-| `mount-heal/` | systemd timer that remounts stale network shares. |
-| `pc/` | Windows service and game watcher for the gaming PC's model server. |
-| `*-check.mjs`, `ui-smoke.mjs` | Playwright checks run by `npm run check`. |
-| `style-snapshot.mjs` | Records computed styles on every page, to confirm CSS refactors change nothing. |
+`deploy.py` backs up current files, updates `index.html` and backend patches, checks syntax and API health, and rolls back on failure.
 
 ## Security
 
-- The dashboard runs only on the local network or VPN and is not exposed to the internet.
-- Actions that change something (DNS pauses, clearing log alerts, updates, PC power) need an `X-Dashboard-Action` header and a same-origin request, and the UI asks for confirmation first.
-- The update runner uses one SSH key that Proxmox accepts only from the dashboard host and only for `status`, `check` and `start`. Runs wait while a backup, parity check, mover or local model is busy.
-- The page runs only its own scripts (a Content-Security-Policy with a new nonce on every load), and the live data embedded in it is escaped, so text from a log line can never run as code.
-- No secrets are stored in the repository or sent to the browser. Integrations read their tokens from root-only files on each host.
+- Runs on the local network/VPN only.
+- State-changing actions require confirmation, a same-origin request, and an `X-Dashboard-Action` header.
+- Content-Security-Policy with per-request nonces; embedded telemetry data is escaped.
+- Update runner uses a locked-down SSH key accepted only from the dashboard host.
+- No secrets or API keys are stored in the repo or sent to the browser.
 
 ## License
 
