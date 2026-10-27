@@ -101,7 +101,7 @@
 /* 3. 48dp touch targets on phones: keep the 40dp visual size, extend the hit area (M3 touch-target rule). */
 @media (max-width:599px){
   .pin-button{width:48px;height:48px}
-  main a:not([class]){display:inline-block;min-height:48px;line-height:48px}
+  main a:not([class]):not(.network-map a){display:inline-block;min-height:48px;line-height:48px}
 }
 /* 4. Focus layer on navigation items; state layers on chips, pin buttons and service cards. */
 .m3-nav-bar__item:focus-visible .m3-nav-indicator::before,.m3-nav-rail__item:focus-visible .m3-nav-indicator::before,.m3-xrail__item:focus-visible .m3-nav-indicator::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
@@ -509,3 +509,80 @@ h2 .count,h3 .count,.section-heading .count{border:0;background:none;padding:0 0
 .chart-tooltip{background:var(--md-sys-color-surface-container-highest);color:var(--md-sys-color-on-surface);border:0;border-radius:var(--md-sys-shape-corner-small);box-shadow:var(--md-sys-elevation-level2)}
 .chart-tooltip__item{display:inline-flex;align-items:center;gap:6px}
 .chart-tooltip__item i{display:inline-block;width:12px;height:4px;border-radius:2px}
+/* Network: hosts as selectable rows; one history card follows the selection. */
+.net-rows{display:flex;flex-direction:column;gap:2px;margin:0 0 16px;border-radius:var(--md-sys-shape-corner-large);overflow:hidden}
+.net-row{display:flex;align-items:center;gap:16px;width:100%;min-height:72px;padding:12px 20px 12px 16px;border:0;border-radius:var(--md-sys-shape-corner-extra-small);text-align:left;cursor:pointer;
+  background:var(--md-sys-color-surface-container);color:var(--md-sys-color-on-surface);font:inherit}
+.net-row.is-selected{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
+.net-row__icon{display:grid;place-items:center;width:40px;height:40px;flex-shrink:0;border-radius:var(--md-sys-shape-corner-medium);background:var(--md-sys-color-surface-container-highest)}
+.net-row.is-selected .net-row__icon{background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
+.net-row__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.net-row__body strong{font:var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size)/1.3 var(--md-sys-typescale-title-medium-font)}
+.net-row__body small{color:inherit;opacity:.8;font-size:var(--md-sys-typescale-body-medium-size)}
+.net-row__now{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font:500 var(--md-sys-typescale-title-small-size)/1.3 var(--md-ref-typeface-plain);font-variant-numeric:tabular-nums;white-space:nowrap}
+.net-row:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:-2px}
+.net-status{margin-bottom:32px}
+/* Network map on phones: compact rows (address, name and role, status), 56px+ touch targets. */
+@media (max-width:599px){
+  .network-map{grid-template-columns:1fr;gap:2px;border-radius:var(--md-sys-shape-corner-large);overflow:hidden}
+  .network-map a{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 16px 8px 12px;border:0;border-radius:var(--md-sys-shape-corner-extra-small);line-height:1.3;background:var(--md-sys-color-surface-container)}
+  .network-map a>div{flex:1;min-width:0}.network-map a strong,.network-map a small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+/* Storage: disk rows open that disk's history; one disk on phones unless Compare is chosen. */
+.disk-rows>li{list-style:none}
+button.disk-row{width:100%;border:0;text-align:left;cursor:pointer;color:inherit;font:inherit}
+button.disk-row:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:-2px}
+.disk-pick{margin:0 0 16px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.disk-pick>button{flex:0 0 auto;width:auto}
+.storage-grid.is-single{display:block}
+/* Hosts: cards keep their own height; Orange Pi detail folds away. One column below 900px, three above. */
+.host-grid{align-items:start}
+@media (min-width:600px) and (max-width:899px){.host-grid{grid-template-columns:1fr}}
+.host-more{margin:4px 0 0}
+.host-more>summary{cursor:pointer;color:var(--md-sys-color-primary);font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/40px var(--md-sys-typescale-label-large-font)}
+/* Overview: quick actions live under the pinned services with a visible title; tablet hero metrics become one compact row. */
+.ov-favorites .ov-actions{margin:20px 0 0}
+.ov-actions__title{margin:0 0 10px;color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height) var(--md-sys-typescale-title-small-font)}
+@media (min-width:600px) and (max-width:1199px){
+  .ov-hero{gap:16px;padding:24px}
+  .ov-hero .summary-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  .ov-hero .summary-grid>.summary-stat{padding:12px 14px}
+  .ov-hero .summary-grid>.summary-stat p,.ov-hero .summary-grid>.summary-stat .summary-icon{display:none}
+  .ov-hero .summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-headline-small-size);line-height:var(--md-sys-typescale-headline-small-line-height)}
+  .ov-hero .summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-title-large-size);line-height:var(--md-sys-typescale-title-large-line-height)}
+}
+.speed-links a{display:inline-flex;align-items:center;gap:4px;line-height:1.3}
+/* Infrastructure: summaries keep their natural height; local backup, off-site backup and parity share one group
+   (three across from 1200px), restore evidence directly beneath. */
+.infra-summary{align-items:start}
+.recovery-section .two-grid{align-items:start}
+@media (min-width:1200px){.recovery-section .two-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* Local AI: other models and GPU history are disclosures (closed by default). */
+.ai-others,.gpu-history{border-radius:var(--md-sys-shape-corner-large);background:var(--md-sys-color-surface-container-high)}
+.gpu-history{background:transparent;margin-top:8px}
+.ai-others>summary,.gpu-history>summary{display:flex;align-items:center;gap:8px;min-height:52px;padding:0 16px;cursor:pointer;list-style:none;
+  font:var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size)/1.3 var(--md-sys-typescale-title-small-font)}
+.ai-others>summary::-webkit-details-marker,.gpu-history>summary::-webkit-details-marker{display:none}
+.ai-others__chevron,.gpu-history__chevron{margin-left:auto;transition:transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
+details[open]>summary .ai-others__chevron,details[open]>summary .gpu-history__chevron{transform:rotate(180deg)}
+.ai-others .ai-model-list{margin:0 8px 8px}.ai-others .source-note{margin:0 16px 12px}
+.ai-others .ai-model--row{background:var(--md-sys-color-surface-container)}
+.gpu-history>summary{padding:0;color:var(--md-sys-color-primary)}
+/* Updates: grouped by what needs you. */
+.update-group{margin:0 0 8px}
+.update-group__title{display:flex;align-items:center;gap:6px;margin:16px 0 8px;color:var(--md-sys-color-on-surface-variant);list-style:none;cursor:default;
+  font:var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size)/1.3 var(--md-sys-typescale-title-small-font)}
+summary.update-group__title{cursor:pointer;min-height:44px;margin:8px 0 0}
+summary.update-group__title::-webkit-details-marker{display:none}
+.summary-tile--link{color:inherit;text-decoration:none}.summary-tile__go{margin-left:auto}
+.summary-tile--link:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:2px}
+/* Update rows: segmented list rows (no outline boxes), name and detail left, status right. */
+.update-group h4 .count,.update-group summary .count{border:0;background:none;padding:0 0 0 4px;color:var(--md-sys-color-on-surface-variant);font-weight:400}
+.update-list .update-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name badge" "detail detail";gap:4px 12px;align-items:center;
+  margin:0 0 2px;padding:12px 16px;border:0;border-radius:var(--md-sys-shape-corner-extra-small);background:var(--md-sys-color-surface-container-high);min-height:0}
+.update-list .update-row:first-of-type{border-top-left-radius:var(--md-sys-shape-corner-large);border-top-right-radius:var(--md-sys-shape-corner-large)}
+.update-list .update-row:last-child{border-bottom-left-radius:var(--md-sys-shape-corner-large);border-bottom-right-radius:var(--md-sys-shape-corner-large)}
+.update-list .update-row .fleet-name{grid-area:name;min-width:0}
+.update-list .update-row .update-detail{grid-area:detail;padding-left:52px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-medium-size)}
+.update-list .update-row>.badge,.update-list .update-row>:last-child{grid-area:badge;justify-self:end}
+@media (min-width:840px){.update-list .update-row{grid-template-columns:minmax(0,1.2fr) minmax(0,1.5fr) auto;grid-template-areas:"name detail badge"}.update-list .update-row .update-detail{padding-left:0}}
