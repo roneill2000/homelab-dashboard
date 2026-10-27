@@ -2,7 +2,6 @@
    Sizes, colours, shapes and type come from the M3 component tokens in component-tokens.md
    (material-web tokens v0_192). Requires m3-sys.css and the generated colour tokens (m3-tokens.mjs).
    Copy this file to src/m3-components.css unchanged. Class names are the contract used in markup.md. */
-
 /* ---------- Base ---------- */
 body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);
   font-family:var(--md-sys-typescale-body-medium-font);font-size:var(--md-sys-typescale-body-medium-size);
@@ -10,8 +9,9 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
   -webkit-font-smoothing:antialiased}
 *,*::before,*::after{box-sizing:border-box}
 :focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important}}
-
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important}
+}
 /* Material Symbols Rounded (loaded by build.mjs from Google Fonts) */
 /* width/height/overflow keep the box icon-sized before the font loads (otherwise the ligature name shows as wide text) */
 .material-symbols-rounded{width:1em;height:1em;overflow:hidden;font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;font-size:24px;line-height:1;
@@ -21,7 +21,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .material-symbols-rounded.is-filled{font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24}
 .material-symbols-rounded.size-18{font-size:18px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20}
 .material-symbols-rounded.size-20{font-size:20px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20}
-
 /* ---------- Type scale utility classes ---------- */
 .m3-display-large{font:var(--md-sys-typescale-display-large-weight) var(--md-sys-typescale-display-large-size)/var(--md-sys-typescale-display-large-line-height) var(--md-sys-typescale-display-large-font);letter-spacing:var(--md-sys-typescale-display-large-tracking)}
 .m3-display-medium{font:var(--md-sys-typescale-display-medium-weight) var(--md-sys-typescale-display-medium-size)/var(--md-sys-typescale-display-medium-line-height) var(--md-sys-typescale-display-medium-font);letter-spacing:var(--md-sys-typescale-display-medium-tracking)}
@@ -39,7 +38,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-label-medium{font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font);letter-spacing:var(--md-sys-typescale-label-medium-tracking)}
 .m3-label-small{font:var(--md-sys-typescale-label-small-weight) var(--md-sys-typescale-label-small-size)/var(--md-sys-typescale-label-small-line-height) var(--md-sys-typescale-label-small-font);letter-spacing:var(--md-sys-typescale-label-small-tracking)}
 .m3-on-surface-variant{color:var(--md-sys-color-on-surface-variant)}
-
 /* ---------- State layer (hover 8%, focus 12%, pressed 12%) ----------
    Add .m3-state to any interactive element. The overlay uses the element's text colour. */
 .m3-state{position:relative;isolation:isolate;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -50,26 +48,7 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-state:active::before{opacity:var(--md-sys-state-pressed-state-layer-opacity)}
 .m3-state:disabled,.m3-state[aria-disabled=true]{cursor:default}
 .m3-state:disabled::before,.m3-state[aria-disabled=true]::before{opacity:0}
-
 /* ---------- Buttons (filled, tonal, outlined, text): 40px tall, full shape, label-large ---------- */
-.m3-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 24px;border:0;
-  border-radius:var(--md-sys-shape-corner-full);font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
-  letter-spacing:var(--md-sys-typescale-label-large-tracking);text-decoration:none;white-space:nowrap;background:transparent;
-  transition:box-shadow var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard)}
-.m3-btn.has-icon{padding-left:16px}
-.m3-btn .material-symbols-rounded{font-size:18px}
-.m3-btn--filled{background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
-.m3-btn--filled:hover{box-shadow:var(--md-sys-elevation-level1)}
-.m3-btn--tonal{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
-.m3-btn--tonal:hover{box-shadow:var(--md-sys-elevation-level1)}
-.m3-btn--outlined{color:var(--md-sys-color-primary);box-shadow:inset 0 0 0 1px var(--md-sys-color-outline)}
-.m3-btn--text{color:var(--md-sys-color-primary);padding:0 12px}
-.m3-btn--text.has-icon{padding:0 16px 0 12px}
-.m3-btn--error{background:var(--md-sys-color-error);color:var(--md-sys-color-on-error)}
-.m3-btn:disabled,.m3-btn[aria-disabled=true]{background:color-mix(in srgb,var(--md-sys-color-on-surface) 12%,transparent);color:color-mix(in srgb,var(--md-sys-color-on-surface) 38%,transparent);box-shadow:none}
-.m3-btn--text:disabled,.m3-btn--text[aria-disabled=true]{background:transparent}
-.m3-btn--outlined:disabled,.m3-btn--outlined[aria-disabled=true]{background:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--md-sys-color-on-surface) 12%,transparent)}
-
 /* ---------- Icon buttons: 40px state layer, 24px icon, 48px touch target ---------- */
 .m3-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:0;
   border-radius:var(--md-sys-shape-corner-full);background:transparent;color:var(--md-sys-color-on-surface-variant);text-decoration:none}
@@ -77,47 +56,14 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-icon-btn.is-selected{color:var(--md-sys-color-primary)}
 .m3-icon-btn--tonal{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
 .m3-icon-btn:disabled{color:color-mix(in srgb,var(--md-sys-color-on-surface) 38%,transparent)}
-
 /* ---------- Segmented buttons: 40px, outline 1px, full shape, selected = secondary-container + check ---------- */
-.m3-segmented{display:inline-flex;max-width:100%;overflow-x:auto;border-radius:var(--md-sys-shape-corner-full);scrollbar-width:none}
-.m3-segment{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;min-width:48px;padding:0 12px;margin-left:-1px;
-  border:1px solid var(--md-sys-color-outline);background:transparent;color:var(--md-sys-color-on-surface);
-  font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
-  letter-spacing:var(--md-sys-typescale-label-large-tracking);white-space:nowrap}
-.m3-segment:first-child{margin-left:0;border-radius:var(--md-sys-shape-corner-full) 0 0 var(--md-sys-shape-corner-full);padding-left:16px}
-.m3-segment:last-child{border-radius:0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0;padding-right:16px}
-.m3-segment:only-child{border-radius:var(--md-sys-shape-corner-full)}
-.m3-segment[aria-pressed=true]{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
-.m3-segment .m3-segment__check{display:none;font-size:18px}
-.m3-segment[aria-pressed=true] .m3-segment__check{display:inline-block}
-
 /* ---------- Assist chips (status): 32px, small shape, outline; tone variants use custom colours ---------- */
-.m3-chip{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 16px;border-radius:var(--md-sys-shape-corner-small);
-  box-shadow:inset 0 0 0 1px var(--md-sys-color-outline);background:transparent;color:var(--md-sys-color-on-surface);white-space:nowrap;
-  font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
-  letter-spacing:var(--md-sys-typescale-label-large-tracking)}
-.m3-chip.has-icon{padding-left:8px}
-.m3-chip .material-symbols-rounded{font-size:18px;color:var(--md-sys-color-primary)}
-.m3-chip--compact{height:24px;padding:0 8px;font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font)}
-.m3-chip--compact .material-symbols-rounded{font-size:16px}
-.m3-chip--success{box-shadow:none;background:var(--md-custom-green-container);color:var(--md-custom-on-green-container)}
-.m3-chip--success .material-symbols-rounded{color:inherit}
-.m3-chip--warning{box-shadow:none;background:var(--md-custom-amber-container);color:var(--md-custom-on-amber-container)}
-.m3-chip--warning .material-symbols-rounded{color:inherit}
-.m3-chip--error{box-shadow:none;background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container)}
-.m3-chip--error .material-symbols-rounded{color:inherit}
-.m3-chip--info{box-shadow:none;background:var(--md-custom-blue-container);color:var(--md-custom-on-blue-container)}
-.m3-chip--info .material-symbols-rounded{color:inherit}
-.m3-chip--neutral{box-shadow:none;background:var(--md-sys-color-surface-container-highest);color:var(--md-sys-color-on-surface-variant)}
-.m3-chip--neutral .material-symbols-rounded{color:inherit}
-
 /* ---------- Badges: small 6px dot, large 16px with label-small ---------- */
 .m3-badge-host{position:relative;display:inline-flex}
 .m3-badge{position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-error)}
 .m3-badge--large{top:-4px;right:-8px;width:auto;min-width:16px;height:16px;padding:0 4px;display:inline-flex;align-items:center;justify-content:center;
   color:var(--md-sys-color-on-error);font:var(--md-sys-typescale-label-small-weight) var(--md-sys-typescale-label-small-size)/var(--md-sys-typescale-label-small-line-height) var(--md-sys-typescale-label-small-font)}
 .m3-badge--inline{position:static;margin-left:auto}
-
 /* ---------- Cards: medium shape (12px), 16px padding ---------- */
 .m3-card{position:relative;border-radius:var(--md-sys-shape-corner-medium);padding:16px;color:var(--md-sys-color-on-surface);min-width:0}
 .m3-card--outlined{background:var(--md-sys-color-surface);box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant)}
@@ -140,7 +86,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 [data-accent=amber]{--accent:var(--md-custom-amber);--on-accent:var(--md-custom-on-amber);--accent-container:var(--md-custom-amber-container);--on-accent-container:var(--md-custom-on-amber-container)}
 .m3-accent-icon{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:var(--md-sys-shape-corner-medium);
   background:var(--accent-container,var(--md-sys-color-secondary-container));color:var(--on-accent-container,var(--md-sys-color-on-secondary-container))}
-
 /* ---------- Linear progress: 4px track surface-container-highest, indicator primary (or --accent) ---------- */
 .m3-linear-progress{position:relative;height:4px;border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-surface-container-highest);overflow:hidden}
 .m3-linear-progress__bar{position:absolute;inset:0 auto 0 0;border-radius:inherit;background:var(--accent,var(--md-sys-color-primary));
@@ -149,7 +94,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-linear-progress--error .m3-linear-progress__bar{background:var(--md-sys-color-error)}
 .m3-linear-progress--indeterminate .m3-linear-progress__bar{width:40%;animation:m3-linear 1.8s var(--md-sys-motion-easing-standard) infinite}
 @keyframes m3-linear{0%{left:-40%}100%{left:100%}}
-
 /* ---------- Circular progress: 48px, 4px stroke (use size 24 inline via .m3-circular-progress--small) ---------- */
 .m3-circular-progress{width:48px;height:48px;color:var(--md-sys-color-primary);animation:m3-spin 1.4s linear infinite}
 .m3-circular-progress--small{width:24px;height:24px}
@@ -157,7 +101,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
   animation:m3-dash 1.4s var(--md-sys-motion-easing-standard) infinite}
 @keyframes m3-spin{to{transform:rotate(360deg)}}
 @keyframes m3-dash{0%{stroke-dasharray:1 200;stroke-dashoffset:0}50%{stroke-dasharray:90 200;stroke-dashoffset:-35}100%{stroke-dasharray:90 200;stroke-dashoffset:-124}}
-
 /* ---------- Outlined text field and select: 56px, extra-small shape, floating label ---------- */
 .m3-field{position:relative;display:flex;align-items:center;min-height:56px;border-radius:var(--md-sys-shape-corner-extra-small);
   box-shadow:inset 0 0 0 1px var(--md-sys-color-outline);background:transparent;color:var(--md-sys-color-on-surface);--m3-field-bg:var(--md-sys-color-surface)}
@@ -175,20 +118,20 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-field--select::after{content:'arrow_drop_down';font-family:'Material Symbols Rounded';font-size:24px;position:absolute;right:12px;top:50%;transform:translateY(-50%);
   color:var(--md-sys-color-on-surface-variant);pointer-events:none;font-feature-settings:'liga'}
 .m3-field--select select option{background:var(--md-sys-color-surface-container);color:var(--md-sys-color-on-surface)}
-.m3-field--dense{min-height:40px}.m3-field--dense .m3-field__input{height:40px}
+.m3-field--dense{min-height:40px}
+.m3-field--dense .m3-field__input{height:40px}
 .m3-field__clear{margin-right:4px}
-
 /* ---------- Menu (popover list): surface-container, extra-small shape, level 2 ---------- */
 .m3-menu{position:absolute;z-index:30;min-width:112px;max-width:280px;padding:8px 0;border-radius:var(--md-sys-shape-corner-extra-small);
   background:var(--md-sys-color-surface-container);box-shadow:var(--md-sys-elevation-level2);color:var(--md-sys-color-on-surface)}
 .m3-menu__item{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:0 12px;border:0;background:transparent;color:inherit;text-align:left;
   font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font)}
 .m3-menu__item[aria-checked=true],.m3-menu__item[aria-selected=true]{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
-
 /* ---------- Lists: 56/72/88px items, 16px side padding ---------- */
 .m3-list{margin:0;padding:8px 0;list-style:none}
 .m3-list-item{display:flex;align-items:center;gap:16px;min-height:56px;padding:8px 16px;color:var(--md-sys-color-on-surface);text-decoration:none}
-.m3-list-item--two-line{min-height:72px}.m3-list-item--three-line{min-height:88px;align-items:flex-start}
+.m3-list-item--two-line{min-height:72px}
+.m3-list-item--three-line{min-height:88px;align-items:flex-start}
 .m3-list-item__body{flex:1;min-width:0}
 .m3-list-item__headline{display:block;font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height) var(--md-sys-typescale-body-large-font);overflow-wrap:anywhere}
 .m3-list-item__supporting{display:block;color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font);overflow-wrap:anywhere}
@@ -196,7 +139,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-list-item>.material-symbols-rounded{color:var(--md-sys-color-on-surface-variant)}
 .m3-divider{height:1px;margin:0;border:0;background:var(--md-sys-color-outline-variant)}
 .m3-divider--inset{margin:0 16px}
-
 /* ---------- Dialog: surface-container-high, extra-large shape (28px), level 3, scrim 32% ---------- */
 .m3-scrim{position:fixed;inset:0;z-index:40;background:color-mix(in srgb,var(--md-sys-color-scrim) 32%,transparent);
   animation:m3-fade var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard)}
@@ -209,7 +151,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-dialog__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}
 @keyframes m3-fade{from{opacity:0}}
 @keyframes m3-dialog-in{from{opacity:0;transform:translate(-50%,-46%) scale(.96)}}
-
 /* ---------- Snackbar: inverse-surface, extra-small shape, level 3, bottom ---------- */
 .m3-snackbar{position:fixed;z-index:50;left:50%;bottom:calc(16px + var(--m3-bottom-nav-height,0px) + env(safe-area-inset-bottom));transform:translateX(-50%);
   display:flex;align-items:center;gap:8px;min-height:48px;width:max-content;max-width:min(560px,calc(100vw - 32px));padding:4px 8px 4px 16px;
@@ -217,10 +158,8 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
   font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font);
   animation:m3-snack-in var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate)}
 .m3-snackbar__text{flex:1;padding:10px 0}
-.m3-snackbar .m3-btn--text{color:var(--md-sys-color-inverse-primary)}
 .m3-snackbar .m3-icon-btn{color:var(--md-sys-color-inverse-on-surface)}
 @keyframes m3-snack-in{from{opacity:0;transform:translate(-50%,8px)}}
-
 /* ---------- Plain tooltip: inverse-surface, extra-small shape, body-small. Put .m3-tooltip inside a .m3-tooltip-host ---------- */
 .m3-tooltip-host{position:relative;display:inline-flex}
 .m3-tooltip{position:absolute;z-index:60;left:50%;top:calc(100% + 4px);transform:translateX(-50%);min-height:24px;max-width:200px;padding:4px 8px;
@@ -228,7 +167,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
   font:var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size)/var(--md-sys-typescale-body-small-line-height) var(--md-sys-typescale-body-small-font);
   white-space:nowrap;pointer-events:none;opacity:0;transition:opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard)}
 .m3-tooltip-host:hover .m3-tooltip,.m3-tooltip-host:focus-within .m3-tooltip{opacity:1;transition-delay:500ms}
-
 /* ---------- App shell + adaptive navigation ----------
    < 600px  compact : top app bar + bottom navigation bar (4 + More) + modal drawer
    600-839  medium  : navigation rail (6 + More) + modal drawer
@@ -241,9 +179,13 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
    before React swaps the rail/drawer after a resize can never squeeze or overflow the page. The rail and drawer
    are also hidden by CSS outside their breakpoints. */
 .m3-app__main{grid-column:-2/-1}
-@media (min-width:600px){.m3-app{grid-template-columns:80px 1fr}.m3-app__main{padding:0 24px 32px}}
-@media (min-width:1200px){.m3-app{grid-template-columns:360px 1fr}}
-
+@media (min-width:600px){
+  .m3-app{grid-template-columns:80px 1fr}
+  .m3-app__main{padding:0 24px 32px}
+}
+@media (min-width:1200px){
+  .m3-app{grid-template-columns:360px 1fr}
+}
 /* Top app bar (small): 64px, title-large, surface; on scroll -> surface-container */
 .m3-top-app-bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:4px;height:64px;padding:0 4px 0 4px;margin:0 -16px;
   background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);
@@ -252,17 +194,24 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-top-app-bar__title{flex:1;min-width:0;margin:0 0 0 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font:var(--md-sys-typescale-title-large-weight) var(--md-sys-typescale-title-large-size)/var(--md-sys-typescale-title-large-line-height) var(--md-sys-typescale-title-large-font)}
 .m3-top-app-bar__menu{display:inline-flex}
-@media (min-width:600px){.m3-top-app-bar{margin:0 -24px;padding:0 12px 0 16px}.m3-top-app-bar__menu{display:none}.m3-top-app-bar__title{margin-left:0}}
-
+@media (min-width:600px){
+  .m3-top-app-bar{margin:0 -24px;padding:0 12px 0 16px}
+  .m3-top-app-bar__menu{display:none}
+  .m3-top-app-bar__title{margin-left:0}
+}
 /* Navigation bar (compact only): 80px, surface-container, indicator 64x32 secondary-container */
 .m3-nav-bar{position:fixed;left:0;right:0;bottom:0;z-index:25;display:flex;height:calc(80px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);
   background:var(--md-sys-color-surface-container);box-shadow:var(--md-sys-elevation-level2)}
 .m3-nav-bar__item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;padding:12px 0 16px;border:0;background:transparent;
   color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font);cursor:pointer}
 .m3-nav-bar__item[aria-current=page]{color:var(--md-sys-color-secondary);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
-@media (min-width:600px){.m3-nav-bar{display:none}}
-:root{--m3-bottom-nav-height:80px}@media (min-width:600px){:root{--m3-bottom-nav-height:0px}}
-
+@media (min-width:600px){
+  .m3-nav-bar{display:none}
+}
+:root{--m3-bottom-nav-height:80px}
+@media (min-width:600px){
+  :root{--m3-bottom-nav-height:0px}
+}
 /* Shared indicator for bar and rail items */
 .m3-nav-indicator{position:relative;display:flex;align-items:center;justify-content:center;width:64px;height:32px;border-radius:var(--md-sys-shape-corner-full);isolation:isolate}
 .m3-nav-rail .m3-nav-indicator{width:56px}
@@ -272,7 +221,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 [aria-current=page]>.m3-nav-indicator{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
 [aria-current=page]>.m3-nav-indicator .material-symbols-rounded{font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24}
 .m3-nav-label{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
-
 /* Navigation rail (600-1199): 80px wide, surface, items 56x32 indicator, label-medium */
 .m3-nav-rail{display:none;position:sticky;top:0;height:100vh;overflow-y:auto;flex-direction:column;align-items:center;gap:4px;padding:12px 0 16px;
   background:var(--md-sys-color-surface);scrollbar-width:none}
@@ -281,14 +229,22 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
   color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font);text-align:center}
 .m3-nav-rail__item[aria-current=page]{color:var(--md-sys-color-secondary);font-weight:var(--md-sys-typescale-label-medium-weight-prominent)}
 .m3-nav-rail__item.is-secondary{display:none}
-@media (min-width:600px){.m3-nav-rail{display:flex}}
-@media (min-width:840px){.m3-nav-rail__item.is-secondary{display:flex}.m3-nav-rail__item.is-more{display:none}}
-@media (min-width:1200px){.m3-nav-rail{display:none}}
-
+@media (min-width:600px){
+  .m3-nav-rail{display:flex}
+}
+@media (min-width:840px){
+  .m3-nav-rail__item.is-secondary{display:flex}
+  .m3-nav-rail__item.is-more{display:none}
+}
+@media (min-width:1200px){
+  .m3-nav-rail{display:none}
+}
 /* Navigation drawer: standard (>=1200, in layout) and modal (<1200, over a scrim). 360px, items 56px, full-shape indicator */
 .m3-nav-drawer{display:none;flex-direction:column;width:360px;max-width:calc(100vw - 56px);height:100vh;overflow-y:auto;padding:12px;
   background:var(--md-sys-color-surface-container-low);color:var(--md-sys-color-on-surface-variant)}
-@media (min-width:1200px){.m3-nav-drawer{display:flex;position:sticky;top:0;background:var(--md-sys-color-surface)}}
+@media (min-width:1200px){
+  .m3-nav-drawer{display:flex;position:sticky;top:0;background:var(--md-sys-color-surface)}
+}
 .m3-nav-drawer.is-modal{display:flex;position:fixed;z-index:45;left:0;top:0;border-radius:0 var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large) 0;
   box-shadow:var(--md-sys-elevation-level1);animation:m3-drawer-in var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate)}
 @keyframes m3-drawer-in{from{transform:translateX(-100%)}}
@@ -302,7 +258,6 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-nav-drawer__badge{margin-left:auto;font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/1 var(--md-sys-typescale-label-large-font)}
 .m3-nav-drawer__divider{margin:8px 16px}
 .m3-nav-drawer__footer{margin-top:auto;padding-top:8px}
-
 /* Search bar (>= 840) and search view (full screen on < 840, docked panel on >= 840) */
 .m3-search-bar{display:flex;align-items:center;gap:4px;height:56px;width:100%;max-width:720px;padding:0 4px 0 16px;border:0;border-radius:var(--md-sys-shape-corner-full);
   background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface-variant);text-align:left;
@@ -310,18 +265,24 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-search-bar__text{flex:1;margin-left:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .m3-search-bar-wrap{display:none;flex:1;justify-content:center;padding:0 8px}
 .m3-search-trigger{display:inline-flex}
-@media (min-width:840px){.m3-search-bar-wrap{display:flex}.m3-search-trigger{display:none}}
+@media (min-width:840px){
+  .m3-search-bar-wrap{display:flex}
+  .m3-search-trigger{display:none}
+}
 .m3-search-view{position:fixed;z-index:46;inset:0;display:flex;flex-direction:column;background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface);
   animation:m3-fade var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard)}
-@media (min-width:840px){.m3-search-view{inset:72px auto auto 50%;transform:translateX(-50%);width:min(720px,calc(100vw - 48px));max-height:min(640px,calc(100vh - 96px));
-  border-radius:var(--md-sys-shape-corner-extra-large);box-shadow:var(--md-sys-elevation-level3)}}
+@media (min-width:840px){
+  .m3-search-view{inset:72px auto auto 50%;transform:translateX(-50%);width:min(720px,calc(100vw - 48px));max-height:min(640px,calc(100vh - 96px));
+  border-radius:var(--md-sys-shape-corner-extra-large);box-shadow:var(--md-sys-elevation-level3)}
+}
 .m3-search-view__header{display:flex;align-items:center;gap:4px;height:72px;padding:0 4px}
-@media (min-width:840px){.m3-search-view__header{height:56px}}
+@media (min-width:840px){
+  .m3-search-view__header{height:56px}
+}
 .m3-search-view__input{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:inherit;
   font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height) var(--md-sys-typescale-body-large-font)}
 .m3-search-view__input::placeholder{color:var(--md-sys-color-on-surface-variant)}
 .m3-search-view__results{flex:1;overflow-y:auto;border-top:1px solid var(--md-sys-color-outline)}
-
 /* ---------- Page layout helpers ---------- */
 .m3-page-header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin:8px 0 24px}
 .m3-page-header__title{margin:0;color:var(--md-sys-color-on-surface);font:var(--md-sys-typescale-headline-medium-weight) var(--md-sys-typescale-headline-medium-size)/var(--md-sys-typescale-headline-medium-line-height) var(--md-sys-typescale-headline-medium-font)}
@@ -331,8 +292,9 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-section__title{margin:0;color:var(--md-sys-color-on-surface);font:var(--md-sys-typescale-title-large-weight) var(--md-sys-typescale-title-large-size)/var(--md-sys-typescale-title-large-line-height) var(--md-sys-typescale-title-large-font)}
 .m3-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))}
 .m3-grid--dense{grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:12px}
-@media (min-width:600px){.m3-grid{gap:24px}}
-
+@media (min-width:600px){
+  .m3-grid{gap:24px}
+}
 /* ---------- Additions used by the app shell ---------- */
 .m3-icon-btn--touch{width:48px;height:48px}
 .m3-nav-drawer.is-modal{display:flex;position:fixed;z-index:45;left:0;top:0;border-radius:0 var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large) 0;
@@ -348,12 +310,15 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-top-app-bar__brand .material-symbols-rounded{color:var(--md-sys-color-primary)}
 .m3-top-app-bar__actions{display:flex;align-items:center;gap:4px;margin-left:auto}
 .m3-page-header__meta{text-align:right;color:var(--md-sys-color-on-surface-variant)}
-@media (max-width:839px){.m3-page-header__meta{display:none}}
+@media (max-width:839px){
+  .m3-page-header__meta{display:none}
+}
 .m3-search-view .command-results a{display:flex}
 .m3-search-view__empty{padding:24px 16px;color:var(--md-sys-color-on-surface-variant)}
 .spinning .material-symbols-rounded{animation:m3-spin 1s linear infinite}
-@media (max-width:419px){.m3-top-app-bar__brand-text,.live-chip__text{display:none}.live-chip.has-icon{padding:0 4px}}
-
+@media (max-width:419px){
+  .m3-top-app-bar__brand-text,.live-chip__text{display:none}
+}
 /* ---------- Android feel (26 Oct 2026): large top app bar ---------- */
 /* Expanded state: large headline under the 64px bar. Collapsed state: the small title fades into the bar on scroll. */
 .m3-page-header--large{margin:4px 0 24px;padding-top:24px}
@@ -362,11 +327,15 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 .m3-top-app-bar .m3-top-app-bar__title{flex:0 1 auto;margin-left:8px;opacity:0;transform:translateY(4px);
   transition:opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard)}
 .m3-top-app-bar.is-scrolled .m3-top-app-bar__title{opacity:1;transform:none}
-@media (min-width:600px){.m3-top-app-bar .m3-top-app-bar__title{margin-left:0}}
-@media (min-width:840px){.m3-search-bar-wrap{order:2}.m3-top-app-bar__actions{order:3}}
-.m3-top-app-bar .m3-icon-btn,.m3-top-app-bar .m3-chip,.m3-top-app-bar__actions{flex-shrink:0}
+@media (min-width:600px){
+  .m3-top-app-bar .m3-top-app-bar__title{margin-left:0}
+}
+@media (min-width:840px){
+  .m3-search-bar-wrap{order:2}
+  .m3-top-app-bar__actions{order:3}
+}
+.m3-top-app-bar .m3-icon-btn,.m3-top-app-bar__actions{flex-shrink:0}
 .m3-top-app-bar .m3-top-app-bar__title{min-width:0;flex:1 1 auto}
-
 /* Android feel: filled cards (loaded last so it overrides the outlined-card rules above). */
 /* Cards are filled surface containers with no border (Android style); a card inside a card steps up one level. */
 .panel,.service-card,.m3-card--outlined,.m3-card.m3-card--outlined.panel{background:var(--md-sys-color-surface-container);border:0;box-shadow:none;border-radius:var(--md-sys-shape-corner-large)}

@@ -1,40 +1,18 @@
 /* Material 3 Expressive components and motion. Loaded last. Token values: src/m3-expressive.css (generated). */
-
 /* ---------- Linear progress (flat and wavy) ---------- */
 .m3-xprogress{position:relative;width:100%;display:block;margin-top:6px;overflow:hidden;contain:inline-size}
 .m3-xprogress svg{display:block;overflow:visible}
 .m3-xprogress__track{stroke:var(--md-sys-color-secondary-container)}
 .m3-xprogress__wave{animation:m3-wave 1s linear infinite}
 @keyframes m3-wave{to{transform:translateX(40px)}}
-
 /* ---------- Shape morph on press (buttons and icon buttons go from round to rounded-square) ---------- */
-.m3-btn,.m3-icon-btn,.primary-button,.secondary-button{transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+.m3-icon-btn{transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
   box-shadow var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects),
   padding var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
-.m3-btn:active:not(:disabled),.primary-button:active:not(:disabled),.secondary-button:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
 .m3-icon-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
-
 /* ---------- Standard button group (Overview quick actions): 12px gap; the pressed button widens ~15% ---------- */
-.quick-actions{gap:var(--md-comp-button-group-standard-gap)}
-.quick-actions>.m3-btn:active:not(:disabled){padding-left:30px;padding-right:30px}
-
 /* ---------- Connected button group (replaces segmented buttons in Expressive) ----------
    2px gaps, outer corners full, inner corners 8px (4px while pressed), the selected item becomes fully round. */
-.segments,.m3-segmented{gap:var(--md-comp-button-group-connected-gap);box-shadow:none;border:0;background:transparent;overflow-x:auto;overflow-y:hidden;padding:0;max-width:100%;scrollbar-width:none}
-.segments button,.m3-segment{border:0;margin:0;border-radius:var(--md-comp-button-group-connected-inner-corner);
-  background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface-variant);
-  transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
-    background-color var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
-.segments button:first-child,.m3-segment:first-child{border-radius:var(--md-sys-shape-corner-full) var(--md-comp-button-group-connected-inner-corner) var(--md-comp-button-group-connected-inner-corner) var(--md-sys-shape-corner-full)}
-.segments button:last-child,.m3-segment:last-child{border-radius:var(--md-comp-button-group-connected-inner-corner) var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) var(--md-comp-button-group-connected-inner-corner)}
-.segments button:only-child,.m3-segment:only-child{border-radius:var(--md-sys-shape-corner-full)}
-.segments button:active,.m3-segment:active{border-radius:var(--md-comp-button-group-connected-pressed-inner-corner)}
-.segments button.selected,.segments button[aria-pressed=true],.m3-segment[aria-pressed=true]{border-radius:var(--md-sys-shape-corner-full);
-  background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
-.segments button:hover,.m3-segment:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container-high))}
-.segments button.selected:hover,.segments button[aria-pressed=true]:hover,.m3-segment[aria-pressed=true]:hover{background:color-mix(in srgb,var(--md-sys-color-on-secondary-container) 8%,var(--md-sys-color-secondary-container))}
-.m3-segment .m3-segment__check{display:none}
-
 /* ---------- Springy motion for surfaces ---------- */
 .m3-nav-drawer.is-modal{transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial),visibility 0s linear var(--md-sys-motion-spring-expressive-default-spatial-duration)}
 .m3-nav-drawer.is-modal.open{transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial),visibility 0s}
@@ -43,12 +21,12 @@
 [aria-current=page]>.m3-nav-indicator{animation:m3-indicator-in var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
 @keyframes m3-indicator-in{from{transform:scaleX(.5);opacity:.6}}
 .m3-nav-drawer__item{transition:background-color var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
-
 /* ---------- Expressive shapes: bigger corners on large surfaces ---------- */
 .panel,.service-card,.m3-card{border-radius:var(--md-sys-shape-corner-large-increased)}
 .m3-dialog,.m3-search-view{border-radius:var(--md-sys-shape-corner-extra-large-increased)}
-@media (max-width:839px){.m3-search-view{border-radius:0}}
-
+@media (max-width:839px){
+  .m3-search-view{border-radius:0}
+}
 /* ---------- Expressive navigation rail (expanded window class and up) ----------
    Collapsed: 96px, items 64px tall, icon in a 56x32 indicator with the label under it.
    Expanded: 280px (spec range 220-360), items 56px tall, icon + label in a full-width pill.
@@ -77,36 +55,37 @@
 .m3-xrail.is-expanded .m3-xrail__count{display:inline;margin-left:auto}
 .m3-xrail__meta{margin:auto 0 0;padding:16px 28px 0;color:var(--md-sys-color-on-surface-variant);white-space:nowrap}
 /* Grid: 80px narrow rail on medium, 96px collapsed rail from 840px, 280px expanded rail from 1200px unless collapsed. */
-@media (min-width:840px){.m3-app{grid-template-columns:96px 1fr}}
-@media (min-width:1200px){.m3-app{grid-template-columns:280px 1fr}.m3-app.m3-app--rail-collapsed{grid-template-columns:96px 1fr}}
+@media (min-width:840px){
+  .m3-app{grid-template-columns:96px 1fr}
+}
+@media (min-width:1200px){
+  .m3-app{grid-template-columns:280px 1fr}
+  .m3-app.m3-app--rail-collapsed{grid-template-columns:96px 1fr}
+}
 .m3-app{transition:grid-template-columns var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
 /* Modal drawer on phones/tablets uses the modal rail colours. */
 .m3-nav-drawer.is-modal{background:var(--md-sys-color-surface-container);box-shadow:none}
 .m3-nav-drawer.is-modal.open{box-shadow:var(--md-sys-elevation-level2)}
-
 /* ---------- Corrections from the 26 Oct 2026 token audit (values from material-web tokens/versions/latest, commit 763a97326fc2) ---------- */
 /* Buttons, small (_md-comp-button-small): 16px leading/trailing space, 20px icon, pressed shape corner-small (8px). Disabled container 10%. */
-.m3-btn,.primary-button,.secondary-button{padding-left:16px;padding-right:16px}
-.m3-btn .material-symbols-rounded{font-size:20px}
-.m3-btn--text{padding-left:12px;padding-right:12px}
-.m3-btn:active:not(:disabled),.primary-button:active:not(:disabled),.secondary-button:active:not(:disabled),.m3-icon-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-small)}
-.m3-btn:disabled,.m3-btn[aria-disabled=true],.primary-button:disabled,.secondary-button:disabled{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,transparent)}
-.m3-btn--text:disabled,.m3-btn--outlined:disabled{background:transparent}
+.m3-icon-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-small)}
 /* Outlined button and assist chip outline: outline-variant (latest; v0_192 used outline). */
-.m3-btn--outlined{box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant)}
-.m3-chip:not([class*="m3-chip--"]){box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant)}
 /* Standard button group: the pressed button widens by --md-comp-button-group-pressed-width-multiplier (15%). CSS padding
    cannot read the button's own width, so 16px -> 26px each side approximates 15% for the 130-170px buttons used here. */
-.quick-actions>.m3-btn:active:not(:disabled){padding-left:26px;padding-right:26px}
 /* Navigation bar (_md-comp-nav-bar, Compose NavigationBarTokens): 64px tall, 56x32 indicator, active label secondary. */
-:root{--m3-bottom-nav-height:64px}@media (min-width:600px){:root{--m3-bottom-nav-height:0px}}
+:root{--m3-bottom-nav-height:64px}
+@media (min-width:600px){
+  :root{--m3-bottom-nav-height:0px}
+}
 .m3-nav-bar{height:calc(64px + env(safe-area-inset-bottom))}
 .m3-nav-bar__item{padding:6px 0 8px}
 .m3-nav-bar .m3-nav-indicator{width:56px}
 /* Cards: corner-medium (12px) per the card tokens; dialog and docked search view: corner-extra-large (28px). */
 .panel,.service-card,.m3-card,.m3-card.m3-card--outlined.panel{border-radius:var(--md-sys-shape-corner-medium)}
 .m3-dialog{border-radius:var(--md-sys-shape-corner-extra-large)}
-@media (min-width:840px){.m3-search-view{border-radius:var(--md-sys-shape-corner-extra-large)}}
+@media (min-width:840px){
+  .m3-search-view{border-radius:var(--md-sys-shape-corner-extra-large)}
+}
 /* Linear progress track: secondary-container, full shape (_md-comp-progress-indicator). */
 .m3-linear-progress,.track{background:var(--md-sys-color-secondary-container);border-radius:var(--md-sys-shape-corner-full)}
 /* Circular progress: 40px without wave. */
@@ -114,38 +93,28 @@
 /* Lists (latest _md-comp-list): 12px between leading content and text, 10px top/bottom padding. */
 .m3-list-item{gap:12px;padding-top:10px;padding-bottom:10px}
 /* Connected button group = toggle buttons, filled: unselected surface-container, selected primary / on-primary. */
-.segments button,.m3-segment{background:var(--md-sys-color-surface-container);color:var(--md-sys-color-on-surface-variant)}
-.segments button:hover,.m3-segment:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container))}
-.segments button.selected,.segments button[aria-pressed=true],.m3-segment[aria-pressed=true]{background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
-.segments button.selected:hover,.segments button[aria-pressed=true]:hover,.m3-segment[aria-pressed=true]:hover{background:color-mix(in srgb,var(--md-sys-color-on-primary) 8%,var(--md-sys-color-primary))}
 /* Expanded rail items: 16px leading space to the icon. */
 .m3-xrail.is-expanded .m3-xrail__item{padding-left:4px}
-
 /* ---------- Corrections from the 26 Oct 2026 interaction/accessibility audit ---------- */
 /* 1. Focus ring inside clipped cards (service cards and summary stats clip their overflow). */
 .service-link:focus-visible,.summary-link:focus-visible{outline-offset:-3px;border-radius:inherit}
 /* 3. 48dp touch targets on phones: keep the 40dp visual size, extend the hit area (M3 touch-target rule). */
 @media (max-width:599px){
-  .m3-btn,.segments button,.issue-chip,.text-button{position:relative}
-  .m3-btn::after,.segments button::after,.issue-chip::after{content:'';position:absolute;left:0;right:0;top:-4px;bottom:-4px}
-  .issue-chip::after{top:-8px;bottom:-8px}
   .pin-button{width:48px;height:48px}
   main a:not([class]){display:inline-block;min-height:48px;line-height:48px}
 }
 /* 4. Focus layer on navigation items; state layers on chips, pin buttons and service cards. */
 .m3-nav-bar__item:focus-visible .m3-nav-indicator::before,.m3-nav-rail__item:focus-visible .m3-nav-indicator::before,.m3-xrail__item:focus-visible .m3-nav-indicator::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
 .m3-nav-bar__item:focus-visible,.m3-nav-rail__item:focus-visible,.m3-xrail__item:focus-visible{outline-offset:-3px}
-.issue-chip{position:relative;isolation:isolate}
 .pin-button{isolation:isolate}
-.issue-chip::before,.pin-button::before{content:'';position:absolute;inset:0;border-radius:inherit;background:currentColor;opacity:0;z-index:-1;pointer-events:none;transition:opacity var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+.pin-button::before{content:'';position:absolute;inset:0;border-radius:inherit;background:currentColor;opacity:0;z-index:-1;pointer-events:none;transition:opacity var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
 .pin-button{border-radius:var(--md-sys-shape-corner-full)}
-.issue-chip:hover::before,.pin-button:hover::before{opacity:var(--md-sys-state-hover-state-layer-opacity)}
-.issue-chip:focus-visible::before,.pin-button:focus-visible::before,.issue-chip:active::before,.pin-button:active::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
+.pin-button:hover::before{opacity:var(--md-sys-state-hover-state-layer-opacity)}
+.pin-button:focus-visible::before,.pin-button:active::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
 .service-card:focus-within{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container))}
 .service-card:active{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container))}
 /* 7. Neutral badges at full opacity in the readable role. */
 .badge.neutral{opacity:1;color:var(--md-sys-color-on-surface-variant)}
-
 /* ---------- Visual-audit changes (26 Oct 2026) ---------- */
 /* 1. Overview hero row: the four headline stats become separate tonal tiles with display-size numbers.
       Services = primary-container, DNS = secondary-container, Devices and Log events = surface-container-high. */
@@ -161,27 +130,20 @@
 .summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height)}
 .summary-grid>.summary-stat .summary-icon{background:transparent;border:0;color:inherit}
 .summary-grid>.summary-stat.summary-link:hover{filter:brightness(1.04)}
-@media (max-width:599px){.summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-display-small-size);line-height:var(--md-sys-typescale-display-small-line-height)}}
+@media (max-width:599px){
+  .summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-display-small-size);line-height:var(--md-sys-typescale-display-small-line-height)}
+}
 /* 2. One icon colour role for every service; colour is kept for status (dots, chips). */
 .service-icon,.m3-accent-icon{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
 .service-card .service-icon{border:0}
 /* 3. Phones: Overview quick actions become one horizontally scrolling row of assist chips. */
-@media (max-width:599px){
-  .quick-actions{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;gap:8px;margin-left:-16px;margin-right:-16px;padding:4px 16px}
-  .quick-actions::-webkit-scrollbar{display:none}
-  .quick-actions>*{flex:0 0 auto;width:auto!important}
-  .quick-actions>.m3-btn{min-height:32px;height:32px;padding:0 16px 0 8px;border-radius:var(--md-sys-shape-corner-small);background:transparent;
-    box-shadow:inset 0 0 0 1px var(--md-sys-color-outline-variant);color:var(--md-sys-color-on-surface);gap:8px}
-  .quick-actions>.m3-btn .material-symbols-rounded{font-size:18px;color:var(--md-sys-color-primary)}
-  .quick-actions>.pc-power{flex-wrap:nowrap;padding:4px 4px 4px 12px;gap:8px;border-radius:var(--md-sys-shape-corner-small);white-space:nowrap}
-  .quick-actions>.pc-power *{white-space:nowrap}
-  .quick-actions>.pc-power .m3-btn{min-height:32px;height:32px;padding:0 12px}
-}
 /* 4. Chart unit above the y axis. */
 .chart-unit{font-weight:500}
-@media (max-width:419px){.summary-grid>.summary-stat{padding:16px}.summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-headline-small-size);line-height:var(--md-sys-typescale-headline-small-line-height)}}
+@media (max-width:419px){
+  .summary-grid>.summary-stat{padding:16px}
+  .summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-headline-small-size);line-height:var(--md-sys-typescale-headline-small-line-height)}
+}
 .summary-grid>.summary-stat strong{overflow-wrap:anywhere}
-
 /* ---------- Expressive motion: page transitions, content entrance (26 Oct 2026) ---------- */
 .m3-visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
 /* M3 fade-through on the page content only (navigation stays put): outgoing fades quickly (fast effects spring),
@@ -202,24 +164,23 @@
 :is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(6){animation-delay:150ms}
 :is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(n+7){animation-delay:180ms}
 @keyframes m3-rise{from{opacity:0;transform:translateY(16px)}}
-@media (prefers-reduced-motion:reduce){::view-transition-old(page),::view-transition-new(page),::view-transition-group(page){animation:none}}
-
+@media (prefers-reduced-motion:reduce){
+  ::view-transition-old(page),::view-transition-new(page),::view-transition-group(page){animation:none}
+}
 /* ---------- Round-2 audit corrections (26 Oct 2026; values from material-web tokens/versions/latest) ---------- */
 /* Focus indicator: 3px secondary, offset 2px (beats the legacy element rule in styles.css). In-card links keep -3px. */
 :is(button,a,input,select,summary,[tabindex]):focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px}
 .service-link:focus-visible,.summary-link:focus-visible,.m3-nav-bar__item:focus-visible,.m3-nav-rail__item:focus-visible,.m3-xrail__item:focus-visible{outline-offset:-3px}
 /* Disabled buttons: colours only (10% container, 38% label), no extra element opacity. */
-.m3-btn:disabled,.m3-icon-btn:disabled,.m3-segment:disabled{opacity:1}
+.m3-icon-btn:disabled{opacity:1}
 /* One state layer per button: the legacy hover colour-mix is removed; .m3-state supplies 8%/10%. */
-.primary-button.m3-btn:hover{background:var(--md-sys-color-primary)}
-.secondary-button.m3-btn:hover{background:var(--md-sys-color-secondary-container)}
-.text-button.m3-btn:hover{background:transparent}
 /* Button icons 20px even where markup passes a size. */
-.m3-btn .material-symbols-rounded{font-size:20px!important}
 /* Outlined button label: on-surface-variant (latest outlined button). */
-.m3-btn--outlined{color:var(--md-sys-color-on-surface-variant)}
 /* Navigation spacing: bar 0 gap, collapsed rail 4px between items, expanded rail 0; bar item padding fits 64px. */
-.m3-nav-bar{gap:0}.m3-xrail{gap:4px}.m3-xrail.is-expanded{gap:0}.m3-nav-rail{gap:4px}
+.m3-nav-bar{gap:0}
+.m3-xrail{gap:4px}
+.m3-xrail.is-expanded{gap:0}
+.m3-nav-rail{gap:4px}
 .m3-nav-bar__item{padding:6px 0 6px}
 /* Collapsed rail: hover 8% / pressed 10% on the indicator. Expanded rail: the whole pill carries the layers. */
 .m3-xrail__item:hover .m3-nav-indicator::before{opacity:var(--md-sys-state-hover-state-layer-opacity)}
@@ -232,8 +193,6 @@
 .m3-xrail.is-expanded .m3-xrail__item{gap:8px;padding-left:16px}
 .m3-xrail.is-expanded .m3-xrail__indicator{width:24px}
 /* Connected groups: pressed layer 10%. */
-.segments button:active,.m3-segment:active{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container))}
-.segments button.selected:active,.segments button[aria-pressed=true]:active{background:color-mix(in srgb,var(--md-sys-color-on-primary) 10%,var(--md-sys-color-primary))}
 /* Letter-spacing per type role. */
 .m3-nav-bar__item,.m3-nav-rail__item,.m3-xrail__item{letter-spacing:var(--md-sys-typescale-label-medium-tracking)}
 .m3-xrail.is-expanded .m3-xrail__item{letter-spacing:var(--md-sys-typescale-label-large-tracking)}
@@ -256,16 +215,11 @@
 .m3-search-bar{box-shadow:var(--md-sys-elevation-level3)}
 .m3-top-app-bar.is-scrolled{box-shadow:var(--md-sys-elevation-level2)}
 /* Issue chips: outline-variant, 16px padding, 8px gap. */
-.issue-chip{padding:0 16px;gap:8px}
-.issue-chip.soft{border:1px solid var(--md-sys-color-outline-variant)}
 /* Keep the top app bar still during page transitions; only the content fades through. */
 .m3-top-app-bar{view-transition-name:topbar}
 ::view-transition-old(topbar),::view-transition-new(topbar){animation:none}
 /* Phones: 48dp touch targets that survive scroll containers (padding gives the ::after room). */
 @media (max-width:599px){
-  .quick-actions{padding-top:8px;padding-bottom:8px}
-  .quick-actions>.m3-btn::after{top:-8px;bottom:-8px}
-  .segments{padding-top:4px;padding-bottom:4px}
   main input:not([type=checkbox]):not([type=radio]),main select,main summary,.copy-ip{min-height:48px}
   .service-card a[target=_blank]{min-width:48px}
 }
@@ -273,10 +227,8 @@
 /* Chart live region: always mounted for screen readers; visually collapsed while no sample is selected. */
 .chart-tooltip.is-empty{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:0!important;border:0!important;
   overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;background:none!important;box-shadow:none!important}
-
 /* Wordmark: Google Sans Flex 500 (Ryan, 26 Oct 2026), like Google's own app wordmarks. */
 .m3-xrail__brand,.m3-nav-drawer__brand,.m3-top-app-bar__brand{font-family:var(--md-ref-typeface-brand);font-weight:500;letter-spacing:-0.2px}
-
 /* ---------- Overview v2 (Codex audit, 26 Oct 2026): one featured surface, quieter supporting surfaces, varied shapes ---------- */
 /* Health hero: primary-container (tertiary-container when something needs attention), 32px corner, emphasized display type. */
 .ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);border-radius:var(--md-sys-shape-corner-extra-large-increased);
@@ -291,7 +243,6 @@
 .ov-hero__sub{margin:6px 0 0;font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height) var(--md-sys-typescale-body-large-font);opacity:.9}
 .ov-hero .status-line{margin:0}
 .ov-hero .all-clear{color:inherit;font-weight:500}
-.ov-hero .quick-actions{margin:0}
 /* The four numbers become quiet tiles inside the hero (no competing colours). */
 .ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;border-radius:var(--md-sys-shape-corner-large)}
 .ov-hero .summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height);font-weight:500}
@@ -300,7 +251,9 @@
 .ov-hero .summary-grid>.summary-stat.summary-link:hover{background:color-mix(in srgb,currentColor 14%,transparent);filter:none}
 /* Favorites two thirds, status one third. */
 .ov-columns{display:grid;gap:24px;margin:0 0 32px;align-items:start}
-@media (min-width:840px){.ov-columns{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}}
+@media (min-width:840px){
+  .ov-columns{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+}
 .ov-favorites>.section-heading{margin-top:0}
 .ov-favorites .service-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))}
 .ov-side{display:grid;gap:16px}
@@ -313,28 +266,23 @@
 .ov-status .m3-list-item{min-height:56px;padding:8px}
 .ov-status .m3-list-item.is-ok>.material-symbols-rounded{color:var(--md-custom-green)}
 .ov-status .m3-list-item.is-bad>.material-symbols-rounded{color:var(--md-sys-color-error)}
-.ov-status>.m3-btn{margin-left:0}
 /* Activity: one quiet surface of rows. */
 .ov-activity>.section-heading{margin-top:0}
 .ov-rows{background:var(--md-sys-color-surface-container-low);border-radius:var(--md-sys-shape-corner-large);padding:8px 0}
 .ov-rows>li>.m3-list-item{width:100%}
 .ov-rows .m3-xprogress{margin-top:8px;max-width:420px}
 .ov-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-@media (max-width:599px){.ov-hero{padding:20px;border-radius:var(--md-sys-shape-corner-extra-large)}.ov-hero__title{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height)}}
-
+@media (max-width:599px){
+  .ov-hero{padding:20px;border-radius:var(--md-sys-shape-corner-extra-large)}
+  .ov-hero__title{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height)}
+}
 /* ---------- Interaction fixes (Codex audit) ---------- */
 .m3-page-header__title:focus{outline:none}
 .m3-page-header__title:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:4px;border-radius:4px}
 .m3-search-view__empty{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;color:var(--md-sys-color-on-surface-variant)}
 .m3-search-view__empty p{margin:0}
 /* Selected + pressed connected button: the pressed shape wins over the selected (fully round) shape. */
-.segments button.selected:active,.segments button[aria-pressed=true]:active,.m3-segment[aria-pressed=true]:active{border-radius:var(--md-comp-button-group-connected-pressed-inner-corner)}
 /* Phone chips keep their own padding and 18px icon while pressed (no desktop widening). */
-@media (max-width:599px){
-  .quick-actions>.m3-btn:active:not(:disabled){padding-left:8px;padding-right:16px}
-  .quick-actions>.m3-btn .material-symbols-rounded{font-size:18px!important}
-}
-
 /* ---------- All services v2: category filter, pinned first, grouped compact rows (Codex audit) ---------- */
 .service-categories{margin:0 0 20px}
 .service-groups{display:grid;gap:24px}
@@ -361,8 +309,11 @@
   font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font)}
 .service-card--row .launch-arrow{opacity:.6;position:static}
 .service-card--row .pin-button{position:absolute;right:8px;top:50%;bottom:auto;transform:translateY(-50%);width:48px;height:48px;opacity:1}
-@media (max-width:599px){.service-card--row .service-address{display:none}.service-card--row .service-link{padding-right:56px;gap:12px}.service-card--row .launch-arrow{display:none}}
-
+@media (max-width:599px){
+  .service-card--row .service-address{display:none}
+  .service-card--row .service-link{padding-right:56px;gap:12px}
+  .service-card--row .launch-arrow{display:none}
+}
 /* ---------- Local AI v2: unavailable analytics collapse (Codex audit) ---------- */
 .ai-history{margin-top:16px;background:var(--md-sys-color-surface-container-low);border-radius:var(--md-sys-shape-corner-large)}
 .ai-history>summary{display:flex;align-items:center;gap:12px;min-height:56px;padding:0 16px;cursor:pointer;list-style:none;border-radius:inherit;
@@ -373,7 +324,9 @@
 .ai-history__chevron{margin-left:auto;transition:transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
 .ai-history[open] .ai-history__chevron{transform:rotate(180deg)}
 .ai-history>.ai-model-grid{padding:0 12px 12px}
-@media (max-width:599px){.ai-history__hint{display:none}}
+@media (max-width:599px){
+  .ai-history__hint{display:none}
+}
 .m3-empty-note{display:flex;align-items:center;gap:12px;margin:12px 0 0;padding:16px;border-radius:var(--md-sys-shape-corner-medium);background:var(--md-sys-color-surface-container);
   color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font)}
 .service-card--row .service-link>div>p{display:block!important}
