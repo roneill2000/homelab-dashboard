@@ -86,9 +86,9 @@ async function record(name, { viewport, scale, touch, theme, script }) {
   frames.sort((a, b) => a[0] - b[0]); const list = []; let i = 0;
   for (let t = 0; t < clock; t += 1000 / FPS) { while (i + 1 < frames.length && frames[i + 1][0] <= t) i++; list.push(`file '${frames[i][1]}'\nduration ${1 / FPS}`); }
   writeFileSync(join(dir, 'list.txt'), list.join('\n') + '\n');
-  const out = join(here, 'motion-' + name), w = name === 'phone' ? 360 : 960;
+  const out = join(here, 'motion-' + name), w = name === 'phone' ? 360 : 900;
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', join(dir, 'list.txt'), '-vf', `fps=${FPS},scale=${viewport.width}:-2:flags=lanczos`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out + '.mp4']);
-  execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', out + '.mp4', '-vf', `fps=25,scale=${w}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=192:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle`, out + '.gif']);
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', out + '.mp4', '-vf', `fps=25,scale=${w}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle`, out + '.gif']);
   console.log(`wrote showcase/motion-${name}.mp4 and .gif (${(clock / 1000).toFixed(1)} s, ${frames.length} captured frames)`);
   rmSync(dir, { recursive: true, force: true });
 }
@@ -103,9 +103,13 @@ if (!only || only === 'desktop') await record('desktop', {
     await moveTo(nav(page, 'Storage')); await click(nav(page, 'Storage'), 1100);   // page change + nav indicator
     await hold(600);
     const cap = page.getByRole('button', { name: 'Capacity used' }), thr = page.getByRole('button', { name: 'Throughput' });
-    await moveTo(cap); await press(cap, 400, 900);                  // button morphs, headline switches to Used / Free
+    await scrollTo(page.locator('.storage-toolbar'), 72, 900);      // bring the toggles and the four charts into view
+    await hold(500);
+    await moveTo(cap); await press(cap, 400, 1100);                 // button morphs; charts switch to % used, headline to Used / Free
+    await hold(900);
     await hold(600);
-    await moveTo(thr); await press(thr, 350, 700);
+    await moveTo(thr); await press(thr, 350, 1000);                 // back to read/write throughput
+    await hold(600);
     await moveTo(nav(page, 'Network')); await click(nav(page, 'Network'), 1100);
     await scrollTo(page.locator('.net-section'), 72);
     const row = page.locator('.net-row').nth(1);
