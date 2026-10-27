@@ -20,6 +20,11 @@ export function LogoMark({size=32}){
 }
 
 const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+// Android System WebView (the Capacitor app) mis-composites the View Transitions API: the old and new page snapshots
+// overlap with a vertical offset and the nav bar is drawn twice. Skip view transitions there. CSS entrance animations
+// still run, so pages still arrive with a stagger; only the cross-page snapshot morph is dropped.
+const inWebView=()=>{try{return /\bwv\)/.test(navigator.userAgent)||!!window.Capacitor?.isNativePlatform?.()}catch{return false}};
+const skipViewTransition=()=>reducedMotion()||inWebView();
 
 // M3 fade-through between pages via the View Transitions API (Chrome, Edge, Safari 18+). The DOM update runs inside the
 // transition (flushSync) so the old and new page are captured; falls back to a plain update elsewhere or with reduced motion.
@@ -27,7 +32,7 @@ const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)').
 // steps aside for the duration so only one element carries the name in each snapshot.
 // Resolves once the new page is on screen (after the transition, or two frames when there is none).
 export function withPageTransition(update,from){
-  if(!document.startViewTransition||reducedMotion()){update();return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}
+  if(!document.startViewTransition||skipViewTransition()){update();return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}
   const title=document.querySelector('main h1');
   if(from&&title&&from!==title){from.style.viewTransitionName='page-title';title.style.viewTransitionName='none'}
   return document.startViewTransition(()=>{ReactDOM.flushSync(update);if(from)from.style.viewTransitionName='';if(title)title.style.viewTransitionName=''}).finished.catch(()=>{});
@@ -35,7 +40,7 @@ export function withPageTransition(update,from){
 // In-page shared element: the activated element morphs into the element matching toSelector after the update (a picked
 // row into its detail card). The page itself holds still (html.vt-local).
 export function morph(update,from,toSelector,after){
-  if(!document.startViewTransition||reducedMotion()||!from){update();after?.();return}
+  if(!document.startViewTransition||skipViewTransition()||!from){update();after?.();return}
   document.documentElement.classList.add('vt-local');from.style.viewTransitionName='focus-morph';let target=null;
   const t=document.startViewTransition(()=>{ReactDOM.flushSync(update);from.style.viewTransitionName='';target=document.querySelector(toSelector);if(target)target.style.viewTransitionName='focus-morph'});
   t.finished.finally(()=>{if(target)target.style.viewTransitionName='';document.documentElement.classList.remove('vt-local');after?.()});
