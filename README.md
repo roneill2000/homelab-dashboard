@@ -2,9 +2,11 @@
 
 A React dashboard and telemetry service for a Proxmox and Unraid homelab. The first screen says whether anything needs attention. The other pages cover services, disks, network, backups, updates and the local AI models.
 
-The 8-page showcase is at [`showcase/Homelab_Command_Center_Showcase.pdf`](showcase/Homelab_Command_Center_Showcase.pdf). High-definition video walkthrough is available at [`showcase/demo.mp4`](showcase/demo.mp4).
+The 8-page showcase is at [`showcase/Homelab_Command_Center_Showcase.pdf`](showcase/Homelab_Command_Center_Showcase.pdf).
 
-![Homelab Command Center UI & Animations](showcase/demo.gif?v=20fps)
+![Desktop walkthrough: Overview, Storage, Network with an enlarged chart, Local AI, and the switch to light theme](showcase/motion-desktop.gif)
+
+Sharper copies of both clips: [desktop MP4](showcase/motion-desktop.mp4), [phone MP4](showcase/motion-phone.mp4).
 
 ## What it does
 
@@ -29,11 +31,11 @@ Shapes and motion come from the Expressive spec. The health icon sits in a scall
 Chart line colours were checked for colour-blind readers in both themes, and text contrast is at least 4.5:1.
 
 <p align="center">
+  <img src="showcase/motion-phone.gif" width="30%" alt="Phone walkthrough: tab changes, category filter, the More sheet and swiping it away" />
+  &nbsp;
   <img src="showcase/phone.png" width="30%" alt="Overview on a phone" />
   &nbsp;
   <img src="showcase/phone-sheet.png" width="30%" alt="More destinations sheet on a phone" />
-  &nbsp;
-  <img src="showcase/services.png" width="30%" alt="All services on a phone" />
 </p>
 
 ## Screenshots
@@ -65,12 +67,15 @@ python3 -m unittest discover -v
 
 `npm run check` starts the preview itself and covers accessibility, overlays and focus, page content, responsive layouts from 360px to 3440px, the updates flow and more. Every request that would change something is aborted during checks.
 
-To refresh the showcase screenshots and PDF from the live dashboard:
+To refresh the showcase screenshots, PDF and motion clips from the live dashboard (the clips need `ffmpeg`):
 
 ```sh
 node showcase/build-showcase.mjs             # screenshots + PDF
 node showcase/build-showcase.mjs --pdf-only  # PDF from the existing screenshots
+node showcase/record-motion.mjs              # motion clips (GIF + MP4), desktop and phone
 ```
+
+The clips are recorded with every animation slowed to a tenth of its speed and captured frame by frame, then played back at real speed at 50 fps. A normal screen recording of a headless browser drops most frames.
 
 ## Deployment
 
