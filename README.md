@@ -2,9 +2,9 @@
 
 A React dashboard and telemetry service for a Proxmox and Unraid homelab. The first screen says whether anything needs attention. The other pages cover services, disks, network, backups, updates and the local AI models.
 
-The 8-page showcase is at [`showcase/Homelab_Command_Center_Showcase.pdf`](showcase/Homelab_Command_Center_Showcase.pdf).
+The 8-page showcase is at [`showcase/Homelab_Command_Center_Showcase.pdf`](showcase/Homelab_Command_Center_Showcase.pdf). High-definition video walkthrough is available at [`showcase/demo.mp4`](showcase/demo.mp4).
 
-![Overview](showcase/overview.png)
+![Homelab Command Center UI & Animations](showcase/demo.gif)
 
 ## What it does
 
