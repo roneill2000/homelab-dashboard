@@ -2383,6 +2383,9 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 /* Search view field: no focus ring. The open view and the caret already show where typing goes (M3 search view), and the
    global :is(...):focus-visible ring drew a square box over the rounded header. */
 .m3-search-view .m3-search-view__input:focus-visible{outline:none}
+/* Search bar's ⌘K chip: the bar's 4px trailing padding suits a 48px trailing icon button, not a chip, which sat against
+   the pill's curve. Give it the same 12px inset from the curve as the leading search icon has. */
+.m3-search-bar>.m3-chip:last-child{margin-right:12px}
 
 /* Entrance animations use fill-mode backwards, so once they end they release transform and hover/press springs work.
    M3 Expressive motion layer (27 Oct 2026, Ryan: "I barely see any animations"). Loaded last. Every effect uses the
