@@ -2375,6 +2375,11 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 /* Long model names end in an ellipsis; where supported the picker widens to fit the chosen model first. */
 .m3-select--qwen select{text-overflow:ellipsis;white-space:nowrap}
 @media (min-width:600px){@supports (field-sizing:content){.m3-select--qwen select{field-sizing:content;min-width:180px;max-width:300px}}}
+/* Gaming PC status reads as a status light, not a second accent next to the tonal button: status green with a halo when
+   online, amber when off or asleep, a hollow ring while checking. */
+.pc-dot{width:10px;height:10px}
+.pc-dot.on{background:var(--md-custom-green);box-shadow:0 0 0 4px color-mix(in srgb,var(--md-custom-green) 30%,transparent)}
+.pc-dot.unknown{background:transparent;box-shadow:inset 0 0 0 2px var(--md-sys-color-outline)}
 
 /* Entrance animations use fill-mode backwards, so once they end they release transform and hover/press springs work.
    M3 Expressive motion layer (27 Oct 2026, Ryan: "I barely see any animations"). Loaded last. Every effect uses the
