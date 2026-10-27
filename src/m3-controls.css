@@ -259,3 +259,34 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 /* "A bit darker" (Ryan, 27 Oct 2026): the healthy hero sits a step deeper than the seed pine (#1f4d45 -> about #183d37). */
 .ov-hero{background:color-mix(in srgb,var(--md-sys-color-primary-container) 78%,#000)}
 .ov-hero--attention{background:color-mix(in srgb,var(--md-sys-color-tertiary-container) 82%,#000)}
+
+/* Fresh UX review, 27 Oct 2026. */
+/* Overview health tiles: four across only when each tile has room for its label; otherwise two compact columns. */
+.ov-hero{container-type:inline-size}
+@container (max-width:700px){.ov-hero .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Drive health: fixed columns (icon, details, temperature, SMART badge) so every row reads the same whatever the model
+   name length; long details wrap inside their own column. Phones put temperature and badge under the details. */
+.drive-row,.drive-row:last-child{display:grid;grid-template-columns:24px minmax(0,1fr) auto auto;column-gap:16px;row-gap:8px;align-items:center}
+.drive-row>div{min-width:0}
+.drive-row .mono,.drive-row .badge{margin:0;justify-self:end;white-space:nowrap}
+@media (max-width:599px){
+  .drive-row,.drive-row:last-child{grid-template-columns:24px minmax(0,1fr) auto;align-items:start}
+  .drive-row>div{grid-column:2/-1}
+  .drive-row .mono{grid-column:2;justify-self:start}
+  .drive-row .badge{grid-column:3}
+}
+@media (min-width:1800px){.drive-row,.drive-row:last-child{grid-template-columns:24px minmax(0,1fr) auto}.drive-row>div{grid-column:2/-1}.drive-row .mono{grid-column:2;justify-self:start}.drive-row .badge{grid-column:3}}
+/* Drive summary rows open that drive's history; say so. */
+.disk-row{align-items:center}
+.disk-row__go{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;color:var(--md-sys-color-primary);font:var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/1 var(--md-sys-typescale-label-large-font)}
+@media (max-width:599px){.disk-row__go{font-size:0;gap:0}}
+/* Chart legend shown above inline charts that plot more than one series (Network host traffic). */
+.chart-legend{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 8px;color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font)}
+.chart-legend span{display:inline-flex;align-items:center;gap:8px}
+.chart-legend i{width:16px;height:4px;border-radius:2px;display:inline-block}
+/* Nightly review: coverage caveat sits under the result, neutral tone (missing logs are unknown, not a problem). */
+.ov-status__note{display:flex;gap:8px;align-items:flex-start;margin:0 8px 4px;color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size)/var(--md-sys-typescale-body-small-line-height) var(--md-sys-typescale-body-small-font)}
+.ov-status__note .material-symbols-rounded,.ov-status__note svg{flex-shrink:0;margin-top:1px}
+.ov-status__note b{color:var(--md-sys-color-on-surface);font-weight:500}
+/* Manual-update exception: a route to where the update is done. */
+.update-detail__link{display:inline-flex;align-items:center;gap:4px;margin-top:4px;color:var(--md-sys-color-primary);font-weight:500;min-height:32px}

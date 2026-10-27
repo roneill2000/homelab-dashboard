@@ -101,7 +101,7 @@
 /* 3. 48dp touch targets on phones: keep the 40dp visual size, extend the hit area (M3 touch-target rule). */
 @media (max-width:599px){
   .pin-button{width:48px;height:48px}
-  main a:not([class]):not(.network-map a){display:inline-block;min-height:48px;line-height:48px}
+  main a:not([class]):not(.network-map a){display:inline-flex;align-items:center;gap:4px;min-height:48px}
 }
 /* 4. Focus layer on navigation items; state layers on chips, pin buttons and service cards. */
 .m3-nav-bar__item:focus-visible .m3-nav-indicator::before,.m3-nav-rail__item:focus-visible .m3-nav-indicator::before,.m3-xrail__item:focus-visible .m3-nav-indicator::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
