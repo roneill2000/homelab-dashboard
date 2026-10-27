@@ -2,7 +2,9 @@
 
 | Workstream | Latest | Next action |
 | --- | --- | --- |
-| homelab-dashboard | [2026-10-26 M3 Expressive, handoff to Codex](2026-10-26-homelab-m3-codex.md) | Google OAuth publish + rclone reconnect before ~28 Oct; Kasm in backup coverage; fix 5 stale checks. |
+| homelab-dashboard | [2026-10-26 independent M3 audit](2026-10-26-homelab-m3-independent-audit.md) | Review interaction fixes and Overview/AI composition recommendations. Earlier OAuth/backup/check items remain unverified. |
+
+Earlier: [2026-10-26 M3 Expressive, handoff to Codex](2026-10-26-homelab-m3-codex.md).
 
 Earlier: [2026-10-22 Terra review](2026-10-22-homelab-terra-review.md).
 
