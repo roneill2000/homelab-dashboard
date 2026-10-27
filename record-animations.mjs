@@ -4,44 +4,52 @@ import { mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 
 const URL = process.env.DASHBOARD_URL || 'http://192.168.0.2/';
-const tempDir = '/tmp/homelab-animations';
+const tempDir = '/tmp/homelab-sleek';
 mkdirSync(tempDir, { recursive: true });
 
 for (const file of readdirSync(tempDir)) {
   unlinkSync(path.join(tempDir, file));
 }
 
-console.log('Launching browser to capture fancy animations...');
+console.log('Launching browser for sleek transitions recording...');
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
-  viewport: { width: 1280, height: 780 },
+  viewport: { width: 1280, height: 750 },
   recordVideo: {
     dir: tempDir,
-    size: { width: 1280, height: 780 }
+    size: { width: 1280, height: 750 }
   }
 });
 
 const page = await context.newPage();
 await page.route('**/api/action/**', r => r.request().method() === 'POST' ? r.abort() : r.continue());
 
+// Lock theme to dark initially
+await page.addInitScript(() => {
+  localStorage.setItem('homelab.theme.v2', JSON.stringify('dark'));
+});
+
 await page.goto(URL);
 await page.waitForTimeout(1000);
 
-// Helper for visible cursor and click ripple
+// Inject an ultra-sleek, minimal translucent cursor
 await page.evaluate(() => {
+  // Prevent any accidental page scrolling
+  window.scrollTo(0, 0);
+  window.addEventListener('scroll', () => window.scrollTo(0, 0));
+
   const cursor = document.createElement('div');
-  cursor.id = 'demo-cursor';
+  cursor.id = 'sleek-cursor';
   cursor.style.position = 'fixed';
-  cursor.style.width = '24px';
-  cursor.style.height = '24px';
+  cursor.style.width = '14px';
+  cursor.style.height = '14px';
   cursor.style.borderRadius = '50%';
-  cursor.style.backgroundColor = 'rgba(93, 219, 188, 0.4)';
-  cursor.style.border = '2px solid #5ddbbc';
+  cursor.style.backgroundColor = 'rgba(255, 255, 255, 0.85)';
+  cursor.style.boxShadow = '0 0 10px rgba(93, 219, 188, 0.8), 0 0 2px rgba(0,0,0,0.5)';
   cursor.style.pointerEvents = 'none';
   cursor.style.zIndex = '999999';
   cursor.style.transform = 'translate(-50%, -50%)';
-  cursor.style.transition = 'transform 0.15s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease';
-  cursor.style.boxShadow = '0 0 12px rgba(93, 219, 188, 0.6)';
+  cursor.style.transition = 'transform 0.12s cubic-bezier(0.2, 0, 0, 1), background-color 0.12s ease';
   document.body.appendChild(cursor);
 
   window.addEventListener('mousemove', e => {
@@ -50,108 +58,110 @@ await page.evaluate(() => {
   });
 
   window.addEventListener('mousedown', e => {
-    cursor.style.transform = 'translate(-50%, -50%) scale(0.65)';
-    cursor.style.backgroundColor = 'rgba(93, 219, 188, 0.9)';
-    const ripple = document.createElement('div');
-    ripple.style.position = 'fixed';
-    ripple.style.left = e.clientX + 'px';
-    ripple.style.top = e.clientY + 'px';
-    ripple.style.width = '14px';
-    ripple.style.height = '14px';
-    ripple.style.borderRadius = '50%';
-    ripple.style.border = '2px solid #5ddbbc';
-    ripple.style.pointerEvents = 'none';
-    ripple.style.zIndex = '999998';
-    ripple.style.transform = 'translate(-50%, -50%) scale(1)';
-    ripple.style.transition = 'transform 0.35s cubic-bezier(0.2, 0, 0, 1), opacity 0.35s ease-out';
-    document.body.appendChild(ripple);
+    cursor.style.transform = 'translate(-50%, -50%) scale(0.6)';
+    cursor.style.backgroundColor = '#5ddbbc';
+    const ring = document.createElement('div');
+    ring.style.position = 'fixed';
+    ring.style.left = e.clientX + 'px';
+    ring.style.top = e.clientY + 'px';
+    ring.style.width = '10px';
+    ring.style.height = '10px';
+    ring.style.borderRadius = '50%';
+    ring.style.border = '2px solid rgba(93, 219, 188, 0.9)';
+    ring.style.pointerEvents = 'none';
+    ring.style.zIndex = '999998';
+    ring.style.transform = 'translate(-50%, -50%) scale(1)';
+    ring.style.transition = 'transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1), opacity 0.3s ease-out';
+    document.body.appendChild(ring);
     requestAnimationFrame(() => {
-      ripple.style.transform = 'translate(-50%, -50%) scale(4.5)';
-      ripple.style.opacity = '0';
+      ring.style.transform = 'translate(-50%, -50%) scale(3.5)';
+      ring.style.opacity = '0';
     });
-    setTimeout(() => ripple.remove(), 400);
+    setTimeout(() => ring.remove(), 320);
   });
 
   window.addEventListener('mouseup', () => {
     cursor.style.transform = 'translate(-50%, -50%) scale(1)';
-    cursor.style.backgroundColor = 'rgba(93, 219, 188, 0.4)';
+    cursor.style.backgroundColor = 'rgba(255, 255, 255, 0.85)';
   });
 });
 
-// Smooth click helper with humanized movement
-async function clickElement(locator, delayAfter = 600) {
+async function glideAndClick(locator, pauseAfter = 500) {
   const box = await locator.boundingBox();
   if (!box) return;
   const targetX = box.x + box.width / 2;
   const targetY = box.y + box.height / 2;
-  await page.mouse.move(targetX, targetY, { steps: 12 });
-  await page.waitForTimeout(100);
+  await page.mouse.move(targetX, targetY, { steps: 8 });
+  await page.waitForTimeout(60);
   await page.mouse.down();
-  await page.waitForTimeout(140); // hold press to highlight M3 shape morph
+  await page.waitForTimeout(90);
   await page.mouse.up();
-  await page.waitForTimeout(delayAfter);
+  await page.waitForTimeout(pauseAfter);
 }
 
-console.log('1. Overview hero & refresh button animation...');
-const refreshBtn = page.getByRole('button', { name: 'Refresh telemetry' }).first();
-await clickElement(refreshBtn, 700);
+console.log('Step 1: Overview ready');
+await page.waitForTimeout(800);
 
-console.log('2. Flicking to All services (page slide transition & stagger arrive)...');
+console.log('Step 2: Flick to All services');
 const servicesNav = page.locator('nav').getByRole('button', { name: /^All services/ }).first();
-await clickElement(servicesNav, 900);
+await glideAndClick(servicesNav, 650);
 
-console.log('3. Pressing segmented filter buttons (Media, AI, Tools, All)...');
+console.log('Step 3: Flick category pills: Media -> AI -> Tools -> All');
 const mediaTab = page.getByRole('button', { name: 'Media', exact: true }).first();
-if (await mediaTab.isVisible()) await clickElement(mediaTab, 500);
+if (await mediaTab.isVisible()) await glideAndClick(mediaTab, 400);
 
 const aiTab = page.getByRole('button', { name: 'AI', exact: true }).first();
-if (await aiTab.isVisible()) await clickElement(aiTab, 500);
+if (await aiTab.isVisible()) await glideAndClick(aiTab, 400);
 
 const toolsTab = page.getByRole('button', { name: 'Tools', exact: true }).first();
-if (await toolsTab.isVisible()) await clickElement(toolsTab, 500);
+if (await toolsTab.isVisible()) await glideAndClick(toolsTab, 400);
 
 const allTab = page.getByRole('button', { name: 'All', exact: true }).first();
-if (await allTab.isVisible()) await clickElement(allTab, 600);
+if (await allTab.isVisible()) await glideAndClick(allTab, 500);
 
-console.log('4. Flicking to Storage view...');
+console.log('Step 4: Flick to Storage');
 const storageNav = page.locator('nav').getByRole('button', { name: /^Storage/ }).first();
-await clickElement(storageNav, 800);
+await glideAndClick(storageNav, 650);
 
-console.log('5. Pressing Storage time segments (15m, 6h, 1h)...');
-const seg15m = page.getByRole('button', { name: '15m', exact: true }).first();
-if (await seg15m.isVisible()) await clickElement(seg15m, 450);
-
+console.log('Step 5: Storage time segment clicks');
 const seg6h = page.getByRole('button', { name: '6h', exact: true }).first();
-if (await seg6h.isVisible()) await clickElement(seg6h, 450);
+if (await seg6h.isVisible()) await glideAndClick(seg6h, 450);
 
 const seg1h = page.getByRole('button', { name: '1h', exact: true }).first();
-if (await seg1h.isVisible()) await clickElement(seg1h, 500);
+if (await seg1h.isVisible()) await glideAndClick(seg1h, 450);
 
-console.log('6. Flicking to Local AI view...');
+console.log('Step 6: Flick to Local AI');
 const aiNav = page.locator('nav').getByRole('button', { name: /^Local AI/ }).first();
-await clickElement(aiNav, 800);
+await glideAndClick(aiNav, 700);
 
-console.log('7. Pressing Dark / Light theme toggle (90deg icon spin + palette transition)...');
+console.log('Step 7: Flick to Network & DNS');
+const netNav = page.locator('nav').getByRole('button', { name: /^Network & DNS/ }).first();
+await glideAndClick(netNav, 700);
+
+console.log('Step 8: Flick to Infrastructure');
+const infraNav = page.locator('nav').getByRole('button', { name: /^Infrastructure/ }).first();
+await glideAndClick(infraNav, 700);
+
+console.log('Step 9: Flick to Updates');
+const updatesNav = page.locator('nav').getByRole('button', { name: /^Updates/ }).first();
+await glideAndClick(updatesNav, 700);
+
+console.log('Step 10: Theme toggle transition (Dark -> Light)');
 const themeToggle = page.locator('button.theme-toggle').first();
 if (await themeToggle.isVisible()) {
-  await clickElement(themeToggle, 800);
-  await clickElement(themeToggle, 800);
+  await glideAndClick(themeToggle, 700);
 }
 
-console.log('8. Toggling Navigation Rail collapse/expand...');
-const collapseNav = page.getByRole('button', { name: /Collapse navigation|Open navigation/ }).first();
-if (await collapseNav.isVisible()) {
-  await clickElement(collapseNav, 700);
-  const openNav = page.getByRole('button', { name: /Open navigation|Expand navigation/ }).first();
-  if (await openNav.isVisible()) {
-    await clickElement(openNav, 700);
-  }
-}
-
-console.log('9. Flicking back to Overview...');
+console.log('Step 11: Flick back to Overview in light theme');
 const overviewNav = page.locator('nav').getByRole('button', { name: /^Overview/ }).first();
-await clickElement(overviewNav, 1000);
+await glideAndClick(overviewNav, 800);
 
+console.log('Step 12: Theme toggle transition (Light -> Dark)');
+if (await themeToggle.isVisible()) {
+  await glideAndClick(themeToggle, 800);
+}
+
+await page.waitForTimeout(600);
 await page.close();
 await context.close();
 await browser.close();
@@ -163,14 +173,14 @@ const rawWebm = path.join(tempDir, recordedFiles[0]);
 const outputGif = '/mnt/share/repos/homelab-dashboard/showcase/demo.gif';
 const outputMp4 = '/mnt/share/repos/homelab-dashboard/showcase/demo.mp4';
 
-console.log('Converting to MP4...');
-execSync(`ffmpeg -y -i "${rawWebm}" -c:v libx264 -pix_fmt yuv420p -movflags +faststart -crf 22 "${outputMp4}"`, { stdio: 'inherit' });
+console.log('Encoding MP4 (crisp, 60fps capable)...');
+execSync(`ffmpeg -y -i "${rawWebm}" -c:v libx264 -pix_fmt yuv420p -movflags +faststart -crf 20 "${outputMp4}"`, { stdio: 'inherit' });
 
-console.log('Converting to punchy animated GIF...');
-// 12 fps, lanczos 860px width, max 96 colors for vibrant theme colors and crisp UI text
-const filterStr = 'fps=12,scale=860:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3';
+console.log('Encoding sleek animated GIF (14 fps, Lanczos 880px, paletteuse)...');
+// 14 fps, 880px wide, lanczos scaling, diff-optimized palette
+const filterStr = 'fps=14,scale=880:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle';
 execSync(`ffmpeg -y -i "${rawWebm}" -vf "${filterStr}" "${outputGif}"`, { stdio: 'inherit' });
 
-console.log('Successfully generated:');
+console.log('Done! Output files:');
 console.log(outputGif);
 console.log(outputMp4);
