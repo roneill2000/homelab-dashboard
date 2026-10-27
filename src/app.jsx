@@ -488,7 +488,12 @@ function App(){
    <IconButton icon={theme==='dark'?'sun':'moon'} label={theme==='dark'?'Switch to light':'Switch to dark'} touch className="theme-toggle" onClick={()=>setTheme(v=>v==='dark'?'light':'dark')}/>
   </div></header>;
  return <div className={`m3-app m3-app--${win}${win==='large'&&!railPref?' m3-app--rail-collapsed':''} app`}><a href="#main" className="skip">Skip to content</a>{shell}{modalDrawer}
- {win==='compact'&&pullShown&&<div className={'m3-pull'+(refreshing||pullHold?' is-refreshing':'')+(pullLeaving?' is-leaving':'')} style={{'--pull':refreshing||pullHold||pullLeaving?72:pull}} aria-hidden="true"><LoadingIndicator contained label="Refreshing"/></div>}
+ {/* --pull: pull is >0 only while actively dragging (live ramp); the instant it resets to 0 on release, hold at 72
+    through refreshing/pullHold AND the gap before the leave effect runs. Deriving this from refreshing/pullHold/
+    pullLeaving instead (as before) left one render where all three are false but pullShown still is: --pull fell to
+    0, opacity snapped to 0 with no transition (only .is-leaving has one), and the later fade had nothing left to
+    animate from. That gap's width depends on render timing, which is why the vanish was inconsistent. */}
+ {win==='compact'&&pullShown&&<div className={'m3-pull'+(refreshing||pullHold?' is-refreshing':'')+(pullLeaving?' is-leaving':'')} style={{'--pull':pull||72}} aria-hidden="true"><LoadingIndicator contained label="Refreshing"/></div>}
  <main id="main" className="m3-app__main"><div className="m3-app__content">{topBar}<PageHeader large title={view==='overview'?'Overview':navigation.find(n=>n[0]===view)?.[1]} subtitle={[new Date(now).toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}),data.weather?.temp_f!==undefined?`${data.weather.temp_f}°F · ${data.weather.desc}`:null].filter(Boolean).join(' · ')}/>
  {!fresh&&<div className="notice warning"><Icon name="clock" size={18}/><span>{error?'Connection interrupted. Showing the last received readings.':'Waiting for fresh telemetry. Values may be out of date.'}</span></div>}
  {view==='overview'&&<>
