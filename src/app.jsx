@@ -452,9 +452,15 @@ function App(){
   window.addEventListener('popstate',on);return()=>window.removeEventListener('popstate',on);
  },[]);
  useEffect(()=>{
+  window.__hasOpenOverlay=()=>anyOverlay;
+  window.__closeAllOverlays=closeAllOverlays;
   window.__navigateOverview=()=>navigate('overview');
-  return()=>{window.__navigateOverview=null};
- },[]);
+  return()=>{
+   window.__hasOpenOverlay=null;
+   window.__closeAllOverlays=null;
+   window.__navigateOverview=null;
+  };
+ },[anyOverlay,closeAllOverlays]);
  useEffect(()=>{
   const shouldIntercept=Boolean(anyOverlay||view!=='overview');
   if(typeof window!=='undefined'&&window.AndroidBridge?.setBackEnabled){
@@ -463,22 +469,69 @@ function App(){
  },[anyOverlay,view]);
  useEffect(()=>{
   const onPb=ev=>{
-   const {phase,progress=0}=ev.detail||{};
+   const {phase,progress=0,edge=0}=ev.detail||{};
    const m=document.querySelector('.m3-search-view,.m3-dialog,.m3-nav-drawer.is-modal.open');
-   const s=document.querySelector('.m3-scrim');
+   const s=document.querySelectorAll('.m3-scrim');
+   const main=document.querySelector('main');
    if(phase==='start'||phase==='progress'){
     if(m){
+     const isDialog=m.classList.contains('m3-dialog');
      const isSheet=m.classList.contains('is-sheet');
-     m.style.transform=`scale(${1-progress*0.06}) translateY(${isSheet?progress*100:0}px)`;
+     const isDockedSearch=m.classList.contains('m3-search-view')&&window.innerWidth>=840;
      m.style.transition='none';
-     if(s){s.style.opacity=String(Math.max(0.1,1-progress*0.5));s.style.transition='none'}
+     if(isDialog){
+      m.style.transform=`translate(-50%, -50%) scale(${1-progress*0.08})`;
+     }else if(isSheet){
+      m.style.transformOrigin='bottom center';
+      m.style.transform=`translateY(${progress*80}px) scale(${1-progress*0.04})`;
+     }else if(isDockedSearch){
+      m.style.transformOrigin='top center';
+      m.style.transform=`translateX(-50%) scale(${1-progress*0.06})`;
+     }else{
+      m.style.transformOrigin='center center';
+      m.style.transform=`scale(${1-progress*0.06})`;
+      if(m.classList.contains('m3-search-view')){
+       m.style.borderRadius=`${progress*28}px`;
+      }
+     }
+     s.forEach(el=>{el.style.opacity=String(Math.max(0.05,1-progress*0.5));el.style.transition='none'});
+    }else if(main&&viewRef.current!=='overview'){
+     main.style.transition='none';
+     main.style.transformOrigin=edge===0?'right center':'left center';
+     main.style.transform=`scale(${1-progress*0.03}) translateX(${edge===0?progress*14:-progress*14}px)`;
     }
    }else if(phase==='cancel'){
-    if(m){m.style.transition='transform 0.22s var(--md-sys-motion-spring-expressive-default-spatial, cubic-bezier(0.2, 0.8, 0.2, 1))';m.style.transform='';setTimeout(()=>{if(m)m.style.transition=''},250)}
-    if(s){s.style.transition='opacity 0.2s ease';s.style.opacity='';setTimeout(()=>{if(s)s.style.transition=''},220)}
+    if(m){
+     const isDialog=m.classList.contains('m3-dialog');
+     const isDockedSearch=m.classList.contains('m3-search-view')&&window.innerWidth>=840;
+     m.style.transition='transform 0.22s var(--md-sys-motion-spring-expressive-default-spatial, cubic-bezier(0.2, 0.8, 0.2, 1)), border-radius 0.22s ease';
+     if(isDialog){
+      m.style.transform='translate(-50%, -50%)';
+     }else if(isDockedSearch){
+      m.style.transform='translateX(-50%)';
+     }else{
+      m.style.transform='';
+      m.style.borderRadius='';
+     }
+     setTimeout(()=>{if(m){m.style.transition='';if(isDialog)m.style.transform='';if(isDockedSearch)m.style.transform=''}},250);
+    }
+    s.forEach(el=>{el.style.transition='opacity 0.2s ease';el.style.opacity='';setTimeout(()=>{if(el)el.style.transition=''},220)});
+    if(main){
+     main.style.transition='transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)';
+     main.style.transform='';
+     setTimeout(()=>{if(main)main.style.transition=''},250);
+    }
    }else if(phase==='commit'){
-    if(m){m.style.transform='';m.style.transition=''}
-    if(s){s.style.opacity='';s.style.transition=''}
+    if(m){
+     m.style.transform='';
+     m.style.transition='';
+     m.style.borderRadius='';
+    }
+    s.forEach(el=>{el.style.opacity='';el.style.transition=''});
+    if(main){
+     main.style.transform='';
+     main.style.transition='';
+    }
    }
   };
   window.addEventListener('predictiveback',onPb);
