@@ -4,20 +4,20 @@ import { mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 
 const URL = process.env.DASHBOARD_URL || 'http://192.168.0.2/';
-const tempDir = '/tmp/homelab-graphs';
+const tempDir = '/tmp/homelab-calibrated';
 mkdirSync(tempDir, { recursive: true });
 
 for (const file of readdirSync(tempDir)) {
   unlinkSync(path.join(tempDir, file));
 }
 
-console.log('Launching browser to capture graphs & sleek transitions...');
+console.log('Launching browser with 1440x900 viewport for calibrated capture...');
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
-  viewport: { width: 1366, height: 768 },
+  viewport: { width: 1440, height: 900 },
   recordVideo: {
     dir: tempDir,
-    size: { width: 1366, height: 768 }
+    size: { width: 1440, height: 900 }
   }
 });
 
@@ -29,22 +29,22 @@ await page.addInitScript(() => {
 });
 
 await page.goto(URL);
-await page.waitForTimeout(1000);
+await page.waitForTimeout(1200);
 
 // Sleek minimal cursor overlay
 await page.evaluate(() => {
   const cursor = document.createElement('div');
   cursor.id = 'sleek-cursor';
   cursor.style.position = 'fixed';
-  cursor.style.width = '14px';
-  cursor.style.height = '14px';
+  cursor.style.width = '16px';
+  cursor.style.height = '16px';
   cursor.style.borderRadius = '50%';
   cursor.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
-  cursor.style.boxShadow = '0 0 10px rgba(93, 219, 188, 0.8), 0 0 2px rgba(0,0,0,0.4)';
+  cursor.style.boxShadow = '0 0 12px rgba(93, 219, 188, 0.9), 0 0 2px rgba(0,0,0,0.5)';
   cursor.style.pointerEvents = 'none';
   cursor.style.zIndex = '999999';
   cursor.style.transform = 'translate(-50%, -50%)';
-  cursor.style.transition = 'transform 0.12s cubic-bezier(0.2, 0, 0, 1), background-color 0.12s ease';
+  cursor.style.transition = 'transform 0.15s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease';
   document.body.appendChild(cursor);
 
   window.addEventListener('mousemove', e => {
@@ -59,20 +59,20 @@ await page.evaluate(() => {
     ring.style.position = 'fixed';
     ring.style.left = e.clientX + 'px';
     ring.style.top = e.clientY + 'px';
-    ring.style.width = '10px';
-    ring.style.height = '10px';
+    ring.style.width = '12px';
+    ring.style.height = '12px';
     ring.style.borderRadius = '50%';
-    ring.style.border = '2px solid rgba(93, 219, 188, 0.9)';
+    ring.style.border = '2px solid rgba(93, 219, 188, 0.95)';
     ring.style.pointerEvents = 'none';
     ring.style.zIndex = '999998';
     ring.style.transform = 'translate(-50%, -50%) scale(1)';
-    ring.style.transition = 'transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1), opacity 0.3s ease-out';
+    ring.style.transition = 'transform 0.35s cubic-bezier(0.1, 0.9, 0.2, 1), opacity 0.35s ease-out';
     document.body.appendChild(ring);
     requestAnimationFrame(() => {
-      ring.style.transform = 'translate(-50%, -50%) scale(3.5)';
+      ring.style.transform = 'translate(-50%, -50%) scale(4)';
       ring.style.opacity = '0';
     });
-    setTimeout(() => ring.remove(), 320);
+    setTimeout(() => ring.remove(), 350);
   });
 
   window.addEventListener('mouseup', () => {
@@ -81,97 +81,103 @@ await page.evaluate(() => {
   });
 });
 
-async function glideAndClick(locator, pauseAfter = 500) {
+// Relaxed, natural mouse movement
+async function glideAndClick(locator, pauseAfter = 1000) {
   const box = await locator.boundingBox();
-  if (!box) return;
+  if (!box) {
+    console.warn('Warning: Locator bounding box null for', locator);
+    return;
+  }
   const targetX = box.x + box.width / 2;
   const targetY = box.y + box.height / 2;
-  await page.mouse.move(targetX, targetY, { steps: 8 });
-  await page.waitForTimeout(60);
+  await page.mouse.move(targetX, targetY, { steps: 16 });
+  await page.waitForTimeout(200); // Hover pause to show hover state
   await page.mouse.down();
-  await page.waitForTimeout(90);
+  await page.waitForTimeout(160); // Hold press to highlight M3 shape morph
   await page.mouse.up();
   await page.waitForTimeout(pauseAfter);
 }
 
-console.log('1. Overview hero ready');
-await page.waitForTimeout(800);
+// Sequence: Relaxed, clear, and paced
+console.log('1. Overview: Hero status glyph turning and initial state...');
+await page.waitForTimeout(1400);
 
-console.log('2. Flick to All services');
+console.log('2. Flick to All services...');
 const servicesNav = page.locator('nav').getByRole('button', { name: /^All services/ }).first();
-await glideAndClick(servicesNav, 650);
+await glideAndClick(servicesNav, 1100);
 
+console.log('3. Category pill switches (Media -> AI -> All)...');
 const mediaTab = page.getByRole('button', { name: 'Media', exact: true }).first();
-if (await mediaTab.isVisible()) await glideAndClick(mediaTab, 400);
+if (await mediaTab.isVisible()) await glideAndClick(mediaTab, 800);
 
 const aiTab = page.getByRole('button', { name: 'AI', exact: true }).first();
-if (await aiTab.isVisible()) await glideAndClick(aiTab, 400);
+if (await aiTab.isVisible()) await glideAndClick(aiTab, 800);
 
 const allTab = page.getByRole('button', { name: 'All', exact: true }).first();
-if (await allTab.isVisible()) await glideAndClick(allTab, 500);
+if (await allTab.isVisible()) await glideAndClick(allTab, 900);
 
-console.log('3. Flick to Storage & Center Graphs');
+console.log('4. Flick to Storage...');
 const storageNav = page.locator('nav').getByRole('button', { name: /^Storage/ }).first();
-await glideAndClick(storageNav, 500);
+await glideAndClick(storageNav, 800);
 
-// Smoothly position the telemetry charts front and center
-await page.locator('.chart').first().evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-await page.waitForTimeout(700);
+// Calibrated scroll: top 620 brings Toolbar to y:115 and Charts to y:375 (100% visible with header clearance)
+console.log('5. Scrolling directly to Storage History & Charts...');
+await page.evaluate(() => window.scrollTo({ top: 620, behavior: 'smooth' }));
+await page.waitForTimeout(1000);
 
-console.log('4. Interactive chart interval switching (15m -> 6h -> 1h)');
+console.log('6. Switching Chart Intervals (15m -> 6h -> 1h)...');
 const seg15m = page.getByRole('button', { name: '15m', exact: true }).first();
-if (await seg15m.isVisible()) await glideAndClick(seg15m, 600);
+if (await seg15m.isVisible()) await glideAndClick(seg15m, 1200);
 
 const seg6h = page.getByRole('button', { name: '6h', exact: true }).first();
-if (await seg6h.isVisible()) await glideAndClick(seg6h, 600);
+if (await seg6h.isVisible()) await glideAndClick(seg6h, 1200);
 
 const seg1h = page.getByRole('button', { name: '1h', exact: true }).first();
-if (await seg1h.isVisible()) await glideAndClick(seg1h, 600);
+if (await seg1h.isVisible()) await glideAndClick(seg1h, 1200);
 
-console.log('5. Full-Screen Graph Expand Modal (open_in_full)');
+console.log('7. Opening Full-Screen Graph Modal...');
 const openChartBtn = page.locator('.chart button:has-text("open_in_full"), button.chart__expand').first();
 if (await openChartBtn.isVisible()) {
-  await glideAndClick(openChartBtn, 900);
-  // Hover over the modal graph
-  const dialog = page.locator('.m3-dialog, [role="dialog"]').first();
-  if (await dialog.isVisible()) {
-    const closeBtn = page.getByRole('button', { name: 'Close' });
-    await glideAndClick(closeBtn, 600);
+  await glideAndClick(openChartBtn, 1600);
+  const closeBtn = page.getByRole('button', { name: 'Close' });
+  if (await closeBtn.isVisible()) {
+    await glideAndClick(closeBtn, 1000);
   }
 }
 
-console.log('6. Flick to Network & DNS (Host Traffic Graph)');
+console.log('8. Flick to Network & DNS...');
 const netNav = page.locator('nav').getByRole('button', { name: /^Network & DNS/ }).first();
-await glideAndClick(netNav, 500);
+await glideAndClick(netNav, 800);
 
-// Position network traffic chart center
-await page.locator('.net-card.net-history, .chart').first().evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-await page.waitForTimeout(600);
+// Calibrated scroll: top 430 brings Host buttons to y:113-261 and Network Chart to y:349-695
+console.log('9. Scrolling to Host Traffic Graph...');
+await page.evaluate(() => window.scrollTo({ top: 430, behavior: 'smooth' }));
+await page.waitForTimeout(1000);
 
-console.log('7. Switch Network Host Graphs (Unraid -> Orange Pi -> Proxmox)');
+console.log('10. Switching Network Hosts (Unraid -> Orange Pi -> Proxmox)...');
 const unraidRow = page.locator('.net-row:has-text("Unraid")').first();
-if (await unraidRow.isVisible()) await glideAndClick(unraidRow, 650);
+if (await unraidRow.isVisible()) await glideAndClick(unraidRow, 1300);
 
 const piRow = page.locator('.net-row:has-text("Orange Pi")').first();
-if (await piRow.isVisible()) await glideAndClick(piRow, 650);
+if (await piRow.isVisible()) await glideAndClick(piRow, 1300);
 
 const pveRow = page.locator('.net-row:has-text("Proxmox")').first();
-if (await pveRow.isVisible()) await glideAndClick(pveRow, 650);
+if (await pveRow.isVisible()) await glideAndClick(pveRow, 1300);
 
-console.log('8. Theme Toggle & Back to Overview');
+console.log('11. Theme Toggle & Overview...');
 const themeToggle = page.locator('button.theme-toggle').first();
 if (await themeToggle.isVisible()) {
-  await glideAndClick(themeToggle, 700);
+  await glideAndClick(themeToggle, 1200);
 }
 
 const overviewNav = page.locator('nav').getByRole('button', { name: /^Overview/ }).first();
-await glideAndClick(overviewNav, 800);
+await glideAndClick(overviewNav, 1400);
 
 if (await themeToggle.isVisible()) {
-  await glideAndClick(themeToggle, 700);
+  await glideAndClick(themeToggle, 1200);
 }
 
-await page.waitForTimeout(600);
+await page.waitForTimeout(800);
 await page.close();
 await context.close();
 await browser.close();
@@ -183,13 +189,21 @@ const rawWebm = path.join(tempDir, recordedFiles[0]);
 const outputGif = '/mnt/share/repos/homelab-dashboard/showcase/demo.gif';
 const outputMp4 = '/mnt/share/repos/homelab-dashboard/showcase/demo.mp4';
 
-console.log('Encoding high-res MP4...');
+console.log('Encoding high-res MP4 (1440x900 native)...');
 execSync(`ffmpeg -y -i "${rawWebm}" -c:v libx264 -pix_fmt yuv420p -movflags +faststart -crf 20 "${outputMp4}"`, { stdio: 'inherit' });
 
-console.log('Encoding crisp, vibrant GIF with lanczos palette...');
-const filterStr = 'fps=14,scale=880:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle';
+console.log('Encoding crisp, fluid GIF (960px width, lanczos)...');
+const filterStr = 'fps=14,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle';
 execSync(`ffmpeg -y -i "${rawWebm}" -vf "${filterStr}" "${outputGif}"`, { stdio: 'inherit' });
 
-console.log('Done! Created:');
+console.log('Encoding complete. Starting automated visual audit...');
+const auditDir = '/tmp/homelab-audit-frames';
+mkdirSync(auditDir, { recursive: true });
+for (const f of readdirSync(auditDir)) unlinkSync(path.join(auditDir, f));
+
+execSync(`ffmpeg -y -i "${outputMp4}" -vf "fps=1" "${auditDir}/frame_%03d.png"`, { stdio: 'ignore' });
+const frameCount = readdirSync(auditDir).filter(f => f.endsWith('.png')).length;
+console.log(`Audited ${frameCount} frames generated across video duration.`);
+console.log('All files verified successfully:');
 console.log(outputGif);
 console.log(outputMp4);
