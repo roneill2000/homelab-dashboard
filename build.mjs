@@ -9,7 +9,117 @@ const result = await build({entryPoints:['src/app.jsx'],bundle:true,write:false,
 // CSS order matters: generated colour roles, M3 system tokens, legacy rules, M3 components, then m3-controls.css
 // (buttons, button groups, chips) and m3-motion.css (Expressive motion, all of it off under Reduce motion) last.
 const parts = ['src/m3-sys.css', 'src/m3-expressive.css', 'src/styles.css', 'src/m3-legacy.css', 'src/m3-components.css', 'src/m3-expressive-components.css', 'src/m3-controls.css', 'src/m3-motion.css'];
-const css = m3TokensCss() + m3ShapesCss() + (await Promise.all(parts.map(p => readFile(p, 'utf8').catch(() => '')))).join('\n');
+
+function wrapHoverInCss(css) {
+  let result = '', i = 0, n = css.length, stack = [];
+  while (i < n) {
+    if (css[i] === '/' && css[i+1] === '*') {
+      const end = css.indexOf('*/', i + 2);
+      if (end === -1) { result += css.slice(i); break; }
+      result += css.slice(i, end + 2); i = end + 2; continue;
+    }
+    if (css[i] === '@') {
+      let start = i;
+      while (i < n && css[i] !== '{' && css[i] !== ';') i++;
+      if (i < n && css[i] === ';') { result += css.slice(start, i + 1); i++; continue; }
+      if (i < n && css[i] === '{') {
+        const prelude = css.slice(start, i).trim();
+        stack.push({ prelude, isHoverMedia: /@media[^{]*\(\s*hover\s*:\s*hover\s*\)/i.test(prelude) });
+        result += css.slice(start, i + 1); i++; continue;
+      }
+    }
+    if (css[i] === '}') {
+      if (stack.length > 0) stack.pop();
+      result += '}'; i++; continue;
+    }
+    let selStart = i;
+    while (i < n && css[i] !== '{' && css[i] !== '}' && css[i] !== '@') {
+      if (css[i] === '/' && css[i+1] === '*') {
+        const end = css.indexOf('*/', i + 2);
+        if (end === -1) break;
+        i = end + 2;
+      } else { i++; }
+    }
+    if (i < n && css[i] === '{') {
+      const selector = css.slice(selStart, i);
+      let bodyStart = i + 1, depth = 1; i++;
+      while (i < n && depth > 0) {
+        if (css[i] === '/' && css[i+1] === '*') {
+          const end = css.indexOf('*/', i + 2);
+          if (end === -1) break;
+          i = end + 2;
+        } else if (css[i] === '{') { depth++; i++; }
+        else if (css[i] === '}') { depth--; i++; }
+        else { i++; }
+      }
+      const body = css.slice(bodyStart, i - 1);
+      if (selector.includes(':hover') && !stack.some(s => s.isHoverMedia)) {
+        result += `@media (hover: hover) { ${selector} { ${body} } }`;
+      } else {
+        result += `${selector}{${body}}`;
+      }
+      continue;
+    }
+    result += css[i]; i++;
+  }
+  return result;
+}
+
+function checkNoUnwrappedHover(css) {
+  let i = 0, n = css.length, stack = [];
+  while (i < n) {
+    if (css[i] === '/' && css[i+1] === '*') {
+      const end = css.indexOf('*/', i + 2);
+      if (end === -1) break;
+      i = end + 2; continue;
+    }
+    if (css[i] === '@') {
+      let start = i;
+      while (i < n && css[i] !== '{' && css[i] !== ';') i++;
+      if (i < n && css[i] === ';') { i++; continue; }
+      if (i < n && css[i] === '{') {
+        const prelude = css.slice(start, i).trim();
+        stack.push({ prelude, isHoverMedia: /@media[^{]*\(\s*hover\s*:\s*hover\s*\)/i.test(prelude) });
+        i++; continue;
+      }
+    }
+    if (css[i] === '}') {
+      if (stack.length > 0) stack.pop();
+      i++; continue;
+    }
+    let selStart = i;
+    while (i < n && css[i] !== '{' && css[i] !== '}' && css[i] !== '@') {
+      if (css[i] === '/' && css[i+1] === '*') {
+        const end = css.indexOf('*/', i + 2);
+        if (end === -1) break;
+        i = end + 2;
+      } else { i++; }
+    }
+    if (i < n && css[i] === '{') {
+      const selector = css.slice(selStart, i);
+      let depth = 1; i++;
+      while (i < n && depth > 0) {
+        if (css[i] === '/' && css[i+1] === '*') {
+          const end = css.indexOf('*/', i + 2);
+          if (end === -1) break;
+          i = end + 2;
+        } else if (css[i] === '{') { depth++; i++; }
+        else if (css[i] === '}') { depth--; i++; }
+        else { i++; }
+      }
+      if (selector.includes(':hover') && !stack.some(s => s.isHoverMedia)) {
+        throw new Error(`Build failed: unwrapped :hover selector found in CSS: "${selector.trim()}"`);
+      }
+      continue;
+    }
+    i++;
+  }
+}
+
+const rawCss = (await Promise.all(parts.map(p => readFile(p, 'utf8').catch(() => '')))).join('\n');
+const processedCss = wrapHoverInCss(rawCss);
+checkNoUnwrappedHover(processedCss);
+const css = m3TokensCss() + m3ShapesCss() + processedCss;
 const symbols = `https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=${[...new Set(ICONS)].sort().join(',')}&display=block`;
 const js = result.outputFiles[0].text.replaceAll('</script','<\\/script');
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#091613"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&family=Google+Sans+Code:wght@300..800&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap"><link rel="stylesheet" href="${symbols}"><title>Homelab · Control room</title><style>${css}</style><script src="/static/react.js"></script><script src="/static/react-dom.js"></script><script>/*__INITIAL_TELEMETRY_SLOT__*/</script></head><body><div id="root"></div><noscript>This dashboard needs JavaScript to display live telemetry.</noscript><script>${js}</script></body></html>`;

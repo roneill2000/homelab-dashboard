@@ -380,6 +380,39 @@
 .ov-hero .summary-grid>.summary-stat{min-height:0}
 
 
+/* Touch tells: remove user-select and touch callouts globally on touch devices (A4) */
+@media (hover: none) {
+  body { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .mono, .copy-ip, [data-selectable], input, textarea {
+    user-select: text; -webkit-user-select: text;
+  }
+}
+
+/* Collapsible details marker reset & smooth chevron rotation (A4) */
+details > summary {
+  list-style: none;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height) var(--md-sys-typescale-title-small-font);
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+details summary .material-symbols-rounded,
+details summary .ai-others__chevron,
+details summary .ai-history__chevron,
+details summary .gpu-history__chevron {
+  transition: transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial);
+}
+details[open] > summary .material-symbols-rounded,
+details[open] > summary .ai-others__chevron,
+details[open] > summary .ai-history__chevron,
+details[open] > summary .gpu-history__chevron {
+  transform: rotate(180deg);
+}
+
 /* Search view spatial expand/collapse (M3 Expressive) */
 @keyframes m3-search-expand {
   from {
