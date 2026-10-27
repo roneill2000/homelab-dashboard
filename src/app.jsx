@@ -378,6 +378,19 @@ function RecoveryPanel({activity,children}){
 
 const navigation=[['overview','Overview','home'],['services','All services','grid'],['ai','Local AI','terminal'],['media','Media & downloads','play'],['network','Network & DNS','network'],['fleet','Hosts & containers','layers'],['storage','Storage','disk'],['infra','Infrastructure','server'],['updates','Updates','refresh']];
 const VIEWS=['overview','services','ai','media','network','fleet','storage','infra','updates'];
+export const haptic=(type='tap')=>{
+ if(typeof window!=='undefined'&&window.AndroidHaptics){
+  if(type==='tick')window.AndroidHaptics.tick();
+  else if(type==='snap')window.AndroidHaptics.snap();
+  else window.AndroidHaptics.tap();
+ }else if(typeof navigator!=='undefined'&&navigator.vibrate){
+  try{
+   if(type==='tick')navigator.vibrate(8);
+   else if(type==='snap')navigator.vibrate(22);
+   else navigator.vibrate(12);
+  }catch{}
+ }
+};
 function App(){
  const [data,setData]=useState(window.__INITIAL_TELEMETRY__?.updated_at?window.__INITIAL_TELEMETRY__:{}),[storage,setStorage]=useState(null),[error,setError]=useState(false),[storageError,setStorageError]=useState(false),[view,setView]=useState(()=>{const h=location.hash.replace(/^#\/?/,'');return VIEWS.includes(h)?h:'overview'}),[search,setSearch]=useState(''),[command,setCommand]=useState(false),[range,setRange]=useState(3600),[capacity,setCapacity]=useState(false),[now,setNow]=useState(Date.now()),[refreshing,setRefreshing]=useState(false),[toast,setToast]=useState(''),[dialog,setDialog]=useState(null),[busy,setBusy]=useState(false),[menu,setMenu]=useState(false),[filter,setFilter]=useState('all');
  const [compare,setCompare]=useState(()=>window.innerWidth>=840),[diskPick,setDiskPick]=useState('cache');const [category,setCategory]=useState('all');useEffect(()=>setCategory('all'),[view]);const [favorites,setFavorites]=useStored('homelab.favorites.v2',['pve','jellyfin','sabnzbd','files','guacamole','router']);const [theme,setTheme]=useStored('homelab.theme.v2',window.matchMedia?.('(prefers-color-scheme: light)').matches?'light':'dark');const win=useWindowClass();const [railPref,setRailPref]=useStored('homelab.rail.v1',true);const [railModal,setRailModal]=useState(false);const navOpener=useRef(null);const [sheet,setSheet]=useState(false);
@@ -438,6 +451,42 @@ function App(){
   };
   window.addEventListener('popstate',on);return()=>window.removeEventListener('popstate',on);
  },[]);
+ useEffect(()=>{
+  const onPb=ev=>{
+   const {phase,progress=0,edge=0}=ev.detail||{};
+   const activeModal=document.querySelector('.m3-search-view,.m3-dialog,.m3-nav-drawer.is-modal.open,.m3-scrim');
+   const mainEl=document.querySelector('#main');
+   if(phase==='start'||phase==='progress'){
+    if(activeModal){
+     const m=document.querySelector('.m3-search-view,.m3-dialog,.m3-nav-drawer.is-modal.open');
+     if(m){
+      const isSheet=m.classList.contains('is-sheet');
+      m.style.transform=`scale(${1-progress*0.08}) translateY(${isSheet?progress*60:0}px)`;
+      m.style.transition='none';
+     }
+     const s=document.querySelector('.m3-scrim');
+     if(s){s.style.opacity=String(Math.max(0.2,1-progress*0.4));s.style.transition='none'}
+    }else if(mainEl){
+     mainEl.style.transform=`scale(${1-progress*0.04}) translateX(${(edge===1?-1:1)*progress*20}px)`;
+     mainEl.style.borderRadius=`${progress*16}px`;
+     mainEl.style.transition='none';
+    }
+   }else if(phase==='cancel'){
+    const m=document.querySelector('.m3-search-view,.m3-dialog,.m3-nav-drawer.is-modal.open');
+    if(m){m.style.transition='transform 0.22s var(--md-sys-motion-spring-expressive-default-spatial, cubic-bezier(0.2, 0.8, 0.2, 1))';m.style.transform='';setTimeout(()=>{if(m)m.style.transition=''},250)}
+    const s=document.querySelector('.m3-scrim');
+    if(s){s.style.transition='opacity 0.2s ease';s.style.opacity='';setTimeout(()=>{if(s)s.style.transition=''},220)}
+    if(mainEl){mainEl.style.transition='transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), border-radius 0.25s ease';mainEl.style.transform='';mainEl.style.borderRadius='';setTimeout(()=>{if(mainEl)mainEl.style.transition=''},260)}
+   }else if(phase==='commit'){
+    const m=document.querySelector('.m3-search-view,.m3-dialog,.m3-nav-drawer.is-modal.open');
+    if(m){m.style.transform='';m.style.transition=''}
+    const s=document.querySelector('.m3-scrim');if(s){s.style.opacity='';s.style.transition=''}
+    if(mainEl){mainEl.style.transform='';mainEl.style.borderRadius='';mainEl.style.transition=''}
+   }
+  };
+  window.addEventListener('predictiveback',onPb);
+  return()=>window.removeEventListener('predictiveback',onPb);
+ },[]);
  useEffect(()=>{const label=view==='overview'?'Overview':navigation.find(n=>n[0]===view)?.[1];document.title=`${label} · Homelab`;
   if(navigatedRef.current&&!navModal){navigatedRef.current=false;requestAnimationFrame(()=>document.querySelector('main h1')?.focus({preventScroll:true}))}},[view,navModal]);
  const trapTab=ev=>{if(ev.key!=='Tab')return;const n=tabbables(ev.currentTarget);if(!n.length)return;
@@ -450,7 +499,7 @@ function App(){
  const sheetDrag=useRef(null);
  const sheetDown=ev=>{if(win==='compact'&&sheet&&menu)sheetDrag.current={y:ev.clientY,t:performance.now(),dy:0,el:ev.currentTarget,id:ev.pointerId}};
  const sheetMove=ev=>{const d=sheetDrag.current;if(!d)return;d.dy=Math.max(0,ev.clientY-d.y);if(d.dy>8&&!d.captured){d.captured=true;d.el.setPointerCapture?.(d.id);d.el.style.transition='none';d.el.style.animation='none'}if(d.captured)d.el.style.transform=`translateY(${d.dy}px)`};
- const sheetUp=()=>{const d=sheetDrag.current;sheetDrag.current=null;if(!d?.captured)return;const flick=d.dy/Math.max(1,performance.now()-d.t)>0.6;const reset=()=>{d.el.style.transition='';d.el.style.transform='';d.el.style.animation=''};if(d.dy>100||flick){setMenu(false);requestAnimationFrame(reset)}else reset()};
+ const sheetUp=()=>{const d=sheetDrag.current;sheetDrag.current=null;if(!d?.captured)return;const flick=d.dy/Math.max(1,performance.now()-d.t)>0.6;const reset=()=>{d.el.style.transition='';d.el.style.transform='';d.el.style.animation=''};if(d.dy>100||flick){haptic('snap');setMenu(false);requestAnimationFrame(reset)}else reset()};
  const [pull,setPull]=useState(0),[pullHold,setPullHold]=useState(false),[pullShown,setPullShown]=useState(false),[pullLeaving,setPullLeaving]=useState(false);
  const pullActive=pull>0||refreshing||pullHold;
  // Leaving: the indicator stays mounted for 360 ms so it can shrink, rise and fade (the reverse of its entrance).
@@ -458,7 +507,7 @@ function App(){
  useEffect(()=>{if(win!=='compact')return;let y0=null,dist=0;
   const start=ev=>{if(window.scrollY>0||command||menu||document.querySelector('.m3-dialog'))return;y0=ev.touches[0].clientY;dist=0};
   const move=ev=>{if(y0===null)return;if(window.scrollY>0){y0=null;setPull(0);return}dist=Math.max(0,ev.touches[0].clientY-y0)*0.5;setPull(Math.min(110,dist))};
-  const end=()=>{if(y0===null)return;y0=null;if(dist>=64){setRefreshing(true);setPullHold(true);setTimeout(()=>setPullHold(false),1200);loadRef.current?.();storageRef.current?.()}setPull(0)};
+  const end=()=>{if(y0===null)return;y0=null;if(dist>=64){haptic('snap');setRefreshing(true);setPullHold(true);setTimeout(()=>setPullHold(false),1200);loadRef.current?.();storageRef.current?.()}setPull(0)};
   window.addEventListener('touchstart',start,{passive:true});window.addEventListener('touchmove',move,{passive:true});window.addEventListener('touchend',end);window.addEventListener('touchcancel',end);
   return()=>{window.removeEventListener('touchstart',start);window.removeEventListener('touchmove',move);window.removeEventListener('touchend',end);window.removeEventListener('touchcancel',end)}},[win,command,menu]);
  useEffect(()=>{const sel=['#main','.skip','.m3-nav-bar',win==='medium'?'.m3-nav-rail':null].filter(Boolean);for(const q of sel){const el=document.querySelector(q);if(el)el.inert=navModal}
@@ -468,6 +517,7 @@ function App(){
  const lastSource=useRef(null);useEffect(()=>{const on=ev=>{const el=ev.target.closest?.('button,a,[role=button]');lastSource.current=el&&el.closest('main')&&!el.closest('.m3-nav-bar,.m3-nav-rail,.m3-xrail,.m3-nav-drawer')?{el,t:performance.now()}:null};document.addEventListener('pointerdown',on,true);document.addEventListener('keydown',on,true);return()=>{document.removeEventListener('pointerdown',on,true);document.removeEventListener('keydown',on,true)}},[]);
  const navigatedRef=useRef(false);// section: element id to scroll to and focus once the new page is showing (Overview shortcuts into a long page).
  const navigate=(v,section)=>{
+  haptic('tap');
   if(overlayPushedRef.current){
    overlayPushedRef.current=false;
    history.replaceState(null,'','#/'+v);
@@ -553,12 +603,12 @@ function App(){
  </>;
  const topBar=<header className={'m3-top-app-bar topbar'+(scrolled?' is-scrolled':'')}>
   <span className="m3-top-app-bar__title" aria-hidden={!scrolled}>{view==='overview'?'Overview':navigation.find(n=>n[0]===view)?.[1]}</span>
-  {(win==='expanded'||win==='large')&&<div className="m3-search-bar-wrap"><button type="button" className="m3-search-bar m3-state" aria-label="Find a service" onClick={()=>setCommand(true)}><Icon name="search" size={24}/><span className="m3-search-bar__text">Find a service</span><Chip compact tone="neutral">⌘ K</Chip></button></div>}
+  {(win==='expanded'||win==='large')&&<div className="m3-search-bar-wrap"><button type="button" className="m3-search-bar m3-state" aria-label="Find a service" onClick={()=>{haptic('tick');setCommand(true)}}><Icon name="search" size={24}/><span className="m3-search-bar__text">Find a service</span><Chip compact tone="neutral">⌘ K</Chip></button></div>}
   <div className="m3-top-app-bar__actions">
-   {(win==='compact'||win==='medium')&&<IconButton icon="search" label="Find a service" touch onClick={()=>setCommand(true)}/>}
+   {(win==='compact'||win==='medium')&&<IconButton icon="search" label="Find a service" touch onClick={()=>{haptic('tick');setCommand(true)}}/>}
    <Chip compact tone={fresh?'success':'warning'} icon={fresh?'check_circle':'schedule'} className="live-chip" title={fresh?'Live':'Sync pending'}><span className="live-chip__text">{fresh?'Live':'Sync pending'}</span></Chip>
    <IconButton icon="refresh" label="Refresh telemetry" touch className={refreshing?'spinning':''} onClick={()=>{setRefreshing(true);loadRef.current?.();storageRef.current?.()}}/>
-   <IconButton icon={theme==='dark'?'sun':'moon'} label={theme==='dark'?'Switch to light':'Switch to dark'} touch className="theme-toggle" onClick={()=>setTheme(v=>v==='dark'?'light':'dark')}/>
+   <IconButton icon={theme==='dark'?'sun':'moon'} label={theme==='dark'?'Switch to light':'Switch to dark'} touch className="theme-toggle" onClick={()=>{haptic('tap');setTheme(v=>v==='dark'?'light':'dark')}}/>
   </div></header>;
  return <div className={`m3-app m3-app--${win}${win==='large'&&!railPref?' m3-app--rail-collapsed':''} app`}><a href="#main" className="skip">Skip to content</a>{shell}{modalDrawer}
  {/* --pull: pull is >0 only while actively dragging (live ramp); the instant it resets to 0 on release, hold at 72
@@ -612,7 +662,7 @@ function App(){
  {(view==='network'&&(!search||(data.ip_matrix||[]).some(h=>`${h.name} ${h.ip}`.toLowerCase().includes(search.toLowerCase()))))&&<><div className="section-heading"><h2>Network map</h2><span className="mono muted">192.168.0.0/24</span></div><div className="network-map">{(data.ip_matrix||[]).filter(h=>`${h.name} ${h.ip}`.toLowerCase().includes(search.toLowerCase())).map(h=><a href={h.url} key={h.ip} target="_blank" rel="noreferrer"><span className="ip-square">{h.octet}</span><div><strong>{h.name}</strong><small>{h.role}</small></div><i className={h.online?'tiny-dot':'tiny-dot unknown'}/></a>)}</div></>}
  <footer className="page-footer"><span>{fresh?'Updated':'Last sample'} {data.updated_at?new Date(data.updated_at*1000).toLocaleTimeString():'—'} <i className={fresh?'tiny-dot':'tiny-dot unknown'}/></span></footer>
  </div></main>
- {win==='compact'&&<nav className="m3-nav-bar" aria-label="Primary" aria-hidden={menu?'true':undefined}>{navigation.filter(n=>PRIMARY.slice(0,4).includes(n[0])).map(([id,label,icon])=><button key={id} type="button" className="m3-nav-bar__item nav-item" onClick={()=>navigate(id)} aria-current={view===id?'page':undefined} aria-label={navName(id,label)}><span className="m3-nav-indicator"><Icon name={icon} size={24}/></span><span className="m3-nav-label">{SHORT[id]}</span>{id==='services'&&<span className="m3-visually-hidden">All services</span>}</button>)}<button type="button" className="m3-nav-bar__item" aria-haspopup="dialog" onClick={()=>{setSheet(true);setMenu(true)}} aria-current={!PRIMARY.slice(0,4).includes(view)?'page':undefined}><span className="m3-nav-indicator"><Icon name="more_horiz" size={24}/></span><span className="m3-nav-label">More</span></button></nav>}
+ {win==='compact'&&<nav className="m3-nav-bar" aria-label="Primary" aria-hidden={menu?'true':undefined}>{navigation.filter(n=>PRIMARY.slice(0,4).includes(n[0])).map(([id,label,icon])=><button key={id} type="button" className="m3-nav-bar__item nav-item" onClick={()=>navigate(id)} aria-current={view===id?'page':undefined} aria-label={navName(id,label)}><span className="m3-nav-indicator"><Icon name={icon} size={24}/></span><span className="m3-nav-label">{SHORT[id]}</span>{id==='services'&&<span className="m3-visually-hidden">All services</span>}</button>)}<button type="button" className="m3-nav-bar__item" aria-haspopup="dialog" onClick={()=>{haptic('tap');setSheet(true);setMenu(true)}} aria-current={!PRIMARY.slice(0,4).includes(view)?'page':undefined}><span className="m3-nav-indicator"><Icon name="more_horiz" size={24}/></span><span className="m3-nav-label">More</span></button></nav>}
  {(command||cmdClosing)&&<><div className={'m3-scrim'+(cmdClosing?' is-leaving':'')} onClick={closeCommand}/><div className={'m3-search-view'+(cmdClosing?' is-closing':'')} role="dialog" aria-modal="true" aria-label="Find a service" onAnimationEnd={ev=>{if(ev.target===ev.currentTarget&&cmdClosing){setCmdClosing(false);setCommand(false)}}} onKeyDown={ev=>{if(ev.key==='Tab'){const nodes=tabbables(ev.currentTarget);if(ev.shiftKey&&document.activeElement===nodes[0]){ev.preventDefault();nodes.at(-1)?.focus()}else if(!ev.shiftKey&&document.activeElement===nodes.at(-1)){ev.preventDefault();nodes[0]?.focus()}}}}><div className="m3-search-view__header"><IconButton icon="arrow_back" label="Close search" onClick={closeCommand}/><input className="m3-search-view__input" ref={cmdRef} aria-label="Search service names and IPs" value={search} onChange={ev=>setSearch(ev.target.value)} placeholder="Search services or IPs"/>{search&&<IconButton icon="close" label="Clear search text" onClick={()=>{setSearch('');cmdRef.current?.focus()}}/>}</div>{(()=>{const hits=catalog.filter(s=>`${s.name} ${s.desc} ${s.ip}`.toLowerCase().includes(search.toLowerCase()));return <><p className="m3-visually-hidden" role="status" aria-live="polite">{search?`${hits.length} ${hits.length===1?'result':'results'}`:''}</p>{!hits.length&&<div className="m3-search-view__empty"><p>No services match “{search}”.</p><Button variant="text" icon="close" onClick={()=>{setSearch('');cmdRef.current?.focus()}}>Clear search</Button></div>}</>})()}<ul className="m3-list m3-search-view__results command-results">{catalog.filter(s=>`${s.name} ${s.desc} ${s.ip}`.toLowerCase().includes(search.toLowerCase())).map(s=><li key={s.id}><a className="m3-list-item m3-list-item--two-line m3-state" href={s.url} target="_blank" rel="noreferrer" onClick={closeCommand} data-accent={s.accent}><span className="m3-accent-icon"><Icon name={s.icon}/></span><span className="m3-list-item__body"><span className="m3-list-item__headline">{s.name}</span><span className="m3-list-item__supporting">{s.ip}</span></span><Icon name="external" size={20}/></a></li>)}</ul></div></>}
  {dialog&&<ConfirmDialog dialog={dialog} busy={busy} close={()=>!busy&&setDialog(null)} confirm={action}/>}
  <div className="m3-snackbar-region" role="status" aria-live="polite">{toast&&<Snackbar>{toast}</Snackbar>}</div>
