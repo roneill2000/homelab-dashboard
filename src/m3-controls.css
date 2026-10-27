@@ -201,17 +201,16 @@
 html{scrollbar-gutter:stable}
 html.m3-scroll-locked{overflow:hidden}
 html.m3-scroll-locked body{overscroll-behavior:none}
-/* Hero colour (Ryan, 27 Oct 2026: "too mint green... closer to my original twilight pine"). The container stays the seed
-   pine; text is a near-neutral off-white instead of the mint primary-fixed role, and tiles/controls are darker wells cut
-   into the pine instead of mint washes laid over it. Off-white on #1f4d45 measures about 9:1. */
-.ov-hero{--hero-ink:#e6eeea;color:var(--hero-ink)}
-.ov-hero--attention{--hero-ink:#f3e9e5;color:var(--hero-ink)}
-.ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:rgb(4 20 17 / .28)}
-.ov-hero .summary-grid>.summary-stat.summary-link:hover{background:rgb(4 20 17 / .38)}
-.ov-hero__glyph{background:rgb(4 20 17 / .3)}
-.ov-hero .issue-chip.soft{background:rgb(4 20 17 / .3)}
-
-.ov-hero--attention .summary-grid>.summary-stat,.ov-hero--attention .summary-grid>.summary-stat:nth-child(n),.ov-hero--attention .ov-hero__glyph,.ov-hero--attention .issue-chip.soft{background:rgb(30 8 2 / .28)}
+/* Hero card tonal roles (A5) */
+.ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container)}
+.ov-hero--attention{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container)}
+.ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:var(--md-sys-color-surface-container-lowest);color:var(--md-sys-color-on-surface);border:1px solid var(--md-sys-color-outline-variant);border-radius:var(--md-sys-shape-corner-large)}
+.ov-hero .summary-grid>.summary-stat strong{color:var(--md-sys-color-on-surface)}
+.ov-hero .summary-grid>.summary-stat small,.ov-hero .summary-grid>.summary-stat p,.ov-hero .summary-grid>.summary-stat em{color:var(--md-sys-color-on-surface-variant)}
+.ov-hero .summary-grid>.summary-stat.summary-link:hover{background:var(--md-sys-color-surface-container-low)}
+.ov-hero .issue-chip:not(.soft),.ov-hero .issue-chip{background:var(--md-sys-color-error);color:var(--md-sys-color-on-error)}
+.ov-hero .issue-chip.soft{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border:0}
+.ov-hero__glyph{background:color-mix(in srgb,currentColor 14%,transparent)}
 /* Overview quick actions: their own row under the pinned services. Tonal 40px full-round buttons; the gaming PC is a
    56px row with a filled trailing button. Pressing changes shape only, never width. */
 .ov-actions{margin:0 0 28px}
@@ -256,9 +255,7 @@ html.m3-scroll-locked body{overscroll-behavior:none}
   .service-categories::-webkit-scrollbar{display:none}
   .service-categories>button{flex:0 0 auto;width:auto}
 }
-/* "A bit darker" (Ryan, 27 Oct 2026): the healthy hero sits a step deeper than the seed pine (#1f4d45 -> about #183d37). */
-.ov-hero{background:color-mix(in srgb,var(--md-sys-color-primary-container) 78%,#000)}
-.ov-hero--attention{background:color-mix(in srgb,var(--md-sys-color-tertiary-container) 82%,#000)}
+
 
 /* Fresh UX review, 27 Oct 2026. */
 /* Overview health tiles: four across only when each tile has room for its label; otherwise two compact columns. */

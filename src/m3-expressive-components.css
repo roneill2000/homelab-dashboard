@@ -244,11 +244,12 @@
 .ov-hero .status-line{margin:0}
 
 /* The four numbers become quiet tiles inside the hero (no competing colours). */
-.ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;border-radius:var(--md-sys-shape-corner-large)}
-.ov-hero .summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height);font-weight:500}
+.ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:var(--md-sys-color-surface-container-lowest);color:var(--md-sys-color-on-surface);border-radius:var(--md-sys-shape-corner-large)}
+.ov-hero .summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height);font-weight:500;color:var(--md-sys-color-on-surface)}
 .ov-hero .summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-headline-small-size);line-height:var(--md-sys-typescale-headline-small-line-height)}
-.ov-hero .summary-grid>.summary-stat em{font-size:var(--md-sys-typescale-title-medium-size);font-weight:400;opacity:.8}
-.ov-hero .summary-grid>.summary-stat.summary-link:hover{background:color-mix(in srgb,currentColor 14%,transparent);filter:none}
+.ov-hero .summary-grid>.summary-stat em{font-size:var(--md-sys-typescale-title-medium-size);font-weight:400;color:var(--md-sys-color-on-surface-variant);opacity:1}
+.ov-hero .summary-grid>.summary-stat small,.ov-hero .summary-grid>.summary-stat p{color:var(--md-sys-color-on-surface-variant)}
+.ov-hero .summary-grid>.summary-stat.summary-link:hover{background:var(--md-sys-color-surface-container-low);filter:none}
 /* Favorites two thirds, status one third. */
 .ov-columns{display:grid;gap:24px;margin:0 0 32px;align-items:start}
 @media (min-width:840px){

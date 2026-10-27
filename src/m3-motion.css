@@ -158,9 +158,9 @@
 /* Hero status shape lives on ::before (see the motion note above): the glyph itself only holds the icon. */
 .ov-hero__glyph,.ov-hero--attention .ov-hero__glyph{position:relative;isolation:isolate;clip-path:none;background:none!important;transform:none}
 .ov-hero--attention .ov-hero__glyph>*{transform:none}
-.ov-hero__glyph::before{content:'';position:absolute;inset:0;z-index:-1;clip-path:var(--m3-shape-cookie-9);background:rgb(4 20 17 / .3);
+.ov-hero__glyph::before{content:'';position:absolute;inset:0;z-index:-1;clip-path:var(--m3-shape-cookie-9);background:color-mix(in srgb,currentColor 14%,transparent);
   transition:clip-path var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
-.ov-hero--attention .ov-hero__glyph::before{clip-path:var(--m3-shape-soft-burst);background:rgb(30 8 2 / .28)}
+.ov-hero--attention .ov-hero__glyph::before{clip-path:var(--m3-shape-soft-burst);background:color-mix(in srgb,currentColor 14%,transparent)}
 /* The page container keeps its place between pages; only its height differs. The default group animation tweened that
    height on the main thread for every page change, so it is switched off (the page snapshots still rise and fade). */
 ::view-transition-group(page){animation:none}
