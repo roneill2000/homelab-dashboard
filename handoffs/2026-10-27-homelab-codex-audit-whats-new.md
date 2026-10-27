@@ -8,7 +8,8 @@
 - Repository `~/homelab`, n100 `main` at `cd9d1fb`; live deploy matches (backup `20261027T151758190891Z`).
 - GitHub `main` is at `cc962b8`: it has the demo GIF commits but not the three commits below. Ryan pushes to GitHub himself, or asks for it explicitly.
 - Gate: `npm run check > .preview/gate.txt` and require `grep -q "^ALL CHECKS OK"`. Passed on `cd9d1fb`.
-- In progress in another session: README motion clips (new recorder under `showcase/`). **Do not edit README.md or showcase/ while that is open.**
+- README media replaced in `095687c`: `showcase/motion-desktop.gif` and `showcase/motion-phone.gif` (plus MP4s), made by `showcase/record-motion.mjs`. Stills and PDF re-captured. `demo.gif`/`demo.mp4`, `record-demo.mjs` and `record-animations.mjs` were removed. They remain in git history, including on GitHub.
+- CountUp fix (`fix: count-up takes time only from frame timestamps`): counters could show negative values when the first frame's timestamp came before the effect's `performance.now()`.
 
 ## What changed (audit these)
 1. **Motion on 120 Hz phones (`0258011`).** Ryan's Pixel 11 Pro XL dropped frames in the first ~0.4 s after taps.
@@ -29,7 +30,7 @@
 1. Check each fresh-review finding against its acceptance criteria at 412, 768, 1024 and 1440, in light and dark. Include neighbouring widths for the tile threshold (600–900px).
 2. Check that the motion changes did not change the look: hero glyph in normal and attention states, page change at phone and desktop sizes. Re-run the composite trace on live.
 3. **Privacy review of public files.** `record-animations.mjs` masks the WAN address with a regex that contains its first two octets, so a partial WAN IP is public. Confirm this, list any other public file that exposes WAN, ntfy topic, tokens or personal device names, and propose the fix. Do not print the values in the audit. History rewrites are Ryan's to run.
-4. Presentation check of the README media: readable text, length, file size, whether it shows motion, phone gestures and both themes. Review only; another session is replacing the clips.
+4. Presentation check of the new README clips and stills: readable text, length, file size (GIFs 7.6 MB and 4.3 MB), smoothness, phone gestures, both themes, and that no public IP is visible in any frame.
 5. Anything else that regressed or still looks unfinished.
 
 ## Rules
