@@ -380,13 +380,73 @@
 .ov-hero .summary-grid>.summary-stat{min-height:0}
 
 
+/* Search view spatial expand/collapse (M3 Expressive) */
+@keyframes m3-search-expand {
+  from {
+    clip-path: circle(0% at calc(100% - 160px) 28px);
+    opacity: 0.6;
+  }
+  to {
+    clip-path: circle(150% at calc(100% - 160px) 28px);
+    opacity: 1;
+  }
+}
+@keyframes m3-search-collapse {
+  from {
+    clip-path: circle(150% at calc(100% - 160px) 28px);
+    opacity: 1;
+  }
+  to {
+    clip-path: circle(0% at calc(100% - 160px) 28px);
+    opacity: 0;
+  }
+}
+@keyframes m3-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (max-width: 839px) {
+  .m3-search-view {
+    animation: m3-search-expand var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized-decelerate);
+    clip-path: circle(150% at calc(100% - 160px) 28px);
+  }
+  .m3-search-view.is-closing {
+    animation: m3-search-collapse 200ms var(--md-sys-motion-easing-emphasized-accelerate) forwards;
+    pointer-events: none;
+  }
+}
+
+@media (min-width: 840px) {
+  .m3-search-view.is-closing {
+    animation: m3-fade-out 200ms var(--md-sys-motion-easing-emphasized-accelerate) forwards;
+    pointer-events: none;
+  }
+}
+
+.m3-scrim.is-leaving {
+  animation: m3-fade-out 200ms var(--md-sys-motion-easing-emphasized-accelerate) forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m3-search-view,
+  .m3-search-view.is-closing,
+  .m3-scrim.is-leaving {
+    animation: none !important;
+    clip-path: none !important;
+    transition: none !important;
+  }
+}
+
 /* Phone "More": the modal navigation as an M3 bottom sheet (drag handle, 28px top corners, single-column 56dp M3 list). */
 .m3-sheet__handle{display:none}
 .m3-nav-drawer.is-modal.is-sheet{top:auto;bottom:0;left:0;right:0;width:auto;max-width:640px;margin:0 auto;height:auto;max-height:85vh;padding:0 0 calc(20px + env(safe-area-inset-bottom));
   border-radius:var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0;background:var(--md-sys-color-surface-container-low);
-  display:flex;flex-direction:column;align-content:start;transform:translateY(105%);
-  transition:transform var(--md-sys-motion-spring-default-spatial-duration) var(--md-sys-motion-spring-default-spatial),visibility 0s linear var(--md-sys-motion-spring-default-spatial-duration)}
-.m3-nav-drawer.is-modal.is-sheet.open{transform:none;transition:visibility 0s;animation:m3-sheet-in var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
+  display:flex;flex-direction:column;align-content:start;transform:translateY(100%);visibility:hidden;
+  transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial),visibility 0s linear var(--md-sys-motion-spring-expressive-default-spatial-duration)}
+.m3-nav-drawer.is-modal.is-sheet.open{transform:none;visibility:visible;
+  transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial),visibility 0s}
 @keyframes m3-sheet-in{from{transform:translateY(105%)}}
 .is-sheet .m3-sheet__handle{display:block;align-self:center;width:32px;height:4px;margin:16px 0 12px;border-radius:2px;background:var(--md-sys-color-on-surface-variant);opacity:.4}
 .is-sheet .m3-sheet__title{margin:0;padding:0 16px 8px;font:var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--md-sys-typescale-title-medium-font);color:var(--md-sys-color-on-surface)}
