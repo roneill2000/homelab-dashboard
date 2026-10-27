@@ -289,4 +289,4 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .ov-status__note .material-symbols-rounded,.ov-status__note svg{flex-shrink:0;margin-top:1px}
 .ov-status__note b{color:var(--md-sys-color-on-surface);font-weight:500}
 /* Manual-update exception: a route to where the update is done. */
-.update-detail__link{display:inline-flex;align-items:center;gap:4px;margin-top:4px;color:var(--md-sys-color-primary);font-weight:500;min-height:32px}
+.update-detail__link{display:flex;width:fit-content;align-items:center;gap:4px;margin-top:4px;color:var(--md-sys-color-primary);font-weight:500;min-height:32px}
