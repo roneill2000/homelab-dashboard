@@ -9,9 +9,7 @@
 .text-button{display:inline-flex;align-items:center;gap:7px;background:none;border:0;white-space:nowrap}
 .secondary-button,.primary-button{border:1px solid var(--md-sys-color-outline-variant);border-radius:7px;padding:8px 12px;background:var(--md-sys-color-surface-container);display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .primary-button{border-color:var(--md-sys-color-primary);font-weight:600}
-@media(max-width:1000px){
-  .section-actions .text-button{display:none}
-}
+
 @media(max-width:760px){
   .segments button{padding:4px 7px}
 }
@@ -171,7 +169,7 @@
   .quick-actions>.m3-btn::after{top:-8px;bottom:-8px}
   .segments{padding-top:4px;padding-bottom:4px}
 }
-.ov-hero .quick-actions{margin:0}
+
 .ov-status>.m3-btn{margin-left:0}
 .segments button.selected:active,.segments button[aria-pressed=true]:active,.m3-segment[aria-pressed=true]:active{border-radius:var(--md-comp-button-group-connected-pressed-inner-corner)}
 @media (max-width:599px){
@@ -187,22 +185,17 @@
 /* Hero actions, one language (27 Oct 2026): status chips are filled 8px chips; actions are 40px full-round tonal buttons with no
    outline; the gaming PC is a 56px row with its own trailing button in the hero's inverse colours. */
 .ov-hero .issue-chip.soft{border:0;background:color-mix(in srgb,currentColor 16%,transparent)}
-.ov-hero .quick-actions{gap:8px;align-items:center}
-.ov-hero .quick-actions>.m3-btn,.ov-hero .quick-actions>.m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 20px 0 16px;border-radius:var(--md-sys-shape-corner-full);border:0;box-shadow:none;
-  background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}
-.ov-hero .quick-actions>.m3-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
-.ov-hero .quick-actions>.m3-btn .material-symbols-rounded{color:inherit;font-size:18px!important}
-.ov-hero .quick-actions>.pc-power{min-height:56px;padding:8px 8px 8px 16px;gap:12px;border-radius:var(--md-sys-shape-corner-large);background:color-mix(in srgb,currentColor 12%,transparent);box-shadow:none}
+
+
+
+
+
 .ov-hero{--hero-ink:var(--md-sys-color-primary-fixed);--hero-fill:var(--md-sys-color-primary-container)}
 .ov-hero--attention{--hero-ink:var(--md-sys-color-tertiary-fixed);--hero-fill:var(--md-sys-color-tertiary-container)}
-.ov-hero .pc-power .m3-btn,.ov-hero .pc-power .m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 16px 0 12px;border-radius:var(--md-sys-shape-corner-full);border:0;box-shadow:none;
-  background:var(--hero-ink);color:var(--hero-fill);margin-left:auto}
-.ov-hero .pc-power .m3-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
-.ov-hero .pc-power .m3-btn .material-symbols-rounded{color:inherit}
-@media (max-width:599px){
-  .ov-hero .quick-actions>.pc-power{flex:1 1 100%}
-  .ov-hero .quick-actions>.m3-btn{flex:1 1 0;justify-content:center}
-}
+
+
+
+
 /* Quick actions wrap, so pressing must not change a button's width (it re-flowed the row at 760-840px). The press keeps
    its shape morph only. */
 html{scrollbar-gutter:stable}
@@ -216,22 +209,21 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:rgb(4 20 17 / .28)}
 .ov-hero .summary-grid>.summary-stat.summary-link:hover{background:rgb(4 20 17 / .38)}
 .ov-hero__glyph{background:rgb(4 20 17 / .3)}
-.ov-hero .quick-actions>.m3-btn,.ov-hero .quick-actions>.m3-btn:active:not(:disabled),.ov-hero .quick-actions>.pc-power,.ov-hero .issue-chip.soft{background:rgb(4 20 17 / .3)}
-.ov-hero .quick-actions>.m3-btn:hover:not(:disabled){background:rgb(4 20 17 / .4)}
-.ov-hero--attention .summary-grid>.summary-stat,.ov-hero--attention .summary-grid>.summary-stat:nth-child(n),.ov-hero--attention .ov-hero__glyph,
-.ov-hero--attention .quick-actions>.m3-btn,.ov-hero--attention .quick-actions>.pc-power,.ov-hero--attention .issue-chip.soft{background:rgb(30 8 2 / .28)}
+.ov-hero .issue-chip.soft{background:rgb(4 20 17 / .3)}
+
+.ov-hero--attention .summary-grid>.summary-stat,.ov-hero--attention .summary-grid>.summary-stat:nth-child(n),.ov-hero--attention .ov-hero__glyph,.ov-hero--attention .issue-chip.soft{background:rgb(30 8 2 / .28)}
 /* Overview quick actions: their own row under the pinned services. Tonal 40px full-round buttons; the gaming PC is a
    56px row with a filled trailing button. Pressing changes shape only, never width. */
 .ov-actions{margin:0 0 28px}
 .ov-actions .quick-actions{margin:0;padding:0;gap:8px;align-items:center;flex-wrap:wrap;overflow:visible}
 .ov-actions .quick-actions>.m3-btn,.ov-actions .quick-actions>.m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 20px 0 16px;border:0;box-shadow:none;
   border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
-.ov-actions .quick-actions>.m3-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
+.ov-actions .quick-actions>.m3-btn:is(:active,.is-pressing):not(:disabled){border-radius:var(--md-sys-shape-corner-small)}
 .ov-actions .quick-actions>.m3-btn .material-symbols-rounded{color:inherit;font-size:18px!important}
 .ov-actions .quick-actions>.pc-power{min-height:56px;padding:8px 8px 8px 16px;gap:12px;border-radius:var(--md-sys-shape-corner-large);background:var(--md-sys-color-surface-container-high);box-shadow:none}
 .ov-actions .pc-power .m3-btn,.ov-actions .pc-power .m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 16px 0 12px;margin-left:auto;border:0;box-shadow:none;
   border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary)}
-.ov-actions .pc-power .m3-btn:active:not(:disabled){border-radius:var(--md-sys-shape-corner-medium)}
+.ov-actions .pc-power .m3-btn:is(:active,.is-pressing):not(:disabled){border-radius:var(--md-sys-shape-corner-small)}
 .ov-actions .pc-power .m3-btn .material-symbols-rounded{color:inherit}
 @media (max-width:599px){
   .ov-actions .quick-actions>.pc-power{flex:1 1 100%}

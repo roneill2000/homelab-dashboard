@@ -28,11 +28,11 @@
 .service-card:hover{transform:none;border-color:var(--md-sys-color-outline-variant);box-shadow:var(--md-sys-elevation-level1)}
 /* Overview issue chips -> assist chips (32px, small shape) */
 /* Big metric numbers -> display-small (headline-medium on phones) */
-.summary-stat strong,.net-now strong,.storage-values strong,.storage-grid .storage-values strong{font-family:var(--md-sys-typescale-display-small-font);font-size:var(--md-sys-typescale-display-small-size);
+.summary-stat strong,.storage-values strong,.storage-grid .storage-values strong{font-family:var(--md-sys-typescale-display-small-font);font-size:var(--md-sys-typescale-display-small-size);
   font-weight:var(--md-sys-typescale-display-small-weight);line-height:var(--md-sys-typescale-display-small-line-height);
   letter-spacing:var(--md-sys-typescale-display-small-tracking);font-variant-numeric:tabular-nums}
 @media (max-width:599px){
-  .summary-stat strong,.net-now strong,.storage-values strong,.storage-grid .storage-values strong{font-family:var(--md-sys-typescale-headline-medium-font);font-size:var(--md-sys-typescale-headline-medium-size);
+  .summary-stat strong,.storage-values strong,.storage-grid .storage-values strong{font-family:var(--md-sys-typescale-headline-medium-font);font-size:var(--md-sys-typescale-headline-medium-size);
   line-height:var(--md-sys-typescale-headline-medium-line-height)}
 }
 /* ---------- Android feel (26 Oct 2026): filled cards, Roboto Flex numbers ---------- */

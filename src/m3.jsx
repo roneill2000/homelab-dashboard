@@ -61,6 +61,13 @@ export function tabbables(root){
   return [...(root?.querySelectorAll('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])')||[])]
     .filter(el=>el.getClientRects().length&&!el.closest('[inert]')&&getComputedStyle(el).visibility!=='hidden');
 }
+// Expressive press feedback: a tap is ~80ms of :active, too short for the shape morph to read. Pointer presses on buttons
+// get .is-pressing for at least 240ms (the fast spatial spring's settle point), then release springs back.
+const PRESSABLE='.m3-btn,.primary-button,.secondary-button,.text-button,.m3-icon-btn,.issue-chip,.segments button,.m3-segment,.section-jump,.service-card,.net-row,.disk-row,.summary-link';
+if(typeof document!=='undefined')document.addEventListener('pointerdown',ev=>{const el=ev.target.closest?.(PRESSABLE);if(!el||el.disabled)return;
+  const t=performance.now();el.classList.add('is-pressing');
+  const up=()=>{removeEventListener('pointerup',up,true);removeEventListener('pointercancel',up,true);setTimeout(()=>el.classList.remove('is-pressing'),Math.max(0,240-(performance.now()-t)))};
+  addEventListener('pointerup',up,true);addEventListener('pointercancel',up,true)},true);
 // Background scroll lock shared by every overlay (dialogs, search, modal navigation). Counted, so nested overlays release
 // only when the last one closes. html keeps a stable scrollbar gutter, so locking does not shift the layout.
 let scrollLocks=0;

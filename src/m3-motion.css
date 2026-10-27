@@ -47,7 +47,7 @@
   .service-card.service-card--row:hover,.ai-model--row:hover{border-radius:var(--md-sys-shape-corner-large);z-index:1}
   .section-jump:hover{border-radius:var(--md-sys-shape-corner-large)}
 }
-.service-card:active,.summary-link:active,.ai-model--row:active,.section-jump:active,.m3-nav-drawer__item:active{transform:scale(.97)}
+:is(.service-card,.summary-link,.ai-model--row,.m3-nav-drawer__item,.net-row,.disk-row):is(.is-pressing,:active){transform:scale(.98)}
 .is-sheet .m3-nav-drawer__item:active{border-radius:var(--md-sys-shape-corner-extra-large)}
 
 /* Navigation indicator grows out from its centre with overshoot; the selected icon fills with a small bounce. */
@@ -88,13 +88,14 @@
   .m3-btn:not(:disabled):hover .material-symbols-rounded:is(:last-child){transform:translateX(3px)}
 }
 .m3-btn .material-symbols-rounded,.m3-icon-btn .material-symbols-rounded{transition:transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
-.m3-btn:not(:disabled):active,.primary-button:not(:disabled):active,.secondary-button:not(:disabled):active,.issue-chip:active,.segments button:active,.m3-segment:active{
-  transform:scale(.95);border-radius:var(--md-sys-shape-corner-small)}
-.m3-btn--text:not(:disabled):active,.text-button:not(:disabled):active{transform:scale(.95)}
+/* Press = .is-pressing (added on pointerdown by m3.jsx, held for at least 240ms so a quick tap shows the whole morph) or
+   :active (keyboard). Text buttons morph shape only - squashing a wide pill reads as a jump; small controls also squeeze. */
+:is(.m3-btn,.primary-button,.secondary-button,.issue-chip,.segments button,.m3-segment,.section-jump):not(:disabled):is(.is-pressing,:active){border-radius:var(--md-sys-shape-corner-small)}
+:is(.issue-chip,.section-jump,.segments button,.m3-segment):not(:disabled):is(.is-pressing,:active){transform:scale(.96)}
 .m3-icon-btn{transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),background-color var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
-.m3-icon-btn:not(:disabled):active{transform:scale(.88);border-radius:var(--md-sys-shape-corner-medium)}
-.m3-icon-btn:not(:disabled):active .material-symbols-rounded{transform:scale(.9)}
-[aria-label="Refresh telemetry"]:active .material-symbols-rounded{transform:rotate(-120deg)}
+.m3-icon-btn:not(:disabled):is(.is-pressing,:active){transform:scale(.9);border-radius:var(--md-sys-shape-corner-medium)}
+.m3-icon-btn:not(:disabled):is(.is-pressing,:active) .material-symbols-rounded{transform:scale(.9)}
+[aria-label="Refresh telemetry"]:is(.is-pressing,:active) .material-symbols-rounded{transform:rotate(-120deg)}
 /* Selected toggles (connected groups, segmented buttons) settle with a small overshoot when chosen. */
 :is(.segments button,.m3-segment):is([aria-pressed=true],.selected){animation:m3-select var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
 @keyframes m3-select{from{transform:scale(.92)}}
@@ -137,3 +138,8 @@
   html.vt-local::view-transition-old(page),html.vt-local::view-transition-new(page){animation:none}
 }
 @supports (view-transition-name:none){@media (prefers-reduced-motion:no-preference){[aria-current=page]>.m3-nav-indicator{animation:none}}}
+/* "Full" corners as real values on pressable controls (half their height). The 9999px token made the press spring
+   interpolate 9999 -> 8 px, overshoot below zero and flash square; with 20/24px the morph is a smooth squircle. */
+.m3-btn,.primary-button,.secondary-button,.issue-chip,.section-jump,.quick-actions>.m3-btn{--md-sys-shape-corner-full:20px}
+.segments button,.m3-segment{--md-sys-shape-corner-full:24px}
+.m3-icon-btn{--md-sys-shape-corner-full:20px}.m3-icon-btn--touch{--md-sys-shape-corner-full:24px}

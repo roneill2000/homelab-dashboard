@@ -157,12 +157,12 @@
 @keyframes m3-fade-in{from{opacity:0;transform:scale(.96)}}
 /* Cards and tiles rise in when a page mounts, staggered 30ms each (first 8), on the Expressive fast spatial spring. */
 .summary-stat,.panel,.service-card,.m3-card{animation:m3-rise var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial) both}
-:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(2){animation-delay:30ms}
-:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(3){animation-delay:60ms}
-:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(4){animation-delay:90ms}
-:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(5){animation-delay:120ms}
-:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(6){animation-delay:150ms}
-:is(.summary-grid,.service-grid,.m3-grid,.storage-grid,.host-grid,.two-grid)>:nth-child(n+7){animation-delay:180ms}
+
+
+
+
+
+
 @keyframes m3-rise{from{opacity:0;transform:translateY(16px)}}
 @media (prefers-reduced-motion:reduce){
   ::view-transition-old(page),::view-transition-new(page),::view-transition-group(page){animation:none}
@@ -228,7 +228,7 @@
 .chart-tooltip.is-empty{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:0!important;border:0!important;
   overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;background:none!important;box-shadow:none!important}
 /* Wordmark: Google Sans Flex 500 (Ryan, 26 Oct 2026), like Google's own app wordmarks. */
-.m3-xrail__brand,.m3-nav-drawer__brand,.m3-top-app-bar__brand{font-family:var(--md-ref-typeface-brand);font-weight:500;letter-spacing:-0.2px}
+.m3-xrail__brand,.m3-nav-drawer__brand{font-family:var(--md-ref-typeface-brand);font-weight:500;letter-spacing:-0.2px}
 /* ---------- Overview v2 (Codex audit, 26 Oct 2026): one featured surface, quieter supporting surfaces, varied shapes ---------- */
 /* Health hero: primary-container (tertiary-container when something needs attention), 32px corner, emphasized display type. */
 .ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);border-radius:var(--md-sys-shape-corner-extra-large-increased);
@@ -242,7 +242,7 @@
   font-weight:500;letter-spacing:var(--md-sys-typescale-display-small-tracking);color:inherit}
 .ov-hero__sub{margin:6px 0 0;font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height) var(--md-sys-typescale-body-large-font);opacity:.9}
 .ov-hero .status-line{margin:0}
-.ov-hero .all-clear{color:inherit;font-weight:500}
+
 /* The four numbers become quiet tiles inside the hero (no competing colours). */
 .ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;border-radius:var(--md-sys-shape-corner-large)}
 .ov-hero .summary-grid>.summary-stat strong{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height);font-weight:500}
@@ -323,7 +323,7 @@
 .ai-history__hint{color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font)}
 .ai-history__chevron{margin-left:auto;transition:transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
 .ai-history[open] .ai-history__chevron{transform:rotate(180deg)}
-.ai-history>.ai-model-grid{padding:0 12px 12px}
+
 @media (max-width:599px){
   .ai-history__hint{display:none}
 }
@@ -345,8 +345,8 @@
   .ov-hero__head{gap:12px;align-items:center}
   .ov-hero__glyph{width:44px;height:44px}
   .ov-hero__sub{display:none}
-  .ov-hero .quick-actions{flex-wrap:wrap;overflow:visible;margin:0;padding:0}
-  .ov-hero .quick-actions>*{flex:0 1 auto}
+  
+  
   .ov-hero .summary-grid{gap:8px}
   .ov-hero .summary-grid>.summary-stat{padding:12px}
   .ov-hero .summary-grid>.summary-stat p,.ov-hero .summary-grid>.summary-stat .summary-icon{display:none}
@@ -354,19 +354,16 @@
   .ov-hero .summary-grid>.summary-stat strong.text-value{font-size:var(--md-sys-typescale-title-large-size);line-height:var(--md-sys-typescale-title-large-line-height)}
 }
 /* 3. Local AI: the loaded model is featured (full row, primary container); alternatives stay compact. */
-.ai-model-grid>.ai-model.is-featured{grid-column:1/-1;background:var(--md-sys-color-primary-container);color:var(--md-sys-color-primary-fixed);border-radius:var(--md-sys-shape-corner-extra-large)}
-.ai-model-grid>.ai-model.is-featured :is(p,span,small,em){color:inherit}
-.ai-model-grid>.ai-model:not(.is-featured) .ai-benchmark strong{font-size:var(--md-sys-typescale-title-large-size);line-height:var(--md-sys-typescale-title-large-line-height)}
-.ai-model-grid>.ai-model:not(.is-featured) .ai-context{display:none}
+
+
+
+
 /* Phone service rows keep live details (streams, queue) while plain hostnames stay hidden. */
 @media (max-width:599px){.service-card--row .service-address.is-live{display:block;grid-column:1;grid-row:auto;text-align:left}}
 /* Hero controls inherit the hero's light foreground and sit on tinted surfaces (fixes 1.11:1 / 1.80:1 in light theme). */
-.ov-hero .pc-power{background:color-mix(in srgb,currentColor 12%,transparent);color:inherit}
-.ov-hero .pc-power :is(strong,span,small,p,.pc-label){color:inherit}
-@media (max-width:599px){
-  .ov-hero .quick-actions>.m3-btn{background:color-mix(in srgb,currentColor 12%,transparent);color:inherit;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 45%,transparent)}
-  .ov-hero .quick-actions>.m3-btn .material-symbols-rounded{color:inherit}
-}
+
+
+
 /* Charts open in a large dialog (expand button, or double-click the chart). */
 .chart{position:relative}
 .chart__expand{position:absolute;top:-6px;right:-6px;z-index:2;opacity:0;transition:opacity var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
@@ -381,8 +378,8 @@
 .chart-legend-big__unit{margin-left:auto}
 /* Legacy .summary-stat min-heights (157-174px) don't apply inside the hero; tiles size to their content. */
 .ov-hero .summary-grid>.summary-stat{min-height:0}
-.ai-model-grid>.ai-model.is-featured .badge,.ai-model-grid>.ai-model.is-featured .badge *{color:var(--md-custom-on-green-container)}
-.ai-model-grid>.ai-model.is-featured .badge:not(.good),.ai-model-grid>.ai-model.is-featured .badge:not(.good) *{color:var(--md-sys-color-on-surface-variant)}
+
+
 /* Phone "More": the modal navigation as an M3 bottom sheet (drag handle, 28px top corners, destinations as a 3-column grid). */
 .m3-sheet__handle{display:none}
 .m3-nav-drawer.is-modal.is-sheet{top:auto;bottom:0;left:0;right:0;width:auto;max-width:640px;margin:0 auto;height:auto;max-height:85vh;padding:0 16px calc(20px + env(safe-area-inset-bottom));
@@ -590,3 +587,6 @@ summary.update-group__title::-webkit-details-marker{display:none}
 .storage-grid{align-items:start}
 .storage-note{display:flex;gap:8px;align-items:flex-start;margin:8px 0 12px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-medium-size);line-height:1.45}
 .storage-note .material-symbols-rounded{flex-shrink:0;margin-top:1px}
+/* Chart readout floats over the top of the plot at every size, so showing it never moves the page. */
+.chart-tooltip,.activity-panel .chart-tooltip{position:absolute;top:-4px;left:40px;right:auto;bottom:auto;max-width:calc(100% - 48px);flex-wrap:wrap;margin:0;transform:none;z-index:3}
+.chart svg{touch-action:pan-y}
