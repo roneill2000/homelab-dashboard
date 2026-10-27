@@ -29,8 +29,16 @@ function spring(k, z) {
     pts.push([t, x]);
     if (Math.abs(1 - x) < 0.001 && Math.abs(v) < 0.05) { calm += dt; if (calm > 0.05) break; } else calm = 0;
   }
-  const T = t, step = Math.max(1, Math.floor(pts.length / 60));
-  const sampled = pts.filter((_, i) => i % step === 0); sampled.push([T, 1]);
+  // Keep only the points needed to stay within 0.001 of the true curve (Ramer-Douglas-Peucker), so linear() follows the
+  // spring closely on 120 Hz screens without listing every sample.
+  const T = t; pts.push([T, 1]);
+  const keep = new Set([0, pts.length - 1]);
+  (function rdp(a, b) {
+    let worst = -1, at = -1; const [ta, xa] = pts[a], [tb, xb] = pts[b];
+    for (let i = a + 1; i < b; i++) { const [ti, xi] = pts[i]; const d = Math.abs(xi - (xa + (xb - xa) * (ti - ta) / (tb - ta))); if (d > worst) { worst = d; at = i; } }
+    if (worst > 0.001) { keep.add(at); rdp(a, at); rdp(at, b); }
+  })(0, pts.length - 1);
+  const sampled = [...keep].sort((a, b) => a - b).map(i => pts[i]);
   const easing = 'linear(' + sampled.map(([ti, xi]) => `${+xi.toFixed(4)} ${+(ti / T * 100).toFixed(2)}%`).join(',') + ')';
   return { ms: Math.round(T * 1000), easing };
 }

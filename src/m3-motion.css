@@ -28,12 +28,14 @@
 .ov-hero .summary-stat:nth-child(3){animation-delay:210ms}.ov-hero .summary-stat:nth-child(4){animation-delay:255ms}
 
 /* Hero: the status shape pops in turning, then keeps a slow turn (the icon counter-rotates so it stays upright). */
-.ov-hero__glyph{animation:m3-glyph-in var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 80ms backwards,m3-turn 28s linear 700ms infinite}
-.ov-hero__glyph>*{animation:m3-turn 28s linear 700ms infinite reverse}
+/* One animation per element: two transform animations on the same element push both onto the main thread (Chrome's
+   "incompatible animations"), and the endless turn then cost a main-thread frame at 120 Hz forever. The pop-in runs on
+   the glyph, the turn on its shape (::before), so the icon needs no counter-rotation. */
+.ov-hero__glyph{animation:m3-glyph-in var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 80ms backwards}
+.ov-hero__glyph::before{animation:m3-turn 28s linear 700ms infinite}
 @keyframes m3-glyph-in{from{transform:scale(0) rotate(-120deg)}}
 @keyframes m3-turn{to{transform:rotate(360deg)}}
-.ov-hero--attention .ov-hero__glyph{animation:m3-glyph-in var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) backwards,m3-turn 9s linear 700ms infinite}
-.ov-hero--attention .ov-hero__glyph>*{animation:m3-turn 9s linear 700ms infinite reverse}
+.ov-hero--attention .ov-hero__glyph::before{animation-duration:9s}
 .ov-hero .issue-chip{animation:m3-pop var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial) 200ms backwards}
 @keyframes m3-pop{from{opacity:0;transform:scale(.6)}}
 .ai-task__icon{animation:m3-glyph-in var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 150ms backwards}
@@ -153,3 +155,12 @@
 /* Pull-to-refresh exit: shrink, rise and fade back where it came from. */
 .m3-pull.is-leaving{opacity:0;transform:translateY(-8px) scale(.3) rotate(200deg);
   transition:transform 340ms cubic-bezier(.3,0,.8,.15),opacity 300ms cubic-bezier(.3,0,1,1) 40ms}
+/* Hero status shape lives on ::before (see the motion note above): the glyph itself only holds the icon. */
+.ov-hero__glyph,.ov-hero--attention .ov-hero__glyph{position:relative;isolation:isolate;clip-path:none;background:none!important;transform:none}
+.ov-hero--attention .ov-hero__glyph>*{transform:none}
+.ov-hero__glyph::before{content:'';position:absolute;inset:0;z-index:-1;clip-path:var(--m3-shape-cookie-9);background:rgb(4 20 17 / .3);
+  transition:clip-path var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
+.ov-hero--attention .ov-hero__glyph::before{clip-path:var(--m3-shape-soft-burst);background:rgb(30 8 2 / .28)}
+/* The page container keeps its place between pages; only its height differs. The default group animation tweened that
+   height on the main thread for every page change, so it is switched off (the page snapshots still rise and fade). */
+::view-transition-group(page){animation:none}
