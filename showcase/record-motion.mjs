@@ -50,15 +50,15 @@ async function record(name, { viewport, scale, touch, theme, script }) {
   await cdp.send('Animation.enable'); await cdp.send('Animation.setPlaybackRate', { playbackRate: RATE });
 
   const frames = []; let clock = 0, n = 0;
-  const shot = async () => { const t0 = Date.now(); const buf = await page.screenshot({ type: 'png' }); return [t0, Date.now(), buf]; };
+  const shot = async () => { const t0 = Date.now(); try { const buf = await page.screenshot({ type: 'png' }); return [t0, Date.now(), buf]; } catch { return null; } };
   const save = (t, buf) => { const f = join(dir, `${String(n++).padStart(5, '0')}.png`); writeFileSync(f, buf); frames.push([t, f]); };
   // Run `action` and capture for `ms` of animation time (ms / RATE of real time).
   const capture = async (ms, action = async () => {}) => {
     const start = Date.now(); const done = action();
-    while (Date.now() - start < ms / RATE) { const [a, b, buf] = await shot(); save(clock + ((a + b) / 2 - start) * RATE, buf); }
+    while (Date.now() - start < ms / RATE) { const s = await shot(); if (s) { const [a, b, buf] = s; save(clock + ((a + b) / 2 - start) * RATE, buf); } else { await new Promise(r => setTimeout(r, 40)); } }
     await done; clock += ms;
   };
-  const hold = async ms => { const [, , buf] = await shot(); save(clock, buf); clock += ms; };
+  const hold = async ms => { const s = await shot(); if (s) save(clock, s[2]); clock += ms; };
   const center = async loc => { const b = await loc.boundingBox(); return [b.x + b.width / 2, b.y + b.height / 2]; };
   const cursor = (x, y, down = false) => page.evaluate(([x, y, d]) => window.__cursor?.(x, y, d), [x, y, down]);
   const api = {
@@ -93,7 +93,7 @@ async function record(name, { viewport, scale, touch, theme, script }) {
   rmSync(dir, { recursive: true, force: true });
 }
 
-const nav = (page, label) => page.locator('nav, .m3-nav-bar').getByRole('button', { name: new RegExp('^' + label) }).filter({ visible: true }).first();
+const nav = (page, label) => page.locator('nav, .m3-nav-bar').getByRole('button', { name: new RegExp('(^' + label + '|All ' + label + ')', 'i') }).filter({ visible: true }).first();
 
 if (!only || only === 'desktop') await record('desktop', {
   viewport: { width: 1440, height: 900 }, scale: 1, touch: false, theme: 'dark',
