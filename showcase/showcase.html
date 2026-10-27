@@ -1,107 +1,142 @@
 <!doctype html><html><head><meta charset="utf-8"><title>Homelab Command Center</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<!-- Printed to Homelab_Command_Center_Showcase.pdf by build-showcase.mjs (which also refreshes the screenshots). -->
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,300..800&family=Google+Sans+Code:wght@400;500&display=swap" rel="stylesheet">
 <style>
-@page{size:A4 landscape;margin:0}
-:root{--bg:#0a0e14;--panel:#111722;--line:#1f2937;--text:#e6edf3;--muted:#8b98a9;--mint:#7de5c0;--blue:#7dacf5;--violet:#c3a5f4;--amber:#f3c87b}
+@page{size:297mm 210mm;margin:0}
+:root{--bg:#091613;--panel:#15221f;--panel-2:#1c2a27;--line:#26332f;--text:#e6eeea;--muted:#9fb2ad;--pine:#a1d0c5;--pine-deep:#1f4d45;--cedar:#f6b8a7;--amber:#dac84e;--blue:#93ccff}
 *{box-sizing:border-box;margin:0}
-body{font-family:Inter,system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page{width:297mm;height:210mm;padding:14mm 16mm 12mm;position:relative;overflow:hidden;page-break-after:always;
- background:radial-gradient(1200px 600px at 85% -10%,#7de5c014,transparent 60%),radial-gradient(900px 500px at -10% 110%,#7dacf512,transparent 60%),var(--bg)}
-.eyebrow{font:600 9pt Inter;letter-spacing:.18em;text-transform:uppercase;color:var(--mint)}
-h1{font:800 44pt/1.02 Inter;letter-spacing:-.03em;margin:10mm 0 5mm}
-h2{font:700 21pt/1.15 Inter;letter-spacing:-.02em;margin:2mm 0 2mm}
-.lede{font:400 12pt/1.55 Inter;color:var(--muted)}
-.sub{font:400 10.5pt/1.5 Inter;color:var(--muted);max-width:230mm}
-.shot{border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:none;outline:1px solid #ffffff0a;background:var(--panel)}
+body{font-family:'Google Sans Flex',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:297mm;height:210mm;padding:14mm 16mm 13mm;position:relative;overflow:hidden;page-break-after:always;
+ background:radial-gradient(1100px 620px at 88% -12%,#1f4d4566,transparent 62%),radial-gradient(800px 480px at -8% 112%,#653a2e2e,transparent 60%),var(--bg)}
+.eyebrow{font:600 9pt 'Google Sans Flex';letter-spacing:.16em;text-transform:uppercase;color:var(--pine)}
+h1{font:600 46pt/1.0 'Google Sans Flex';letter-spacing:-.025em;margin:9mm 0 5mm}
+h2{font:500 22pt/1.15 'Google Sans Flex';letter-spacing:-.015em;margin:2mm 0 2mm}
+.lede{font:400 12.5pt/1.55 'Google Sans Flex';color:var(--muted)}
+.sub{font:400 10.5pt/1.5 'Google Sans Flex';color:var(--muted);max-width:236mm}
+.shot{border-radius:16px;overflow:hidden;background:var(--panel);box-shadow:0 0 0 1px #ffffff0d}
 .shot img{display:block;width:100%}
+.phone{border-radius:22px}
 .grid{display:grid;gap:6mm}
-.feat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5mm}
-.feat b{display:block;font:600 10.5pt Inter;margin-bottom:1.5mm}
-.feat span{font:400 9pt/1.5 Inter;color:var(--muted)}
-.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
-.foot{position:absolute;left:16mm;right:16mm;bottom:7mm;display:flex;justify-content:space-between;font:500 8pt Inter;color:#5b6676;border-top:1px solid var(--line);padding-top:3mm}
-.chips{display:flex;gap:3mm;flex-wrap:wrap;margin-top:7mm}
-.chip{border:1px solid var(--line);background:#ffffff06;border-radius:999px;padding:2mm 4mm;font:500 9pt Inter;color:var(--muted)}
-.stat{font:700 26pt Inter;letter-spacing:-.02em}.stat small{font:500 9pt Inter;color:var(--muted);display:block;letter-spacing:0}
-.mono{font-family:'JetBrains Mono',monospace}
+.feat{background:var(--panel);border-radius:16px;padding:5mm}
+.feat b{display:flex;align-items:center;gap:2.5mm;font:600 10.5pt 'Google Sans Flex';margin-bottom:1.5mm}
+.feat span{font:400 9pt/1.5 'Google Sans Flex';color:var(--muted)}
+.shape{width:9px;height:9px;flex-shrink:0;border-radius:50%}
+.cookie{clip-path:polygon(50% 0%,61% 11%,77% 7%,80% 23%,96% 30%,89% 45%,100% 58%,86% 67%,88% 84%,72% 85%,63% 100%,50% 90%,37% 100%,28% 85%,12% 84%,14% 67%,0% 58%,11% 45%,4% 30%,20% 23%,23% 7%,39% 11%);border-radius:0;width:11px;height:11px}
+.foot{position:absolute;left:16mm;right:16mm;bottom:7mm;display:flex;justify-content:space-between;font:500 8pt 'Google Sans Flex';color:#647571;border-top:1px solid var(--line);padding-top:3mm}
+.chips{display:flex;gap:2.5mm;flex-wrap:wrap;margin-top:7mm}
+.chip{background:var(--panel-2);border-radius:8px;padding:2mm 3.5mm;font:500 9pt 'Google Sans Flex';color:var(--muted)}
+.stat{font:600 27pt 'Google Sans Flex';letter-spacing:-.02em;color:var(--text)}.stat small{font:500 9pt 'Google Sans Flex';color:var(--muted);display:block;letter-spacing:0;margin-top:1mm}
+.mono{font-family:'Google Sans Code',monospace}
+.speeds{font:500 8.8pt/1.85 'Google Sans Code';color:var(--muted)}.speeds b{display:inline;font:inherit;color:var(--text)}
+.swatches{display:flex;gap:2mm;margin-top:2mm}.swatches i{width:9mm;height:4mm;border-radius:2mm}
 </style></head><body>
 
-<section class="page" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:10mm;align-items:center">
+<section class="page" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:10mm;align-items:center">
  <div>
   <div class="eyebrow">Homelab · October 2026</div>
   <h1>Homelab<br>Command Center</h1>
-  <p class="lede">A dashboard for a Proxmox and Unraid homelab. It shows host and disk activity as it happens, checks every service, answers questions with a local AI model, and runs updates safely.</p>
-  <div class="chips"><span class="chip">React 18</span><span class="chip">Python backend</span><span class="chip">Proxmox VE</span><span class="chip">Unraid</span><span class="chip">Intel Arc A310</span><span class="chip">llama.cpp</span></div>
+  <p class="lede">A dashboard for my Proxmox and Unraid homelab. The first screen says whether anything needs attention. The other pages cover services, disks, network, backups, updates and the local AI models.</p>
+  <div class="chips"><span class="chip">React 18</span><span class="chip">Python backend</span><span class="chip">Material 3 Expressive</span><span class="chip">Proxmox VE</span><span class="chip">Unraid</span><span class="chip">Intel Arc A310</span><span class="chip">llama.cpp</span></div>
   <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:10mm">
-   <div><div class="stat">29<small>services monitored</small></div></div>
-   <div><div class="stat">13<small>VMs &amp; containers</small></div></div>
-   <div><div class="stat">24 h<small>rolling disk history</small></div></div>
+   <div class="stat">28<small>services monitored</small></div>
+   <div class="stat">20<small>VMs, containers &amp; apps</small></div>
+   <div class="stat">10<small>automated UI check suites</small></div>
   </div>
  </div>
  <div class="shot"><img src="overview.png"></div>
- <div class="foot"><span>Homelab Command Center</span><span>1 / 6</span></div>
+ <div class="foot"><span>Homelab Command Center</span><span>1 / 8</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">01 · Overview</div><h2>What needs attention, and the buttons you use most</h2>
- <p class="sub">A status line at the top says “All clear” or lists what needs attention, and each item opens its page. Below it: power for the gaming PC, a DNS pause, an update check, and a one-line box for asking the local Qwen model.</p>
- <div class="grid" style="grid-template-columns:2.3fr 1fr;margin-top:6mm;align-items:start">
+ <div class="eyebrow">01 · Overview</div><h2>Overview</h2>
+ <p class="sub">The top card says "All clear" or lists what needs attention, and each item links to its page. Pinned services come next, then the quick actions: wake or sleep the gaming PC, pause DNS blocking for five minutes, and check for updates.</p>
+ <div class="grid" style="grid-template-columns:1fr 58mm 62mm;margin-top:6mm;align-items:start">
   <div class="shot"><img src="overview.png"></div>
+  <div class="shot phone"><img src="phone.png"></div>
   <div class="grid" style="gap:4mm">
-   <div class="feat"><b><i class="dot" style="background:var(--mint)"></i>One tap from the phone</b><span>Wake or sleep the gaming PC, pause ad blocking, or check for updates without leaving the first screen.</span></div>
-   <div class="feat"><b><i class="dot" style="background:var(--blue)"></i>Safe buttons</b><span>Every action confirms first with a button named after what it does, and only works from the dashboard itself.</span></div>
-   <div class="feat"><b><i class="dot" style="background:var(--violet)"></i>Missing data stays missing</b><span>Each reading has a timestamp. If a source stops answering, the tile shows “—” instead of zero.</span></div>
+   <div class="feat"><b><i class="shape cookie" style="background:var(--pine)"></i>On a phone</b><span>The health card and four pinned services fit on the first screen.</span></div>
+   <div class="feat"><b><i class="shape" style="background:var(--cedar)"></i>Confirmations</b><span>Actions that change something ask first, and the server only accepts them from the dashboard.</span></div>
+   <div class="feat"><b><i class="shape" style="background:var(--amber)"></i>Missing readings</b><span>Each reading has a timestamp. If a source stops answering, its tile shows a dash instead of zero.</span></div>
   </div>
  </div>
- <div class="foot"><span>Homelab Command Center · Overview</span><span>2 / 6</span></div>
+ <div class="foot"><span>Homelab Command Center · Overview</span><span>2 / 8</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">02 · Storage &amp; GPU</div><h2>Disk activity and the Arc A310 GPU</h2>
- <p class="sub">Read and write speed, busy time and latency for each disk, taken from the Linux kernel’s counters. The Arc A310 panel, now on the Local AI page, shows render, compute and VRAM use.</p>
+ <div class="eyebrow">02 · Design</div><h2>Material 3 Expressive design</h2>
+ <p class="sub">The colours come from Google's Material colour library, generated from a single dark green for both the light and dark themes. Layout, shapes and motion follow Material 3 Expressive, Google's 2025 update to Material Design.</p>
+ <div class="grid" style="grid-template-columns:1fr 58mm 66mm;margin-top:6mm;align-items:start">
+  <div class="shot"><img src="overview-light.png"></div>
+  <div class="shot phone"><img src="phone-sheet.png"></div>
+  <div class="grid" style="gap:4mm">
+   <div class="feat"><b><i class="shape cookie" style="background:var(--pine)"></i>Shapes</b><span>The health icon sits in a scalloped shape that changes when something is wrong. Each service category has its own icon shape, and the loading indicator morphs between shapes.</span></div>
+   <div class="feat"><b><i class="shape" style="background:var(--cedar)"></i>Motion</b><span>Pages slide into place, a tapped row turns into the next page's title, and buttons change shape when pressed. The system's Reduce motion setting turns all of it off.</span></div>
+   <div class="feat"><b><i class="shape" style="background:var(--blue)"></i>Accessibility</b><span>Text contrast is at least 4.5:1 in both themes. Automated tests cover keyboard focus, dialogs and navigation.</span></div>
+  </div>
+ </div>
+ <div class="foot"><span>Homelab Command Center · Design</span><span>3 / 8</span></div>
+</section>
+
+<section class="page">
+ <div class="eyebrow">03 · Storage &amp; network</div><h2>Storage and network</h2>
+ <p class="sub">Storage opens with each drive's free space, live read and write rates and SMART health. Network opens with the latest speed test and the two Pi-hole servers. History charts come after that, one disk or host at a time on a phone or side by side on a wider screen.</p>
  <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:6mm">
   <div class="shot"><img src="storage.png"></div>
-  <div class="shot"><img src="gpu.png"></div>
+  <div class="shot"><img src="network.png"></div>
  </div>
  <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:6mm">
   <div class="feat"><b>Cache forecast</b><span>Estimates when the Unraid cache will fill and starts the mover before it does.</span></div>
-  <div class="feat"><b>Shares remount themselves</b><span>A timer checks network shares every two minutes and remounts any that stop responding.</span></div>
-  <div class="feat"><b>Gaps in the chart</b><span>After a reboot the chart shows a gap. It doesn’t fill in made-up numbers.</span></div>
+  <div class="feat"><b>Chart colours</b><span>Each line colour was checked for colour-blind readers in both themes.<span class="swatches"><i style="background:#00a390"></i><i style="background:#da7457"></i><i style="background:#4297d5"></i><i style="background:#a19219"></i><i style="background:#8d86df"></i></span></span></div>
+  <div class="feat"><b>Gaps</b><span>If a host reboots, its chart shows a gap for the missing time.</span></div>
  </div>
- <div class="foot"><span>Homelab Command Center · Storage &amp; GPU</span><span>3 / 6</span></div>
+ <div class="foot"><span>Homelab Command Center · Storage &amp; network</span><span>4 / 8</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">03 · Local AI</div><h2>AI models that run at home</h2>
- <p class="sub">Three models run on an RTX 5070 Ti through llama.cpp, and the page shows whether the gaming PC is on, with Wake and Sleep buttons. A small Qwen model on the Arc A310 answers questions about the homelab and shows the data it used.</p>
- <div class="grid" style="grid-template-columns:1.6fr 1fr;margin-top:6mm;align-items:start">
+ <div class="eyebrow">04 · Local AI</div><h2>Local AI</h2>
+ <p class="sub">Four models run on the gaming PC's RTX 5070 Ti through llama.cpp. The page puts the loaded model first with an Open chat button, next to the Wake and Sleep controls. A smaller Gemma model on the Arc A310 answers questions about the homelab and lists the readings it used.</p>
+ <div class="grid" style="grid-template-columns:1.65fr 1fr;margin-top:6mm;align-items:start">
   <div class="shot"><img src="ai.png"></div>
   <div class="grid" style="gap:4mm">
-   <div class="feat"><b>Measured speeds</b><span class="mono" style="font-size:8.5pt;line-height:1.8">Gemma 4 26B&nbsp;&nbsp;163 tok/s<br>Qwen 3.6 35B MoE&nbsp;&nbsp;59 tok/s · 32K<br>Qwen 3.8 27B&nbsp;&nbsp;16 tok/s</span></div>
-   <div class="feat"><b>Shows its sources</b><span>Each answer lists the readings it was given, when they were taken, and what was left out.</span></div>
-   <div class="feat"><b>Read-only tools</b><span>Models in Open WebUI can check the servers through a fixed set of SSH commands. They can’t run anything else.</span></div>
+   <div class="feat"><b>Recorded speeds</b><span class="speeds"><b>Gemma 4 26B</b> · 168 tok/s<br><b>Qwen 3.6 35B MoE</b> · 82 tok/s<br><b>Qwen 3.8 27B</b> · 55 tok/s<br><b>Qwen 3.8 27B uncensored</b> · 51 tok/s<br><b>Gemma 4 E4B on the A310</b> · 14 to 18 tok/s</span></div>
+   <div class="feat"><b>Sources</b><span>Each answer lists the readings the model was given and when they were taken.</span></div>
+   <div class="feat"><b>Read-only tools</b><span>Models in Open WebUI can query the servers through a fixed set of commands and nothing else.</span></div>
   </div>
  </div>
- <div class="foot"><span>Homelab Command Center · Local AI</span><span>4 / 6</span></div>
+ <div class="foot"><span>Homelab Command Center · Local AI</span><span>5 / 8</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">04 · Updates</div><h2>Updates run one guest at a time</h2>
- <p class="sub">Each Proxmox container gets a snapshot before <span class="mono">apt upgrade</span>. Docker apps update through Unraid’s own updater. The run stops at the first failure and shows the rollback command.</p>
- <div class="grid" style="grid-template-columns:1fr 56mm;gap:6mm;margin-top:5mm;align-items:start">
+ <div class="eyebrow">05 · Recovery</div><h2>Backups and recovery</h2>
+ <p class="sub">Local Proxmox backups, the off-site copy in Google Drive and Unraid parity are shown together, with restore test results below them. Each night after the backups finish, the A310 model reviews the host warning logs.</p>
+ <div class="grid" style="grid-template-columns:1.65fr 1fr;margin-top:6mm;align-items:start">
+  <div class="shot"><img src="infra.png"></div>
+  <div class="grid" style="gap:4mm">
+   <div class="feat"><b>Off-site copy</b><span>restic encrypts photos, Proxmox backups, Unraid app data and router and host configs before uploading them to Google Drive. It keeps 7 daily, 4 weekly and 12 monthly snapshots.</span></div>
+   <div class="feat"><b>Restore tests</b><span>A scheduled test downloads sample files from Google Drive and compares them with the originals.</span></div>
+   <div class="feat"><b>Section links</b><span>Buttons at the top of the page jump to recovery, logs, the change history or the service list.</span></div>
+  </div>
+ </div>
+ <div class="foot"><span>Homelab Command Center · Recovery</span><span>6 / 8</span></div>
+</section>
+
+<section class="page">
+ <div class="eyebrow">06 · Updates</div><h2>Updates</h2>
+ <p class="sub">Each Proxmox container is snapshotted before <span class="mono">apt upgrade</span> runs, and Docker apps update through Unraid's own updater. Guests update one at a time; a failure stops the run and shows the rollback command. Items with an update waiting are listed first, and current or skipped ones are folded away.</p>
+ <div class="grid" style="grid-template-columns:1fr 58mm;gap:6mm;margin-top:5mm;align-items:start">
   <div class="shot"><img src="updates.png"></div>
-  <div class="shot" style="border-radius:16px"><img src="phone-updates.png"></div>
+  <div class="shot phone"><img src="phone-updates.png"></div>
  </div>
- <div class="foot"><span>Homelab Command Center · Updates</span><span>5 / 6</span></div>
+ <div class="foot"><span>Homelab Command Center · Updates</span><span>7 / 8</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">05 · Fleet</div><h2>Every VM, container and Docker app in one list</h2>
- <p class="sub">Host health for Proxmox and Unraid at the top, then CPU, memory and state for every guest. Machines that are off on purpose show in grey and sort to the bottom.</p>
- <div class="grid" style="grid-template-columns:1fr 56mm;gap:6mm;margin-top:5mm;align-items:start">
+ <div class="eyebrow">07 · Fleet &amp; services</div><h2>Hosts, containers and services</h2>
+ <p class="sub">Proxmox, Unraid and the Orange Pi are at the top, followed by CPU, memory and state for every VM, container and Docker app. The services page groups everything by category, and unreachable, stale and unmonitored services are labelled in text as well as colour.</p>
+ <div class="grid" style="grid-template-columns:1fr 58mm;gap:6mm;margin-top:5mm;align-items:start">
   <div class="shot"><img src="fleet.png"></div>
-  <div class="shot" style="border-radius:16px"><img src="phone.png"></div>
+  <div class="shot phone"><img src="services.png"></div>
  </div>
- <div class="foot"><span>Homelab Command Center · Fleet</span><span>6 / 6</span></div>
+ <div class="foot"><span>Homelab Command Center · Fleet &amp; services</span><span>8 / 8</span></div>
 </section>
 </body></html>
