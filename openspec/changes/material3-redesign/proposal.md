@@ -6,7 +6,7 @@ The dashboard looked home-made: about 100 hard-coded colours, a custom sidebar a
 
 ## What Changes
 
-Done on branch `m3-redesign` by Claude (do not redo; see tasks.md section 0):
+Done on branch `m3-redesign` (do not redo; see tasks.md section 0):
 - **Colour:** light and dark schemes generated at build time from seed `#7de5c0` (`m3-tokens.mjs`, Google's `@material/material-color-utilities` 0.3.0). The 54 inline accent colours in `src/app.jsx` became 9 harmonised M3 custom colours (`--md-custom-teal|green|cyan|blue|indigo|purple|pink|orange|amber`).
 - **System tokens:** type scale, shape, elevation, state layers and motion in `src/m3-sys.css`, generated from Google's material-web token files (v0_192, commit 60c0cfa58ad1).
 - **Icons:** Material Symbols Rounded, subset to the names in `m3-icons.mjs`.

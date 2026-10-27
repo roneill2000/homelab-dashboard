@@ -19,7 +19,7 @@
 - Use exact string replacement (find text, replace text). Do not reformat, reorder or "tidy" anything else.
 - In a replacement table, a row that matches 0 times in a file is fine: skip it. Where a task gives an expected count, the count must match exactly, otherwise STOP and ask Ryan. Each task's Verify step is what decides pass or fail.
 
-## 0. Already done (Claude, do not redo)
+## 0. Already done (do not redo)
 
 - [x] 0.1 `ec31a55` checks: `run-checks.mjs` runner; `npm run check` = 9-script gate
 - [x] 0.2 `79a2e20` foundation: generated M3 colour roles, M3 system tokens, component CSS, Material Symbols, legacy bridge

@@ -32,7 +32,7 @@ Real-time playback target: ≥ 24 fps per stream.
 
 ## LLM Concurrency (Ask Qwen Sharing)
 The Arc A310 hardware QuickSync fixed-function media blocks (QSV encode/decode) run independently of the Xe Execution Units used by SYCL / llama.cpp for Gemma 4 E4B inference. Memory locking `/mnt/disk1/.homelab-nightly/run.lock` prevents VRAM contention with the 12B nightly batch run.
-## Correction: real Jellyfin load test (22 Oct 2026, Claude)
+## Correction: real Jellyfin load test (22 Oct 2026)
 
 The numbers above measure the GPU alone (video in, frames discarded). A real Jellyfin stream also decodes lossless
 audio on the CPU, writes HLS segments, and reads a 50-80 Mb/s remux from the array's single data disk. This test used

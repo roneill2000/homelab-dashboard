@@ -1,4 +1,4 @@
-# Homelab dashboard: Codex audit of what's new (27 Oct 2026, afternoon)
+# Homelab dashboard: Independent audit of what's new (27 Oct 2026, afternoon)
 
 **Task:** Independent audit of everything that changed after the fresh UX review (`cebbd0c`, reviewed build `fa3cf3b`).
 **Workstream:** homelab-dashboard. **Audience:** Ryan.

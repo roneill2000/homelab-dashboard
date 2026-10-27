@@ -2,9 +2,9 @@
 
 | Workstream | Latest | Next action |
 | --- | --- | --- |
-| homelab-dashboard | [2026-10-27 Codex audit of what's new](2026-10-27-homelab-codex-audit-whats-new.md) | Codex audits the 120 Hz motion fixes, fresh-review fixes and public-file privacy (partial WAN in record-animations.mjs). README clips being redone in another session. |
+| homelab-dashboard | [2026-10-27 Audit of what's new](2026-10-27-homelab-audit-whats-new.md) | Independent audit of the 120 Hz motion fixes, fresh-review fixes and public-file privacy (partial WAN in record-animations.mjs). README clips being redone in another session. |
 
-Earlier: [2026-10-26 M3 Expressive, handoff to Codex](2026-10-26-homelab-m3-codex.md).
+Earlier: [2026-10-26 M3 Expressive, audit handoff](2026-10-26-homelab-m3-audit.md).
 
 Earlier: [2026-10-22 Terra review](2026-10-22-homelab-terra-review.md).
 

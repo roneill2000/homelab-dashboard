@@ -229,7 +229,7 @@
   overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;background:none!important;box-shadow:none!important}
 /* Wordmark: Google Sans Flex 500 (Ryan, 26 Oct 2026), like Google's own app wordmarks. */
 .m3-xrail__brand,.m3-nav-drawer__brand{font-family:var(--md-ref-typeface-brand);font-weight:500;letter-spacing:-0.2px}
-/* ---------- Overview v2 (Codex audit, 26 Oct 2026): one featured surface, quieter supporting surfaces, varied shapes ---------- */
+/* ---------- Overview v2 (Audit, 26 Oct 2026): one featured surface, quieter supporting surfaces, varied shapes ---------- */
 /* Health hero: primary-container (tertiary-container when something needs attention), 32px corner, emphasized display type. */
 .ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);border-radius:var(--md-sys-shape-corner-extra-large-increased);
   padding:24px;margin:0 0 32px;display:grid;gap:20px}
@@ -276,14 +276,14 @@
   .ov-hero{padding:20px;border-radius:var(--md-sys-shape-corner-extra-large)}
   .ov-hero__title{font-size:var(--md-sys-typescale-headline-large-size);line-height:var(--md-sys-typescale-headline-large-line-height)}
 }
-/* ---------- Interaction fixes (Codex audit) ---------- */
+/* ---------- Interaction fixes (Audit) ---------- */
 .m3-page-header__title:focus{outline:none}
 .m3-page-header__title:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:4px;border-radius:4px}
 .m3-search-view__empty{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;color:var(--md-sys-color-on-surface-variant)}
 .m3-search-view__empty p{margin:0}
 /* Selected + pressed connected button: the pressed shape wins over the selected (fully round) shape. */
 /* Phone chips keep their own padding and 18px icon while pressed (no desktop widening). */
-/* ---------- All services v2: category filter, pinned first, grouped compact rows (Codex audit) ---------- */
+/* ---------- All services v2: category filter, pinned first, grouped compact rows (Audit) ---------- */
 .service-categories{margin:0 0 20px}
 .service-groups{display:grid;gap:24px}
 .service-group__title{display:flex;align-items:center;gap:8px;margin:0 0 8px;color:var(--md-sys-color-on-surface);
@@ -314,7 +314,7 @@
   .service-card--row .service-link{padding-right:56px;gap:12px}
   .service-card--row .launch-arrow{display:none}
 }
-/* ---------- Local AI v2: unavailable analytics collapse (Codex audit) ---------- */
+/* ---------- Local AI v2: unavailable analytics collapse (Audit) ---------- */
 .ai-history{margin-top:16px;background:var(--md-sys-color-surface-container-low);border-radius:var(--md-sys-shape-corner-large)}
 .ai-history>summary{display:flex;align-items:center;gap:12px;min-height:56px;padding:0 16px;cursor:pointer;list-style:none;border-radius:inherit;
   font:var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height) var(--md-sys-typescale-title-small-font)}

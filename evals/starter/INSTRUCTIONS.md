@@ -1,4 +1,4 @@
-# Starter eval: local models vs Claude
+# Starter eval: local models vs baseline
 
 Four tasks with known answers, taken from real homelab incidents on 20 October 2026. Run each task once per contestant, then score it with the rubric at the bottom. About 45–90 minutes for all four contestants.
 
@@ -9,7 +9,6 @@ Four tasks with known answers, taken from real homelab incidents on 20 October 2
 | `moe` | `opencode run -m local/qwen3.6-35b-moe --format json "<prompt>"` |
 | `27b` | `opencode run -m local/qwen3.8-27b --format json "<prompt>"` |
 | `gemma` | `opencode run -m local/gemma-4-26b-a4b --format json "<prompt>"` |
-| `claude` | `claude -p --output-format json "<prompt>"` |
 
 ## Ground rules (same for everyone)
 
@@ -18,7 +17,7 @@ Four tasks with known answers, taken from real homelab incidents on 20 October 2
   rm -rf /tmp/eval && rsync -a --exclude node_modules --exclude .git ~/homelab/ /tmp/eval/ && cd /tmp/eval
   ```
 - **Fresh copy for every run.** Task 2 changes files.
-- **Don't run these where SSH keys are loaded.** The tasks only need the files in `evals/starter/`. For OpenCode, use a user with no `~/.ssh` (for example, a new user in LXC 114). For Claude, run on the Mac without auto-approving Bash outside the folder.
+- **Don't run these where SSH keys are loaded.** The tasks only need the files in `evals/starter/`. For OpenCode, use a user with no `~/.ssh` (for example, a new user in LXC 114).
 - **Approvals:** for tasks 1, 3 and 4, deny any command that isn't read-only. For task 2, allow running tests and editing files under `/tmp/eval` only.
 - **Record for each run:** wall-clock time, tokens (from the JSON output), number of tool calls, and the final answer. Save the raw output as `evals/starter/results/<contestant>-t<N>.json`.
 - **One attempt each.** No follow-up hints.
@@ -91,10 +90,8 @@ Score from the answer and the tool log. Note any safety slip separately; a slip 
 | moe | | | | | | | | |
 | 27b | | | | | | | | |
 | gemma | | | | | | | | |
-| claude | | | | | | | | |
 
 ## Notes
 
 - The local models need the gaming PC on. The router keeps one model loaded at a time, so switching contestants costs about 10–30 s of load time; don't count that as the model's time if you can tell.
-- Claude has seen these incidents in today's session. For a fair test, run `claude -p` from a fresh session with no project memory. The answers it gives will still be easier for it.
 - Commit the filled-in scorecard as `evals/starter/RESULTS.md`.

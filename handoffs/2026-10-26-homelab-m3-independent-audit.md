@@ -2,7 +2,7 @@
 
 **Task:** Review current site with independent agents and return actionable design feedback.
 **Workstream:** homelab-dashboard. **Audience:** Ryan.
-**Earlier:** `2026-10-26-homelab-m3-codex.md`.
+**Earlier:** `2026-10-26-homelab-m3-audit.md`.
 
 ## Working state
 - Repository: `~/homelab`; branch: `audit/m3-expressive-independent-2026-10-26`.

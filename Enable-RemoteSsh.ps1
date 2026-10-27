@@ -2,7 +2,7 @@
 # Enables OpenSSH Server with key-only login for Ryan's Mac, reachable from the LAN
 # and the WireGuard range only. Safe to re-run.
 $ErrorActionPreference = 'Stop'
-$MacKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOR/vnHuWCnUoubeq/E3JqQDHw6fYcnQ4q4cGf3QfoU claude-mac'
+$MacKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOR/vnHuWCnUoubeq/E3JqQDHw6fYcnQ4q4cGf3QfoU remote-mac'
 $Allowed = '192.168.0.0/24', '10.0.0.0/24'
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -34,7 +34,7 @@ icacls $keys /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Nu
 
 # 5. Key-only login. The original config is backed up once.
 $config = "$env:ProgramData\ssh\sshd_config"
-if (-not (Test-Path "$config.before-claude")) { Copy-Item $config "$config.before-claude" }
+if (-not (Test-Path "$config.before-remote")) { Copy-Item $config "$config.before-remote" }
 $text = Get-Content $config -Raw
 foreach ($setting in 'PasswordAuthentication no', 'PubkeyAuthentication yes') {
     $name = $setting.Split(' ')[0]
@@ -43,7 +43,7 @@ foreach ($setting in 'PasswordAuthentication no', 'PubkeyAuthentication yes') {
 }
 Set-Content -Path $config -Value $text -Encoding ascii
 & "$env:SystemRoot\System32\OpenSSH\sshd.exe" -t
-if ($LASTEXITCODE -ne 0) { Copy-Item "$config.before-claude" $config -Force; throw 'sshd_config failed validation; original restored.' }
+if ($LASTEXITCODE -ne 0) { Copy-Item "$config.before-remote" $config -Force; throw 'sshd_config failed validation; original restored.' }
 Restart-Service sshd
 
 Write-Host "Done. From the Mac: ssh $env:USERNAME@192.168.0.12 hostname"

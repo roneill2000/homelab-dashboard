@@ -1,4 +1,4 @@
-# Handoff to Codex: homelab dashboard, Material 3 Expressive (26 Oct 2026)
+# Audit handoff: homelab dashboard, Material 3 Expressive (26 Oct 2026)
 
 Read this whole file before changing anything. Earlier context: `handoffs/2026-10-22-*.md` and, for machines, IPs and where credentials live, `/mnt/share/agy/HANDOFF-2026-10-22.md` (on the share only, never in this repo).
 
@@ -6,7 +6,7 @@ Read this whole file before changing anything. Earlier context: `handoffs/2026-1
 
 - Repo: `~/homelab` on Ryan's Mac. Remote `n100` = `ssh://root@192.168.0.3/mnt/share/repos/homelab-dashboard`. Push only there. Never push to anything sevenai/ryan-tools. Ryan mirrors to GitHub himself.
 - **The GitHub repo is public.** No secrets, tokens, passwords, ntfy topics or API keys in commits. Never print them in output either.
-- **Commits carry no `Co-Authored-By` or any AI credit line.** Not Claude, not Codex, nothing.
+- **Commits carry no `Co-Authored-By` or any third-party credit line.**
 - Work on a branch; merge to `main` only after `npm run check` ends with `ALL CHECKS OK`.
 - Deploy (`python3 deploy.py`) is outward-facing: it is fine after the gate passes when Ryan has asked for the change, otherwise ask. It backs up to `/opt/homelab-dashboard/backups/` on LXC 104 and rolls back if the restart fails.
 - Ryan is the only user: no login, no auth UI.
