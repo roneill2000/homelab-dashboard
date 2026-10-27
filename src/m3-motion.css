@@ -1,0 +1,101 @@
+/* Entrance animations use fill-mode backwards, so once they end they release transform and hover/press springs work.
+   M3 Expressive motion layer (27 Oct 2026, Ryan: "I barely see any animations"). Loaded last. Every effect uses the
+   Expressive spring tokens from m3-expressive.css (spatial springs overshoot slightly; effects springs do not) and the whole
+   file is inside no-preference, so Reduce motion turns all of it off. Only transform, opacity, clip-path and border-radius
+   animate. */
+@media (prefers-reduced-motion:no-preference){
+
+/* Page change: the new page rises 40px and settles with overshoot while the old one fades out fast (shared Y axis). */
+::view-transition-old(page){animation:m3-page-out var(--md-sys-motion-spring-fast-effects-duration) var(--md-sys-motion-spring-fast-effects) both}
+::view-transition-new(page){animation:m3-page-in var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) backwards}
+@keyframes m3-page-out{to{opacity:0;transform:translateY(-12px)}}
+@keyframes m3-page-in{from{opacity:0;transform:translateY(40px)}}
+
+/* Content arrives in a stagger: each item rises 28px and grows from 96%, 45ms after the one before (first 10 per group). */
+.ov-hero,.summary-stat,.summary-tile,.disk-row,.ai-task,.ai-model--row,.page-summary,.panel,.m3-card,.service-card,.service-group,.infra-summary>*,.section-jump{
+  animation:m3-arrive var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) backwards}
+.service-card.service-card--row{animation:m3-arrive var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) backwards}
+@keyframes m3-arrive{from{opacity:0;transform:translateY(28px) scale(.96)}}
+:is(.summary-grid,.summary-tiles,.disk-rows,.service-list,.service-grid,.ai-model-list,.ai-tasks,.infra-summary,.section-jumps,.two-grid,.host-grid)>:nth-child(2){animation-delay:45ms}
+:is(.summary-grid,.summary-tiles,.disk-rows,.service-list,.service-grid,.ai-model-list,.ai-tasks,.infra-summary,.section-jumps,.two-grid,.host-grid)>:nth-child(3){animation-delay:90ms}
+:is(.summary-grid,.summary-tiles,.disk-rows,.service-list,.service-grid,.ai-model-list,.ai-tasks,.infra-summary,.section-jumps,.two-grid,.host-grid)>:nth-child(4){animation-delay:135ms}
+:is(.summary-grid,.summary-tiles,.disk-rows,.service-list,.service-grid,.ai-model-list,.ai-tasks,.infra-summary,.section-jumps,.two-grid,.host-grid)>:nth-child(5){animation-delay:180ms}
+:is(.summary-grid,.summary-tiles,.disk-rows,.service-list,.service-grid,.ai-model-list,.ai-tasks,.infra-summary,.section-jumps,.two-grid,.host-grid)>:nth-child(6){animation-delay:225ms}
+:is(.summary-grid,.summary-tiles,.disk-rows,.service-list,.service-grid,.ai-model-list,.ai-tasks,.infra-summary,.section-jumps,.two-grid,.host-grid)>:nth-child(7){animation-delay:270ms}
+:is(.summary-grid,.summary-tiles,.disk-rows,.service-list,.service-grid,.ai-model-list,.ai-tasks,.infra-summary,.section-jumps,.two-grid,.host-grid)>:nth-child(8){animation-delay:315ms}
+:is(.summary-grid,.summary-tiles,.disk-rows,.service-list,.service-grid,.ai-model-list,.ai-tasks,.infra-summary,.section-jumps,.two-grid,.host-grid)>:nth-child(n+9){animation-delay:360ms}
+.ov-hero .summary-stat:nth-child(1){animation-delay:120ms}.ov-hero .summary-stat:nth-child(2){animation-delay:165ms}
+.ov-hero .summary-stat:nth-child(3){animation-delay:210ms}.ov-hero .summary-stat:nth-child(4){animation-delay:255ms}
+
+/* Hero: the status shape pops in turning, then keeps a slow turn (the icon counter-rotates so it stays upright). */
+.ov-hero__glyph{animation:m3-glyph-in var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 80ms backwards,m3-turn 28s linear 700ms infinite}
+.ov-hero__glyph>*{animation:m3-turn 28s linear 700ms infinite reverse}
+@keyframes m3-glyph-in{from{transform:scale(0) rotate(-120deg)}}
+@keyframes m3-turn{to{transform:rotate(360deg)}}
+.ov-hero--attention .ov-hero__glyph{animation:m3-glyph-in var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) backwards,m3-turn 9s linear 700ms infinite}
+.ov-hero--attention .ov-hero__glyph>*{animation:m3-turn 9s linear 700ms infinite reverse}
+.ov-hero .issue-chip{animation:m3-pop var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial) 200ms backwards}
+@keyframes m3-pop{from{opacity:0;transform:scale(.6)}}
+.ai-task__icon{animation:m3-glyph-in var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 150ms backwards}
+
+/* Shape morph on interaction: surfaces you can press round their corners further on hover and squeeze on press. */
+.service-card,.summary-link,.ai-model--row,.disk-row,.summary-tile,.section-jump,.m3-nav-drawer__item{
+  transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+             transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
+@media (hover:hover){
+  .service-card:not(.service-card--row):hover,.summary-link:hover{border-radius:var(--md-sys-shape-corner-extra-large)}
+  .service-card.service-card--row:hover,.ai-model--row:hover{border-radius:var(--md-sys-shape-corner-large);z-index:1}
+  .section-jump:hover{border-radius:var(--md-sys-shape-corner-large)}
+}
+.service-card:active,.summary-link:active,.ai-model--row:active,.section-jump:active,.m3-nav-drawer__item:active{transform:scale(.97)}
+.is-sheet .m3-nav-drawer__item:active{border-radius:var(--md-sys-shape-corner-extra-large)}
+
+/* Navigation indicator grows out from its centre with overshoot; the selected icon fills with a small bounce. */
+[aria-current=page]>.m3-nav-indicator{animation:m3-indicator var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial) backwards}
+@keyframes m3-indicator{from{transform:scaleX(.2);opacity:0}}
+[aria-current=page]>.m3-nav-indicator .material-symbols-rounded{animation:m3-icon-bounce var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial) backwards}
+@keyframes m3-icon-bounce{from{transform:scale(.7)}}
+
+/* Progress bars fill in from the left when they appear. */
+.m3-xprogress svg{animation:m3-fill var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 150ms backwards}
+@keyframes m3-fill{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+
+/* Small moments: live dot breathes, the theme toggle spins, the selected segment's check pops, the sheet handle stretches. */
+.live-chip .material-symbols-rounded{animation:m3-breathe 2.4s var(--md-sys-motion-spring-default-effects) infinite}
+@keyframes m3-breathe{50%{transform:scale(.82);opacity:.7}}
+.theme-toggle .material-symbols-rounded{transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
+.theme-toggle:active .material-symbols-rounded{transform:rotate(90deg) scale(.85)}
+:is(.segments button,.m3-segment)[aria-pressed=true] .material-symbols-rounded,:is(.segments button,.m3-segment).selected .material-symbols-rounded{animation:m3-pop var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial) backwards}
+.is-sheet.open .m3-sheet__handle{animation:m3-handle var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 120ms backwards}
+@keyframes m3-handle{from{transform:scaleX(.3)}}
+.is-sheet.open .m3-nav-drawer__item{animation:m3-arrive var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial) backwards}
+.is-sheet.open .m3-nav-drawer__item:nth-of-type(3n+2){animation-delay:30ms}.is-sheet.open .m3-nav-drawer__item:nth-of-type(3n){animation-delay:60ms}
+.m3-snackbar{animation:m3-snack var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial) backwards}
+@keyframes m3-snack{from{opacity:0;transform:translateY(24px) scale(.9)}}
+
+/* Expressive buttons: a spring on shape and size. Hover rounds a full-pill button down to a large corner, press squares
+   it off to a small corner and squashes it 5%; release springs back past round (spatial spring overshoot). Icon buttons
+   morph circle -> squircle. Arrow and open-in-new icons nudge toward where they go. Width never changes (no re-flow). */
+.m3-btn,.primary-button,.secondary-button,.text-button,.section-jump,.issue-chip,.segments button,.m3-segment{
+  transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+             transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+             background-color var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects),
+             box-shadow var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+@media (hover:hover){
+  .m3-btn:not(:disabled):not(.m3-btn--text):hover,.issue-chip:hover{border-radius:var(--md-sys-shape-corner-large)}
+  .m3-btn--filled:not(:disabled):hover{box-shadow:var(--md-sys-elevation-level1)}
+  .m3-icon-btn:not(:disabled):hover{border-radius:var(--md-sys-shape-corner-large)}
+  .m3-btn:not(:disabled):hover .material-symbols-rounded:is(:last-child){transform:translateX(3px)}
+}
+.m3-btn .material-symbols-rounded,.m3-icon-btn .material-symbols-rounded{transition:transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
+.m3-btn:not(:disabled):active,.primary-button:not(:disabled):active,.secondary-button:not(:disabled):active,.issue-chip:active,.segments button:active,.m3-segment:active{
+  transform:scale(.95);border-radius:var(--md-sys-shape-corner-small)}
+.m3-btn--text:not(:disabled):active,.text-button:not(:disabled):active{transform:scale(.95)}
+.m3-icon-btn{transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),background-color var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+.m3-icon-btn:not(:disabled):active{transform:scale(.88);border-radius:var(--md-sys-shape-corner-medium)}
+.m3-icon-btn:not(:disabled):active .material-symbols-rounded{transform:scale(.9)}
+[aria-label="Refresh telemetry"]:active .material-symbols-rounded{transform:rotate(-120deg)}
+/* Selected toggles (connected groups, segmented buttons) settle with a small overshoot when chosen. */
+:is(.segments button,.m3-segment):is([aria-pressed=true],.selected){animation:m3-select var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
+@keyframes m3-select{from{transform:scale(.92)}}
+}

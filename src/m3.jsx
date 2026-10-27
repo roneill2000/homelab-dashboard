@@ -28,10 +28,10 @@ export function withPageTransition(update){
   document.startViewTransition(()=>ReactDOM.flushSync(update));
 }
 
-// Animated number for hero stats: shows the value at once on first render, then glides to new values on the
+// Animated number for hero stats: counts up from zero when it first appears, then glides to new values on the
 // Expressive default spatial spring (stiffness 380, damping 0.8) when it changes. Screen readers get the final value.
 export function CountUp({value,decimals=0}){
-  const n=Number(value),[shown,setShown]=useState(n),from=useRef(n),raf=useRef();
+  const n=Number(value),first=Number.isFinite(n)&&!reducedMotion()?0:n,[shown,setShown]=useState(first),from=useRef(first),raf=useRef();
   useEffect(()=>{if(!Number.isFinite(n)){setShown(n);return}const start=from.current;if(start===n||!Number.isFinite(start)||reducedMotion()){from.current=n;setShown(n);return}
     const k=380,z=0.8,w=Math.sqrt(k);let x=0,v=0,last=performance.now();cancelAnimationFrame(raf.current);
     const step=t=>{const dt=Math.min(0.032,(t-last)/1000);last=t;const a=-k*(x-1)-2*z*w*v;v+=a*dt;x+=v*dt;

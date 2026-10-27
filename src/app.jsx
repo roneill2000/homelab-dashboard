@@ -170,7 +170,7 @@ const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat',speed:168.3}, // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
  'qwen3.6-35b-moe':{role:'General use',speed:82.1}, // measured 22 Oct 2026: 48K context, 100% CUDA0
  'qwen3.8-27b':{role:'Reasoning',speed:54.6}, // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
- 'qwen3.8-27b-uncensored':{role:'Uncensored',speed:54.6} // OrcaRouter IQ4_XS 48K ctx + ngram-mod
+ 'qwen3.8-27b-uncensored':{role:'Uncensored',speed:51.4} // 27 Oct 2026: Heretic ARA IQ4_XS 3.0 (13.99 GB, all on GPU), 51.38 tok/s over 1,024 tokens, ngram-mod 43% acceptance; replaced the 15.57 GB OrcaRouter build that spilled past 16 GB VRAM
 };
 function inlineMd(text,key){
  const out=[];const re=/\*\*([^*\n]+?)\*\*|`([^`\n]+)`/g;let last=0,m,i=0;

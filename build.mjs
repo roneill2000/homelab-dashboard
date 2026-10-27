@@ -7,8 +7,8 @@ import { ICONS } from './m3-icons.mjs';
 import { m3ShapesCss } from './m3-shapes.mjs';
 const result = await build({entryPoints:['src/app.jsx'],bundle:true,write:false,jsxFactory:'React.createElement',jsxFragment:'React.Fragment',target:'es2020',minify:true});
 // CSS order matters: generated colour roles, M3 system tokens, legacy rules, M3 components, then m3-controls.css
-// (buttons, button groups, chips: their only home) last.
-const parts = ['src/m3-sys.css', 'src/m3-expressive.css', 'src/styles.css', 'src/m3-legacy.css', 'src/m3-components.css', 'src/m3-expressive-components.css', 'src/m3-controls.css'];
+// (buttons, button groups, chips) and m3-motion.css (Expressive motion, all of it off under Reduce motion) last.
+const parts = ['src/m3-sys.css', 'src/m3-expressive.css', 'src/styles.css', 'src/m3-legacy.css', 'src/m3-components.css', 'src/m3-expressive-components.css', 'src/m3-controls.css', 'src/m3-motion.css'];
 const css = m3TokensCss() + m3ShapesCss() + (await Promise.all(parts.map(p => readFile(p, 'utf8').catch(() => '')))).join('\n');
 const symbols = `https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=${[...new Set(ICONS)].sort().join(',')}&display=block`;
 const js = result.outputFiles[0].text.replaceAll('</script','<\\/script');
