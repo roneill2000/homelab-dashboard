@@ -639,3 +639,43 @@ def patch_inline_safe(source):
     source = source.replace(INLINE_SAFE_OLD, INLINE_SAFE_NEW)
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+HARDEN_HELPERS = '''
+def _dashboard_host_ok(handler):
+    # DNS rebinding guard: answer only for LAN IPs, single-label names and .lan names, never an outside domain that
+    # has been pointed at this address.
+    import ipaddress
+    host = (handler.headers.get('Host') or '').strip().lower()
+    host = host[1:host.index(']')] if host.startswith('[') else host.rsplit(':', 1)[0] if host.count(':') == 1 else host
+    if not host:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return host == 'localhost' or '.' not in host or host.endswith('.lan')
+
+'''
+
+
+def patch_hardening(source):
+    """Red-team fixes: frame protection on the page and bundles (a <meta> CSP cannot set frame-ancestors), a Host check
+    against DNS rebinding on every request, and a socket timeout so slow clients cannot hold the server's threads."""
+    marker = '# HOMELAB_HARDENING_V1'
+    if marker in source:
+        return source
+    handler = 'class DashboardHandler(BaseHTTPRequestHandler):\n'
+    send = "        self.send_header('Content-Length', str(len(body)))\n"
+    get, post = '    def do_GET(self):\n', '    def do_POST(self):\n'
+    for needle in (handler, send, get, post):
+        if source.count(needle) != 1:
+            raise ValueError('dashboard handler shape changed; hardening patch not applied')
+    guard = "        if not _dashboard_host_ok(self):\n            self.send_error(421, 'Misdirected request')\n            return\n"
+    source = source.replace(handler, marker + '\n' + HARDEN_HELPERS + handler + '    timeout = 60\n')
+    source = source.replace(send, "        self.send_header('X-Frame-Options', 'DENY')\n"
+                                  "        self.send_header('Content-Security-Policy', \"frame-ancestors 'none'\")\n"
+                                  "        self.send_header('X-Content-Type-Options', 'nosniff')\n" + send)
+    source = source.replace(get, get + guard).replace(post, post + guard)
+    compile(source, '<dashboard>', 'exec')
+    return source

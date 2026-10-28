@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend, patch_compression, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import patch_backend, patch_compression, patch_hardening, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -276,6 +276,49 @@ class InlineSafeTests(unittest.TestCase):
         self.assertEqual(patch_inline_safe(out), out)
         with self.assertRaises(ValueError):
             patch_inline_safe('def render(): pass\n')
+
+
+class HardeningTests(unittest.TestCase):
+    SRC = CompressionTests.SRC + ('    def do_POST(self):\n'
+                                  '        self.send_response(204)\n'
+                                  '        self.end_headers()\n')
+
+    def serve(self):
+        import http.client
+        ns = {}
+        exec(compile(patch_hardening(patch_compression(self.SRC)), 'hardening', 'exec'), ns)
+        self.assertEqual(ns['DashboardHandler'].timeout, 60)
+        server = ns['ThreadingHTTPServer'](('127.0.0.1', 0), ns['DashboardHandler'])
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        def req(method, path, host):
+            conn = http.client.HTTPConnection('127.0.0.1', server.server_address[1])
+            conn.putrequest(method, path, skip_host=True)
+            conn.putheader('Host', host)
+            conn.endheaders()
+            r = conn.getresponse()
+            return r, r.read()
+        return req
+
+    def test_page_cannot_be_framed(self):
+        req = self.serve()
+        r, _ = req('GET', '/', '192.168.0.2')
+        self.assertEqual(r.getheader('X-Frame-Options'), 'DENY')
+        self.assertEqual(r.getheader('Content-Security-Policy'), "frame-ancestors 'none'")
+
+    def test_rebinding_hosts_refused_lan_names_allowed(self):
+        req = self.serve()
+        for host in ('192.168.0.2', '192.168.0.2:80', 'home.lan', 'homepage', 'localhost:8799', '127.0.0.1'):
+            self.assertEqual(req('GET', '/', host)[0].status, 200, host)
+        for host in ('evil.example', 'attacker.com:80', '8.8.8.8', 'home.lan.evil.example'):
+            self.assertEqual(req('GET', '/', host)[0].status, 421, host)
+            self.assertEqual(req('POST', '/api/action/x', host)[0].status, 421, host)
+
+    def test_idempotent_and_refuses_drifted_source(self):
+        once = patch_hardening(patch_compression(self.SRC))
+        self.assertEqual(patch_hardening(once), once)
+        with self.assertRaises(ValueError):
+            patch_hardening('class DashboardHandler(BaseHTTPRequestHandler):\n    pass\n')
 
 
 if __name__ == '__main__':

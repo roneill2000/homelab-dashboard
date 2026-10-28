@@ -32,6 +32,7 @@ updated = patch_namespace['patch_pihole_vip'](updated)
 updated = patch_namespace['patch_m3_brand'](updated)
 updated = patch_namespace['patch_compression'](updated)
 updated = patch_namespace['patch_inline_safe'](updated)
+updated = patch_namespace['patch_hardening'](updated)
 marker = '# HOMELAB_STORAGE_V2'
 if marker not in updated:
     updated = updated.replace('class DashboardHandler(', 'import storage_monitor\nstorage_monitor.start()\n\n'+marker+'\nclass DashboardHandler(', 1)
