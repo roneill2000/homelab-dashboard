@@ -382,3 +382,6 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .qwen-input-row .m3-select .m3-menu-select__trigger{justify-content:flex-start;gap:0;padding:0 48px 0 16px;align-self:stretch}
 /* Gaming PC GPU panel: readings fade a little when they're not live (page just opened, PC asleep). */
 .pc-gpu .gpu-readings.is-stale strong{opacity:.6}
+/* Section descriptions use the full width (old 170/220px caps wrapped them into tall narrow columns on phones). */
+.section-heading>div:first-child{flex:1 1 auto;min-width:0}
+.section-heading p{max-width:none}
