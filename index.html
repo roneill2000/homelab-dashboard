@@ -1059,6 +1059,13 @@ h1{font-size:36px}
   .section-heading{flex-wrap:wrap}
 }
 
+/* Large font scale (user/browser text zoom): keep summary values on one line and nav labels fully visible.
+   rem-based clamps scale with the root font up to the cap, so words never exceed the tile width;
+   specificity (body + :is) beats the later-loaded .ov-hero rules in m3-expressive-components.css. */
+body :is(.ov-hero .summary-grid,.summary-grid)>.summary-stat strong.text-value{overflow-wrap:normal;word-break:normal;hyphens:manual;
+  font-size:clamp(16px,1.375rem,22px);line-height:1.35}
+.m3-nav-bar .m3-nav-label{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.15;font-size:clamp(10px,0.75rem,12px)}
+
 /* Material 3 look for the pre-M3 classes still used by the views (styles.css). Loaded after styles.css.
    Each rule maps one legacy class to its M3 component (component-tokens.md has the source values).
    As each view moves to the React components in src/m3.jsx, its legacy classes stop being used; delete a rule
