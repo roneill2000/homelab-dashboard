@@ -178,6 +178,51 @@ export function TextField({label,icon,value,onChange,onClear,clearLabel='Clear s
 }
 
 // Outlined select (native <select>, so keyboard and screen readers work unchanged). options: [[value,label],...]
+// M3 exposed dropdown menu: a listbox popover instead of the native <select> (which opens Android's grey system picker).
+// options: [{value,label,disabled?,group?}]. onChange(value). Keyboard: arrows, Home/End, Enter/Space, Escape, typeahead.
+// While open it counts as an overlay (m3:dialog-open/close), so Back and the predictive-back gesture close it.
+export function MenuSelect({value,onChange,options,disabled,className='','aria-label':ariaLabel}){
+  const [open,setOpen]=useState(false),[active,setActive]=useState(-1),[pos,setPos]=useState(null);
+  const trigger=useRef(),list=useRef(),typed=useRef({text:'',t:0}),id=useRef('m3-menu-'+Math.random().toString(36).slice(2,8)).current;
+  const items=options.map((o,i)=>({...o,i}));const enabled=items.filter(o=>!o.disabled);
+  const current=items.find(o=>o.value===value);
+  const place=()=>{const r=trigger.current.getBoundingClientRect(),vh=window.innerHeight,gap=4,need=Math.min(items.length*48+24,360);
+    const below=vh-r.bottom-gap-8,above=r.top-gap-8,up=below<need&&above>below;
+    setPos({left:Math.max(8,Math.min(r.left,window.innerWidth-Math.max(r.width,200)-8)),width:Math.max(r.width,200),
+      top:up?undefined:r.bottom+gap,bottom:up?vh-r.top+gap:undefined,maxHeight:Math.max(160,up?above:below),up})};
+  const openMenu=()=>{if(disabled)return;place();setActive(Math.max(0,items.findIndex(o=>o.value===value&&!o.disabled)));setOpen(true)};
+  const close=(focus=true)=>{setOpen(false);if(focus)trigger.current?.focus()};
+  const choose=o=>{if(!o||o.disabled)return;onChange?.(o.value);close()};
+  useEffect(()=>{if(!open)return;window.dispatchEvent(new CustomEvent('m3:dialog-open'));requestAnimationFrame(()=>list.current?.focus());
+    const outside=ev=>{if(!list.current?.contains(ev.target)&&!trigger.current?.contains(ev.target))close(false)};
+    const shut=()=>close(false);const resize=()=>close(false);
+    document.addEventListener('pointerdown',outside,true);window.addEventListener('m3:close-all-overlays',shut);window.addEventListener('resize',resize);
+    return()=>{document.removeEventListener('pointerdown',outside,true);window.removeEventListener('m3:close-all-overlays',shut);window.removeEventListener('resize',resize);window.dispatchEvent(new CustomEvent('m3:dialog-close'))}},[open]);
+  useEffect(()=>{if(open&&active>=0)document.getElementById(`${id}-${active}`)?.scrollIntoView({block:'nearest'})},[open,active]);
+  const step=d=>{const idx=enabled.findIndex(o=>o.i===active);const n=enabled[(idx+d+enabled.length)%enabled.length];if(n)setActive(n.i)};
+  const listKeys=ev=>{const k=ev.key;
+    if(k==='ArrowDown'){ev.preventDefault();step(1)}else if(k==='ArrowUp'){ev.preventDefault();step(-1)}
+    else if(k==='Home'){ev.preventDefault();enabled[0]&&setActive(enabled[0].i)}else if(k==='End'){ev.preventDefault();enabled.at(-1)&&setActive(enabled.at(-1).i)}
+    else if(k==='Enter'||k===' '){ev.preventDefault();choose(items[active])}
+    else if(k==='Escape'){ev.preventDefault();ev.stopPropagation();close()}else if(k==='Tab'){close(false)}
+    else if(k.length===1){const now=performance.now();typed.current={text:(now-typed.current.t<600?typed.current.text:'')+k.toLowerCase(),t:now};
+      const hit=enabled.find(o=>String(o.label).toLowerCase().startsWith(typed.current.text));if(hit)setActive(hit.i)}};
+  const triggerKeys=ev=>{if(open){listKeys(ev);return}if(['ArrowDown','ArrowUp','Enter',' '].includes(ev.key)){ev.preventDefault();openMenu()}};
+  let lastGroup;
+  return <span className={cx('m3-select',className)}>
+    <button type="button" ref={trigger} className={cx('m3-menu-select__trigger',open&&'is-open')} role="combobox" aria-haspopup="listbox" aria-expanded={open} aria-controls={id} aria-label={ariaLabel} disabled={disabled}
+      onClick={()=>open?close():openMenu()} onKeyDown={triggerKeys}><span className="m3-menu-select__value">{current?.label??'—'}</span></button>
+    <Icon name="arrow_drop_down" size={24} className={cx('m3-select__icon',open&&'is-open')}/>
+    {open&&pos&&ReactDOM.createPortal(<ul ref={list} id={id} role="listbox" tabIndex={-1} aria-label={ariaLabel} aria-activedescendant={active>=0?`${id}-${active}`:undefined}
+      className={cx('m3-menu-select__menu',pos.up&&'is-up')} style={{left:pos.left,minWidth:pos.width,top:pos.top,bottom:pos.bottom,maxHeight:pos.maxHeight}} onKeyDown={listKeys}>
+      {items.map(o=>{const head=o.group&&o.group!==lastGroup?(lastGroup=o.group,<li key={'g-'+o.group} role="presentation" className="m3-menu-select__group">{o.group}</li>):null;if(!o.group)lastGroup=undefined;
+        return <React.Fragment key={o.value}>{head}<li id={`${id}-${o.i}`} role="option" aria-selected={o.value===value} aria-disabled={o.disabled||undefined}
+          className={cx('m3-menu-select__option',o.i===active&&'is-active',o.value===value&&'is-selected')} onPointerMove={()=>!o.disabled&&setActive(o.i)} onClick={()=>choose(o)}>
+          <span>{o.label}</span>{o.value===value&&<Icon name="check" size={20}/>}</li></React.Fragment>})}
+    </ul>,document.body)}
+  </span>;
+}
+
 export function SelectField({label,value,onChange,options,dense,className,children,...props}){
   return <div className={cx('m3-field','m3-field--select',dense&&'m3-field--dense',className)}>
     <select className="m3-field__input" value={value} onChange={onChange} aria-label={props['aria-label']||label} {...props}>

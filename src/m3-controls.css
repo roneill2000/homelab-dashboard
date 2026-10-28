@@ -353,3 +353,30 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 @media (prefers-reduced-motion:reduce){.m3-skeleton{animation:none}}
 .skeleton-page{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr))}
 .skeleton-card{display:flex;flex-direction:column;gap:12px;padding:20px;border-radius:var(--md-sys-shape-corner-extra-large);background:var(--md-sys-color-surface-container-low)}
+/* M3 exposed dropdown menu (MenuSelect): the trigger looks like the old select; the menu is an M3 menu surface. */
+.m3-select .m3-menu-select__trigger{appearance:none;display:flex;align-items:center;width:100%;min-height:56px;margin:0;padding:0 48px 0 16px;border:0;border-radius:var(--md-sys-shape-corner-large);
+  background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface);cursor:pointer;text-align:left;
+  font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/1.2 var(--md-sys-typescale-body-large-font)}
+.m3-menu-select__value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m3-select .m3-menu-select__trigger:disabled{opacity:.38;cursor:default}
+.m3-select .m3-menu-select__trigger:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:-2px}
+@media (hover:hover){.m3-select .m3-menu-select__trigger:hover:not(:disabled){background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container-high))}}
+.m3-select__icon{transition:transform var(--md-sys-motion-spring-standard-fast-spatial-duration,250ms) var(--md-sys-motion-spring-standard-fast-spatial,ease)}
+.m3-select__icon.is-open{transform:rotate(180deg)}
+.m3-select--qwen .m3-menu-select__trigger{min-height:48px}
+@media (min-width:600px){.m3-select--qwen .m3-menu-select__trigger{width:auto;min-width:180px;max-width:300px}}
+.m3-menu-select__menu{position:fixed;z-index:60;margin:0;padding:8px 0;list-style:none;overflow-y:auto;border-radius:var(--md-sys-shape-corner-large);
+  background:var(--md-sys-color-surface-container);color:var(--md-sys-color-on-surface);box-shadow:var(--md-sys-elevation-level2);outline:none;transform-origin:top center;
+  animation:m3-menu-in var(--md-sys-motion-spring-standard-fast-spatial-duration,250ms) var(--md-sys-motion-spring-standard-fast-spatial,cubic-bezier(.2,0,0,1))}
+.m3-menu-select__menu.is-up{transform-origin:bottom center}
+@keyframes m3-menu-in{from{opacity:0;transform:scaleY(.8)}}
+@media (prefers-reduced-motion:reduce){.m3-menu-select__menu{animation:none}.m3-select__icon{transition:none}}
+.m3-menu-select__group{padding:12px 16px 4px;color:var(--md-sys-color-on-surface-variant);
+  font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font)}
+.m3-menu-select__option{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;margin:0 8px;padding:0 12px;border-radius:var(--md-sys-shape-corner-medium);cursor:pointer;
+  font:var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height) var(--md-sys-typescale-body-large-font)}
+.m3-menu-select__option.is-active{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,transparent)}
+.m3-menu-select__option.is-selected{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
+.m3-menu-select__option[aria-disabled]{opacity:.38;cursor:default}
+/* The Ask row's button rule (centred content, button padding) must not reach the model picker's trigger. */
+.qwen-input-row .m3-select .m3-menu-select__trigger{justify-content:flex-start;gap:0;padding:0 48px 0 16px;align-self:stretch}

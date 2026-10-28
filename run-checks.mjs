@@ -16,7 +16,7 @@ if (!CHROME) process.env.PW_NO_CHROME = '1';
 const SKIP = new Set(['memos-check', 'nightly-live-check']);  // need live services, not the preview
 // Passed on the unchanged dashboard on 26 Oct 2026. The others (ai, coverage, gpu, log, log-groups) already
 // failed then because they expect old live data (service counts, Kasm, GPU state); they are not a gate.
-const GATE = ['accessibility-check', 'activity-check', 'cache-forecast-check', 'content-check', 'fonts-check', 'nightly-check',
+const GATE = ['accessibility-check', 'activity-check', 'cache-forecast-check', 'content-check', 'fonts-check', 'menu-check', 'nightly-check',
   'overlay-check', 'qwen-check', 'responsive-check', 'ui-smoke', 'updates-check'];
 const args = process.argv.slice(2), all = args.includes('--all');
 const wanted = args.filter(a => a !== '--all');
