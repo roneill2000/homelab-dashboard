@@ -547,15 +547,22 @@ function App(){
      main.style.transform='';
     }
     setTimeout(()=>{
-     if(m){
-      m.style.transform='';
-      m.style.transition='';
-      m.style.opacity='';
-      m.style.borderRadius='';
-     }
-     s.forEach(el=>{el.style.opacity='';el.style.transition=''});
-     if(main){main.style.transform='';main.style.transition=''}
      closeAllOverlays();
+     if(main){main.style.transform='';main.style.transition=''}
+     // Keep the overlay and scrims at their faded, off-screen values until React has actually closed them. Clearing
+     // them first let the WebView paint the still-open sheet at full opacity for a frame, after which its normal close
+     // transition slid it down across the nav bar and gesture line (27 Oct recording).
+     const reset=el=>{el.style.transition='none';el.style.transform='';el.style.opacity='';el.style.borderRadius='';
+      void el.offsetHeight;el.style.transition=''};
+     // Sheets and the drawer stay mounted and lose .open; dialogs and search unmount. Give up after 800 ms.
+     const until=performance.now()+800;
+     const stillOpen=()=>m&&m.isConnected&&(!m.classList.contains('m3-nav-drawer')||m.classList.contains('open'));
+     const settle=()=>{
+      if(stillOpen()&&performance.now()<until){requestAnimationFrame(settle);return}
+      if(m)reset(m);
+      s.forEach(el=>{el.style.transition='none';el.style.opacity='';void el.offsetHeight;el.style.transition=''});
+     };
+     requestAnimationFrame(settle);
     },180);
    }
   };
