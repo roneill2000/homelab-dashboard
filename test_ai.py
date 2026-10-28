@@ -73,3 +73,21 @@ class SlotPollingTests(unittest.TestCase):
    for i,t in enumerate((40000,40361,40722)):
     self.run_desktop(t,[{'id':0,'is_processing':True,'id_task':8,'next_token':[{'n_decoded':100+i*50}]}])
    un.assert_not_called()
+
+class PcGpuTests(unittest.TestCase):
+ # The gaming PC's GPU endpoint is read only while someone is watching, at most every 2 s, never with zeros invented.
+ def setUp(self):
+  p=patch.object(a,'_pc_gpu',{'latest':None,'history':[],'error':None,'last_try':0});p.start();self.addCleanup(p.stop)
+ def test_throttled_sampled_and_capped(self):
+  reading={'name':'RTX','power_w':120.5,'temperature_c':61,'utilization_pct':97,'vram_used_mib':15000,'vram_total_mib':16303,'fan_pct':45,'clock_mhz':2700,'bogus':'x','power_limit_w':True}
+  with patch.object(a,'fetch',return_value=reading) as f:
+   a.pc_gpu_poll(1000);a.pc_gpu_poll(1001);self.assertEqual(f.call_count,1)
+   for t in range(1002,1400,2):a.pc_gpu_poll(t)
+  latest=a._pc_gpu['latest'];self.assertEqual(latest['power_w'],120.5);self.assertNotIn('bogus',latest);self.assertNotIn('power_limit_w',latest)
+  self.assertEqual(len(a._pc_gpu['history']),150)
+ def test_failure_keeps_last_reading_and_reports_error(self):
+  with patch.object(a,'fetch',return_value={'power_w':80}):a.pc_gpu_poll(2000)
+  with patch.object(a,'fetch',side_effect=TimeoutError):a.pc_gpu_poll(2003)
+  self.assertEqual(a._pc_gpu['latest']['power_w'],80);self.assertEqual(a._pc_gpu['error'],'GPU metrics unavailable')
+  with patch.object(a,'fetch',return_value={'error':'GPU reading failed'}):a.pc_gpu_poll(2006)
+  self.assertEqual(a._pc_gpu['error'],'GPU metrics unavailable')

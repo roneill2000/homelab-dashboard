@@ -27,12 +27,45 @@ _live_until = 0
 _last_slot_check = 0
 _stuck = None        # {'key': (model, task id), 'decoded': n, 'since': t} while a slot is processing
 _watchdog = {}       # last watchdog action, reported in the snapshot
+# Gaming PC GPU readings (pc/gpu_metrics.py on the PC, NVML, cached 2 s there). Read only while someone is watching.
+PC_GPU_URL = 'http://192.168.0.12:9835/gpu'
+_pc_gpu = {'latest': None, 'history': [], 'error': None, 'last_try': 0}
+GPU_KEYS = ('power_w', 'power_limit_w', 'temperature_c', 'utilization_pct', 'memory_util_pct', 'vram_used_mib',
+            'vram_total_mib', 'fan_pct', 'clock_mhz')
 
 
 def request_live(seconds=30):
     global _live_until
     with _lock:
         _live_until = max(_live_until, time.time() + seconds)
+
+
+def pc_gpu_poll(now):
+    # At most every 2 s, only while watching. Keeps ~5 minutes of samples for the panel's chart.
+    if now - _pc_gpu['last_try'] < 2:
+        return
+    _pc_gpu['last_try'] = now
+    try:
+        raw = fetch(PC_GPU_URL)
+        if not isinstance(raw, dict) or raw.get('error'):
+            raise ValueError('GPU reading failed')
+        sample = {k: raw.get(k) for k in GPU_KEYS if isinstance(raw.get(k), (int, float)) and not isinstance(raw.get(k), bool)}
+        sample['name'] = raw.get('name') if isinstance(raw.get('name'), str) else None
+        sample['observed_at'] = int(now)
+        _pc_gpu['latest'] = sample
+        _pc_gpu['error'] = None
+        _pc_gpu['history'] = (_pc_gpu['history'] + [{'ts': int(now), **{k: sample.get(k) for k in ('power_w', 'temperature_c', 'utilization_pct', 'vram_used_mib')}}])[-150:]
+    except Exception:
+        _pc_gpu['error'] = 'GPU metrics unavailable'
+
+
+def live_snapshot():
+    # Small payload for the Local AI page's 2 s ping: GPU readings, chart history and the generation speed.
+    with _lock:
+        d = copy.deepcopy(_latest.get('desktop', {}))
+    return {'gpu': {'latest': _pc_gpu['latest'], 'history': list(_pc_gpu['history']), 'error': _pc_gpu['error']},
+            'active_speed': d.get('active_speed'), 'is_active': d.get('is_active'), 'is_recent': d.get('is_recent'),
+            'active_model': d.get('active_model'), 'online': d.get('online')}
 
 
 def unload(base_url, token, model):
@@ -116,6 +149,8 @@ def desktop():
     now = time.time()
     with _lock:
         watching = now < _live_until
+    if watching:
+        pc_gpu_poll(now)
     due = now - _last_slot_check >= WATCHDOG_INTERVAL
     if loaded_model and (watching or due):
         try:

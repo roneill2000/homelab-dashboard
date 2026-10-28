@@ -380,3 +380,5 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .m3-menu-select__option[aria-disabled]{opacity:.38;cursor:default}
 /* The Ask row's button rule (centred content, button padding) must not reach the model picker's trigger. */
 .qwen-input-row .m3-select .m3-menu-select__trigger{justify-content:flex-start;gap:0;padding:0 48px 0 16px;align-self:stretch}
+/* Gaming PC GPU panel: readings fade a little when they're not live (page just opened, PC asleep). */
+.pc-gpu .gpu-readings.is-stale strong{opacity:.6}
