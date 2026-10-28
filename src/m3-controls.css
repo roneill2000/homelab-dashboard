@@ -395,3 +395,17 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .nowrap{white-space:nowrap}
 .m3-skeleton--inline{display:inline-block;vertical-align:middle}
 .chart-line{animation:chart-line-in .18s ease-out}@keyframes chart-line-in{from{opacity:0}}@media (prefers-reduced-motion:reduce){.chart-line{animation:none}}
+/* Add a download (Media page) */
+.downloads-panel{display:flex;flex-direction:column;gap:16px}
+.dl-form{display:flex;flex-direction:column;gap:12px}
+.dl-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+@media (min-width:840px){.dl-form{flex-direction:row;align-items:center}.dl-form>.m3-field{flex:1}.dl-controls{flex-wrap:nowrap}}
+.dl-subhead{margin:0 0 4px;font:var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height) var(--md-sys-typescale-title-small-font);color:var(--md-sys-color-on-surface-variant)}
+.dl-results,.dl-recent{display:flex;flex-direction:column}
+.dl-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--md-sys-color-outline-variant)}
+.dl-row__text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.dl-row__text>strong{font-weight:500;overflow-wrap:anywhere}
+.dl-row__text small{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size)}
+.dl-row .m3-btn{flex:none}
+.dl-results>.text-button{align-self:flex-start;margin-top:4px}
+.m3-field__input:focus-visible{outline:none}
