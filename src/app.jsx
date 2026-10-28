@@ -206,6 +206,10 @@ async function postAction(path,body){const r=await fetch(path,{method:'POST',hea
 function PcPowerControl({pc,ask,notify,compact=false}){
  const online=sourceFresh(pc),known=online||pc?.online===false;
  const [sending,setSending]=useState(false);
+ // Launcher shortcut "Wake PC" calls this through window.__homelabShortcut (it goes through the page, so the
+ // same-origin action guard still applies). Ref, not a dependency: the clock re-renders App every second.
+ const wakeRef=useRef();wakeRef.current=()=>{if(online){notify('The gaming PC is already on.');return}wake()};
+ useEffect(()=>{const f=()=>wakeRef.current();window.__homelabWake=f;return()=>{if(window.__homelabWake===f)window.__homelabWake=null}},[]);
  async function wake(){setSending(true);try{const d=await postAction('/api/action/wake-pc');notify(d.ok?'Wake signal sent. From sleep, the models are back in about 30 s.':'The wake signal could not be sent.')}catch{notify('The wake signal could not be sent.')}finally{setSending(false)}}
  function sleep(force){return async()=>{try{const d=await postAction('/api/action/sleep-pc',{force});
   if(d.ok){ask(null);notify('The PC shows a 60-second warning, then sleeps.')}
@@ -465,10 +469,15 @@ function App(){
   window.__hasOpenOverlay=()=>anyOverlay;
   window.__closeAllOverlays=closeAllOverlays;
   window.__navigateOverview=()=>navigate('overview');
+  // Android deep links and launcher shortcuts (MainActivity passes only allowlisted page names and actions).
+  window.__homelabOpen=page=>{if(VIEWS.includes(page))navigate(page)};
+  window.__homelabShortcut=action=>{if(action==='wake-pc'){navigate('overview');setTimeout(()=>window.__homelabWake?.(),400)}};
   return()=>{
    window.__hasOpenOverlay=null;
    window.__closeAllOverlays=null;
    window.__navigateOverview=null;
+   window.__homelabOpen=null;
+   window.__homelabShortcut=null;
   };
  },[anyOverlay,closeAllOverlays]);
  useEffect(()=>{
@@ -631,6 +640,14 @@ function App(){
   setMenu(false);setRailModal(false);window.scrollTo({top:0,behavior:'instant'});
  };
  useEffect(()=>{document.documentElement.dataset.theme=theme},[theme]);
+ // Android status and navigation bars follow the theme: the page surface behind the status bar, the nav bar container
+ // (or the surface when there's no bottom bar) behind the gesture bar. The native side validates and remembers them.
+ useEffect(()=>{const id=requestAnimationFrame(()=>{const toHex=c=>{const m=String(c).match(/\d+(\.\d+)?/g);if(!m||m.length<3)return null;return '#'+m.slice(0,3).map(x=>Math.round(+x).toString(16).padStart(2,'0')).join('')};
+   const root=getComputedStyle(document.documentElement);const surface=root.getPropertyValue('--md-sys-color-surface').trim();const status=/^#[0-9a-f]{6}$/i.test(surface)?surface:toHex(getComputedStyle(document.body).backgroundColor);
+   const bar=document.querySelector('.m3-nav-bar');const nav=bar&&getComputedStyle(bar).display!=='none'?toHex(getComputedStyle(bar).backgroundColor)||status:status;
+   document.querySelector('meta[name="theme-color"]')?.setAttribute('content',status);try{window.AndroidBridge?.setSystemBars?.(status,nav,theme==='light')}catch{}});return()=>cancelAnimationFrame(id)},[theme,win]);
+ // Tells the Android splash screen the dashboard has painted.
+ useEffect(()=>{requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.AndroidBridge?.ready?.()}catch{}}))},[]);
  const [upd,setUpd]=useState(null),[fleet,setFleet]=useState(null),[fleetError,setFleetError]=useState(false);
  useEffect(()=>{let alive=true;async function get(){try{const r=await fetch('/api/fleet',{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();if(alive){setFleet(d);setFleetError(false)}}catch{if(alive)setFleetError(true)}}get();const iv=setInterval(()=>{if(!document.hidden)get()},60000);return()=>{alive=false;clearInterval(iv)}},[]);
  useEffect(()=>{let alive=true;async function get(){try{const r=await fetch('/api/updates',{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();const items=d.items||[];if(alive)setUpd({pending:items.filter(i=>i.state==='pending').length,failed:d.job?.status==='failed'&&d.job?.kind==='update'})}catch{}}get();const iv=setInterval(()=>{if(!document.hidden)get()},60000);return()=>{alive=false;clearInterval(iv)}},[]);
