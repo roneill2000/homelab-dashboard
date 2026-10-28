@@ -137,7 +137,12 @@ const preloads = `<link rel="preload" as="font" type="font/woff2" crossorigin hr
 const rawCss = (await Promise.all(parts.map(p => readFile(p, 'utf8').catch(() => '')))).join('\n');
 const processedCss = wrapHoverInCss(rawCss);
 checkNoUnwrappedHover(processedCss);
-const css = fontsCss + m3TokensCss() + m3ShapesCss() + processedCss;
+const tokensCss = m3TokensCss();
+// The colour generator silently produces no system roles when @material/material-color-utilities isn't the pinned
+// 0.4.0 (a Windows build on 27 Oct shipped 0 of 106 roles: every surface lost its background). Fail instead.
+const roleCount = (tokensCss.match(/--md-sys-color-[a-z-]+:#/g) || []).length;
+if (roleCount < 100) throw new Error(`Build failed: only ${roleCount} --md-sys-color roles generated (expected about 106). Run npm ci; build on the Mac or Proxmox.`);
+const css = fontsCss + tokensCss + m3ShapesCss() + processedCss;
 const js = result.outputFiles[0].text.replaceAll('</script','<\\/script');
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#091613"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg">${preloads}<title>Homelab · Control room</title><style>${css}</style><script src="/static/react.js"></script><script src="/static/react-dom.js"></script><script>/*__INITIAL_TELEMETRY_SLOT__*/</script></head><body><div id="root"></div><noscript>This dashboard needs JavaScript to display live telemetry.</noscript><script>${js}</script></body></html>`;
 await writeFile('index.html',html);

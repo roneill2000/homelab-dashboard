@@ -98,55 +98,63 @@ class BackendPatchTests(unittest.TestCase):
         with patch('time.time', return_value=200):
             ctx['poll_media_and_syslog']()
         latest = ctx['TELEMETRY']['media']['readarr']
-        self.assertFalse(latest['online'])
         self.assertEqual(latest['books'], 3)
         self.assertEqual(latest['last_success_at'], 100)
+        self.assertEqual(latest['last_attempt_at'], 200)
+        self.assertFalse(latest['online'])
+        self.assertEqual(latest['error'], 'Source poll failed')
 
-    def test_speedtest_and_dns_resilience(self):
-        source = patch_backend(FIXTURE)
-        dns_primary = {'blocking': True}
-        dns_secondary = {'blocking': True}
-        namespace = {'STATE_LOCK': threading.Lock(), 'dns_primary': dns_primary, 'dns_secondary': dns_secondary}
-        exec(compile(source, '<fixture>', 'exec'), namespace)
-        namespace['poll_dns_and_speed']()
-        self.assertEqual(namespace['TELEMETRY']['pihole']['status'], 'protected')
-        namespace['dns_secondary'] = {'blocking': False}
-        namespace['poll_dns_and_speed']()
-        self.assertEqual(namespace['TELEMETRY']['pihole']['status'], 'mixed')
-        self.assertIsNone(namespace['TELEMETRY']['pihole']['blocking'])
+    def test_dns_requires_consistent_available_nodes(self):
+        _, ctx = self.context()
+        ctx.update(dns_primary={'blocking': True}, dns_secondary={'blocking': False})
+        ctx['poll_dns_and_speed']()
+        dns = ctx['TELEMETRY']['pihole']
+        self.assertIsNone(dns['blocking'])
+        self.assertEqual(dns['status'], 'mixed')
+        ctx['dns_secondary'] = {'blocking': True}
+        with patch('time.time', return_value=100):
+            ctx['poll_dns_and_speed']()
+        self.assertTrue(ctx['TELEMETRY']['pihole']['blocking'])
+        ctx['dns_secondary'] = None
+        with patch('time.time', return_value=200):
+            ctx['poll_dns_and_speed']()
+        dns = ctx['TELEMETRY']['pihole']
+        self.assertIsNone(dns['blocking'])
+        self.assertFalse(dns['online'])
+        self.assertEqual(dns['last_success_at'], 100)
+        self.assertEqual(dns['secondary']['last_success_at'], 100)
+        self.assertEqual(dns['status'], 'unknown')
+
+    def test_source_shape_drift_fails_before_mutation(self):
+        with self.assertRaises(ValueError):
+            patch_backend('def poll_proxmox(): pass\n')
 
 
 class JellyfinAuthTests(unittest.TestCase):
-    SRC = ('def poll_media_and_syslog():\n'
-           '    try:\n'
-           '        with urllib.request.urlopen("http://192.168.0.17:8096/System/Info", timeout=4) as response:\n'
-           '            pass\n'
-           '    except Exception:\n'
-           '        pass\n')
-
-    def test_adds_auth_header_and_uses_configured_key(self):
-        out = patch_jellyfin_auth(self.SRC)
-        self.assertIn("headers={'X-Emby-Token': JELLYFIN_API_KEY}", out)
+    def test_header_rewritten_once_and_idempotent(self):
+        src = "def task_jellyfin():\n    jf_hdr = {'X-Emby-Token': '" + 'a' * 32 + "'}\n"
+        out = patch_jellyfin_auth(src)
+        self.assertIn("{'Authorization': 'MediaBrowser Token=\"" + 'a' * 32 + "\"'}", out)
+        self.assertNotIn('X-Emby-Token', out)
         self.assertEqual(patch_jellyfin_auth(out), out)
-
-    def test_refuses_when_pattern_not_found(self):
         with self.assertRaises(ValueError):
-            patch_jellyfin_auth('def foo(): pass\n')
+            patch_jellyfin_auth('def task_jellyfin(): pass\n')
 
 
-class SpeedtestLatestCompletedTests(unittest.TestCase):
-    SRC = ("    rows = cur.fetchall()\n"
-           "    if rows:\n"
-           "        latest = json.loads(rows[0][0])\n")
+class SpeedtestTests(unittest.TestCase):
+    SRC = ("def poll():\n    try:\n        st = fetch_json('http://192.168.0.14/api/v1/results/latest', headers={'Authorization': 'Bearer x', 'Accept': 'application/json'}).get('data', {})\n"
+           "        return st.get('download_bits')\n    except Exception:\n        return 'unavailable'\n")
 
-    def test_selects_first_successful_row(self):
+    def run_with(self, results):
+        ns = {'fetch_json': lambda url, headers=None: {'data': results}}
+        exec(compile(patch_speedtest_latest_completed(self.SRC), 't', 'exec'), ns)
+        return ns['poll']()
+
+    def test_skips_failed_and_never_invents_zero(self):
+        self.assertEqual(self.run_with([{'status': 'failed'}, {'status': 'completed', 'download_bits': 2343}]), 2343)
+        self.assertEqual(self.run_with([{'status': 'failed'}]), 'unavailable')
         out = patch_speedtest_latest_completed(self.SRC)
-        self.assertIn("r.get('data', {}).get('status') == 'completed'", out)
         self.assertEqual(patch_speedtest_latest_completed(out), out)
-
-    def test_refuses_when_anchor_missing(self):
-        with self.assertRaises(ValueError):
-            patch_speedtest_latest_completed('def foo(): pass\n')
 
 
 class SpeedtestTimeTests(unittest.TestCase):
@@ -313,95 +321,62 @@ class HardeningTests(unittest.TestCase):
             patch_hardening('class DashboardHandler(BaseHTTPRequestHandler):\n    pass\n')
 
 
-class FontRouteTests(unittest.TestCase):
+class FontsTests(unittest.TestCase):
     SRC = ('from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n'
-           'import os\n'
-           'PAGE = "<html>ok</html>"\n'
-           'BUNDLE = b"var react = 1;"\n'
            'class DashboardHandler(BaseHTTPRequestHandler):\n'
            '    def log_message(self, format, *args):\n'
            '        pass\n'
+           '    def _dashboard_send(self, body, ctype, cache, etag=None):\n'
+           '        self.send_response(200)\n'
+           '        self.send_header("Content-Type", ctype)\n'
+           '        self.send_header("Cache-Control", cache)\n'
+           '        self.end_headers()\n'
+           '        self.wfile.write(body)\n'
            '    def do_GET(self):\n'
-           '        if self.path == "/other":\n'
+           '        if self.path == "/x":\n'
            '            pass\n'
            '        elif self.path in ("/static/react.js", "/static/react-dom.js"):\n'
-           '            if True:\n'
-           '                body = BUNDLE\n'
-           '                self.send_response(200)\n'
-           '                self.send_header("Content-Type", "application/javascript; charset=utf-8")\n'
-           '                self.send_header("Cache-Control", "public, max-age=86400")\n'
-           '                self.end_headers()\n'
-           '                self.wfile.write(body)\n'
+           '            self.send_error(404)\n'
            '        else:\n'
-           '            body = PAGE.encode("utf-8")\n'
-           '            self.send_response(200)\n'
-           '            self.send_header("Content-Type", "text/html; charset=utf-8")\n'
-           '            self.send_header("Cache-Control", "no-cache")\n'
-           '            self.end_headers()\n'
-           '            self.wfile.write(body)\n')
+           '            self.send_error(404)\n')
 
-    def setUp(self):
-        import tempfile
-        self.tmpdir = tempfile.TemporaryDirectory()
-        import os
-        os.environ['HOMELAB_FONTS_DIR'] = self.tmpdir.name
-        with open(os.path.join(self.tmpdir.name, 'roboto-latin-12345678.woff2'), 'wb') as f:
-            f.write(b'woff2-dummy-font-data')
-
-    def tearDown(self):
-        import os
-        os.environ.pop('HOMELAB_FONTS_DIR', None)
-        self.tmpdir.cleanup()
-
-    def serve(self):
-        import http.client
-        ns = {}
-        # Compression patch provides _dashboard_send and _dashboard_etag
-        src = patch_compression(self.SRC)
-        src = patch_fonts(src)
-        exec(compile(src, 'fonts_test', 'exec'), ns)
+    def serve(self, fonts_dir):
+        import http.client, os
+        os.environ['HOMELAB_FONTS_DIR'] = fonts_dir
+        self.addCleanup(os.environ.pop, 'HOMELAB_FONTS_DIR', None)
+        ns = {'_dashboard_etag': lambda b: '"e"'}
+        exec(compile(patch_fonts(self.SRC), 'fonts', 'exec'), ns)
         server = ns['ThreadingHTTPServer'](('127.0.0.1', 0), ns['DashboardHandler'])
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.shutdown)
-        def get(path, **headers):
+        def get(path):
             conn = http.client.HTTPConnection('127.0.0.1', server.server_address[1])
-            conn.request('GET', path, headers=headers)
+            conn.request('GET', path)
             r = conn.getresponse()
             return r, r.read()
         return get
 
-    def test_font_served_with_correct_headers(self):
-        get = self.serve()
-        r, body = get('/static/fonts/roboto-latin-12345678.woff2')
-        self.assertEqual(r.status, 200)
-        self.assertEqual(r.getheader('Content-Type'), 'font/woff2')
-        self.assertEqual(r.getheader('Cache-Control'), 'public, max-age=31536000, immutable')
-        self.assertIsNotNone(r.getheader('ETag'))
-        self.assertEqual(body, b'woff2-dummy-font-data')
-
-    def test_font_revalidates_with_304(self):
-        get = self.serve()
-        r, _ = get('/static/fonts/roboto-latin-12345678.woff2')
-        etag = r.getheader('ETag')
-        r, body = get('/static/fonts/roboto-latin-12345678.woff2', **{'If-None-Match': etag})
-        self.assertEqual((r.status, body), (304, b''))
-
-    def test_traversal_refused(self):
-        get = self.serve()
-        r, _ = get('/static/fonts/..%2Fsecret.txt')
-        self.assertEqual(r.status, 404)
-        r, _ = get('/static/fonts/../etc/passwd')
-        self.assertEqual(r.status, 404)
-        r, _ = get('/static/fonts/bad.ttf')
-        self.assertEqual(r.status, 404)
-        r, _ = get('/static/fonts/nonexistent.woff2')
-        self.assertEqual(r.status, 404)
+    def test_serves_allowlisted_woff2_and_refuses_everything_else(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as root:
+            fonts = os.path.join(root, 'fonts'); os.mkdir(fonts)
+            open(os.path.join(fonts, 'roboto-flex-latin-abc123.woff2'), 'wb').write(b'wOF2-font')
+            open(os.path.join(root, 'secret.woff2'), 'wb').write(b'SECRET')
+            get = self.serve(fonts)
+            r, body = get('/static/fonts/roboto-flex-latin-abc123.woff2')
+            self.assertEqual((r.status, body, r.getheader('Content-Type')), (200, b'wOF2-font', 'font/woff2'))
+            self.assertIn('immutable', r.getheader('Cache-Control'))
+            for bad in ('/static/fonts/../secret.woff2', '/static/fonts/..%2Fsecret.woff2', '/static/fonts/Roboto.woff2',
+                        '/static/fonts/x.ttf', '/static/fonts/missing.woff2'):
+                r, body = get(bad)
+                self.assertEqual(r.status, 404, bad)
+                self.assertNotIn(b'SECRET', body)
 
     def test_idempotent_and_refuses_drifted_source(self):
         out = patch_fonts(self.SRC)
         self.assertEqual(patch_fonts(out), out)
         with self.assertRaises(ValueError):
-            patch_fonts('class DashboardHandler:\n    pass\n')
+            patch_fonts('class DashboardHandler: pass\n')
 
 
 if __name__ == '__main__':

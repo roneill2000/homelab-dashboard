@@ -442,7 +442,7 @@ function App(){
   const on=ev=>{
    if(ignoreNextPopRef.current){ignoreNextPopRef.current=false;return}
    // A Back within 400 ms of our own history.back() (overlay closed by X, scrim or Escape) belongs to that close: undo it.
-   if(performance.now()-progBackAtRef.current<400){progBackAtRef.current=0;ignoreNextPopRef.current=true;history.forward();return}
+   if(progBackAtRef.current&&performance.now()-progBackAtRef.current<400){progBackAtRef.current=0;ignoreNextPopRef.current=true;history.forward();return}
    // Forward into an old overlay entry: skip it rather than leave a dead Back press.
    if(ev.state?.overlay){if(!overlayPushedRef.current){ignoreNextPopRef.current=true;history.back()}return}
    if(overlayPushedRef.current){
