@@ -154,6 +154,9 @@ export function LinearProgress({value,max=100,tone,label,wavy,color,className,..
 }
 // M3 Expressive loading indicator: a shape that morphs through Material's loading sequence while it turns (m3-shapes.mjs).
 // contained = on a circular primary-container. Use it for waits under a few seconds where no progress is known.
+// Placeholder shaped like the content it stands in for. Shimmer is off under Reduce motion; hidden from assistive tech
+// (the region that holds it carries aria-busy).
+export function Skeleton({w='100%',h=16,radius,className=''}){return <span className={'m3-skeleton '+className} aria-hidden="true" style={{width:w,height:h,borderRadius:radius}}/>}
 export function LoadingIndicator({label='Loading',small,contained,className}){
   return <span className={cx('m3-loading',small&&'m3-loading--small',contained&&'m3-loading--contained',className)} role="progressbar" aria-label={label}><span className="m3-loading__shape"/></span>;
 }

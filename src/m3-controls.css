@@ -347,3 +347,9 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .is-sheet .m3-nav-drawer__item,.is-sheet .m3-nav-drawer__item[aria-current=page]{margin-inline:12px;padding-inline:16px;width:auto;border-radius:var(--md-sys-shape-corner-full);transform:none}
 /* Touch: log text, summaries, timeline details and AI answers stay selectable so an error line can be copied. */
 @media (hover:none){.log-message,.log-group-summary,.timeline-day p,.nightly-pattern,.qwen-answer,.qwen-answer *,.evidence pre,pre,code{-webkit-user-select:text;user-select:text}}
+/* Loading skeletons (first load only). A soft surface block with a slow shimmer; static under Reduce motion. */
+.m3-skeleton{display:block;flex-shrink:0;border-radius:6px;background:linear-gradient(90deg,var(--md-sys-color-surface-container-high) 0%,var(--md-sys-color-surface-container-highest) 40%,var(--md-sys-color-surface-container-high) 80%);background-size:300% 100%;animation:m3-shimmer 1.6s linear infinite}
+@keyframes m3-shimmer{from{background-position:100% 0}to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.m3-skeleton{animation:none}}
+.skeleton-page{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr))}
+.skeleton-card{display:flex;flex-direction:column;gap:12px;padding:20px;border-radius:var(--md-sys-shape-corner-extra-large);background:var(--md-sys-color-surface-container-low)}
