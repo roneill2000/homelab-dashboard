@@ -201,13 +201,18 @@
 html{scrollbar-gutter:stable}
 html.m3-scroll-locked{overflow:hidden}
 html.m3-scroll-locked body{overscroll-behavior:none}
-/* Hero card tonal roles (A5) */
-.ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container)}
-.ov-hero--attention{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container)}
-.ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:var(--md-sys-color-surface-container-lowest);color:var(--md-sys-color-on-surface);border:1px solid var(--md-sys-color-outline-variant);border-radius:var(--md-sys-shape-corner-large)}
+/* Hero card tonal roles (A5). The pine theme is a Fidelity scheme, so primary-container is the seed pine in both themes.
+   Dark: the pine card with primary-fixed ink and tiles a step darker. Light: a pale primary-fixed card with dark ink and
+   white tiles, so the light page doesn't carry a dark slab. Attention swaps to the cedar tertiary roles. */
+.ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-primary-fixed)}
+.ov-hero--attention{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-tertiary-fixed)}
+:root[data-theme=light] .ov-hero{background:var(--md-sys-color-primary-fixed);color:var(--md-sys-color-on-primary-fixed)}
+:root[data-theme=light] .ov-hero--attention{background:var(--md-sys-color-tertiary-fixed);color:var(--md-sys-color-on-tertiary-fixed)}
+.ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:color-mix(in srgb,var(--md-sys-color-surface-container-lowest) 55%,transparent);color:var(--md-sys-color-on-surface);border:0;border-radius:var(--md-sys-shape-corner-large)}
+:root[data-theme=light] .ov-hero .summary-grid>.summary-stat,:root[data-theme=light] .ov-hero .summary-grid>.summary-stat:nth-child(n){background:var(--md-sys-color-surface-container-lowest)}
 .ov-hero .summary-grid>.summary-stat strong{color:var(--md-sys-color-on-surface)}
 .ov-hero .summary-grid>.summary-stat small,.ov-hero .summary-grid>.summary-stat p,.ov-hero .summary-grid>.summary-stat em{color:var(--md-sys-color-on-surface-variant)}
-.ov-hero .summary-grid>.summary-stat.summary-link:hover{background:var(--md-sys-color-surface-container-low)}
+.ov-hero .summary-grid>.summary-stat.summary-link:hover{background:color-mix(in srgb,var(--md-sys-color-on-surface) 8%,var(--md-sys-color-surface-container-lowest))}
 .ov-hero .issue-chip:not(.soft),.ov-hero .issue-chip{background:var(--md-sys-color-error);color:var(--md-sys-color-on-error)}
 .ov-hero .issue-chip.soft{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border:0}
 .ov-hero__glyph{background:color-mix(in srgb,currentColor 14%,transparent)}

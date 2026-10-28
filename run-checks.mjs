@@ -31,6 +31,17 @@ const run = (cmd, args, ms) => new Promise(resolve => {
   p.on('close', code => { clearTimeout(t); resolve({ code, out }); });
 });
 
+// The committed index.html must be exactly what build.mjs produces from the committed sources: a bundle built from
+// uncommitted or machine-specific files once deployed colour tokens the source could not reproduce (27 Oct 2026).
+{
+  const { execFileSync } = await import('node:child_process');
+  const before = execFileSync('git', ['hash-object', 'index.html']).toString().trim();
+  execFileSync('node', ['build.mjs'], { stdio: 'ignore' });
+  const after = execFileSync('git', ['hash-object', 'index.html']).toString().trim();
+  if (before !== after) { console.log('BAD  index.html was not built from these sources; it has now been rebuilt. Review and commit it, then rerun.'); process.exit(1); }
+  console.log('OK   build                  index.html matches a fresh build');
+}
+
 let preview = null;
 if (!process.env.DASHBOARD_URL) {
   // Refuse to run if something already serves the preview port: the checks would test that server's build, not this one.

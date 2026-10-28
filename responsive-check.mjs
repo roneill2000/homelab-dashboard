@@ -34,7 +34,7 @@ for(const [width,height] of [[360,800],[412,915],[448,998],[998,448],[1440,1000]
   const small=await page.locator('.topbar button').evaluateAll(es=>es.filter(e=>e.getBoundingClientRect().width<44||e.getBoundingClientRect().height<44).map(e=>e.ariaLabel));assert.deepEqual(small,[]);
  }
  assert.deepEqual(errors,[]);
- results.push(`${width}x${height}: four views, no page/card overflow or JS errors`);
+ results.push(`PASS ${width}x${height}: four views, no page/card overflow or JS errors`);
  await context.close();
 }
 console.log(results.join('\n'));await browser.close();
