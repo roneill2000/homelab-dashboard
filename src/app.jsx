@@ -309,9 +309,9 @@ function AskQwen({gpu,ai,slim=false,task=false}){
   const sectionRef=useRef(null),lastH=useRef(0),lastCollapsed=useRef(collapsed);
  useLayoutEffect(()=>{const el=sectionRef.current;if(!el)return;const to=el.offsetHeight,from=lastH.current;
   if(lastCollapsed.current!==collapsed&&from&&from!==to&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches&&el.animate){
-   const ms=collapsed?300:484;
-   el.animate([{height:from+'px',overflow:'hidden'},{height:to+'px',overflow:'hidden'}],{duration:ms,easing:collapsed?'cubic-bezier(0.3,0,0.8,0.15)':getComputedStyle(el).getPropertyValue('--md-sys-motion-spring-expressive-default-spatial').trim()||'cubic-bezier(0.05,0.7,0.1,1)'});
-   if(!collapsed)el.querySelectorAll('.qwen-heading,label[for=qwen-prompt],.qwen-help,.qwen-status,.qwen-gpu').forEach((c,i)=>c.animate([{opacity:0,transform:'translateY(-6px)'},{opacity:1,transform:'none'}],{duration:260,delay:60+i*30,easing:'cubic-bezier(0.05,0.7,0.1,1)',fill:'backwards'}));
+   // Open: an even ease so the growth is visible. Close: quick ease-out, since the hidden content leaves an empty gap.
+   el.animate([{height:from+'px',overflow:'hidden'},{height:to+'px',overflow:'hidden'}],collapsed?{duration:180,easing:'cubic-bezier(0.2,0,0,1)'}:{duration:420,easing:'cubic-bezier(0.4,0,0.2,1)'});
+   if(!collapsed)el.querySelectorAll('.qwen-heading,label[for=qwen-prompt],.qwen-help,.qwen-status,.qwen-gpu').forEach((c,i)=>c.animate([{opacity:0,transform:'translateY(-8px)'},{opacity:1,transform:'none'}],{duration:300,delay:120+i*40,easing:'cubic-bezier(0.2,0,0,1)',fill:'backwards'}));
   }
   lastCollapsed.current=collapsed;lastH.current=to});
   const labels={idle:'Ready',queued:'Queued',loading:'Loading model',generating:'Writing answer',complete:'Answer ready',failed:'Request failed',busy:'Model in use'};
