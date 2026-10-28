@@ -336,3 +336,7 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 /* Search bar's ⌘K chip: the bar's 4px trailing padding suits a 48px trailing icon button, not a chip, which sat against
    the pill's curve. Give it the same 12px inset from the curve as the leading search icon has. */
 .m3-search-bar>.m3-chip:last-child{margin-right:12px}
+/* Chart hover tooltip stops short of the expand button's 48px corner, and the button stays above it, so inspecting a
+   point never covers "Open larger chart". */
+.chart-tooltip,.activity-panel .chart-tooltip{max-width:calc(100% - 96px)}
+.chart__expand{z-index:4}
