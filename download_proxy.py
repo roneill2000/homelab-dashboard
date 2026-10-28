@@ -62,11 +62,34 @@ def prowlarr(path, body=None, timeout=60):
 
 
 def recent():
-    """The 12 most recently added RdtClient items, newest first."""
+    """The 12 most recently added RdtClient items, newest first.
+
+    RdtClient's qBittorrent 'progress' is (debrid progress + local download progress) / 2, so a file the debrid
+    service has finished shows 50% before a byte reaches the disk. Active items are re-read from RdtClient's own
+    API instead: 'stage' is debrid (the service is still fetching it) or local (copying to disk), with that stage's
+    real progress, speed and RdtClient's status text."""
     items = json.loads(rdt('/api/v2/torrents/info'))
     items.sort(key=lambda t: t.get('added_on') or 0, reverse=True)
     keep = ('name', 'category', 'state', 'progress', 'size', 'dlspeed', 'eta', 'added_on')
-    return [{k: t.get(k) for k in keep} for t in items[:12]]
+    out = [{k: t.get(k) for k in keep} | {'hash': (t.get('hash') or '').lower()} for t in items[:12]]
+    active = [t for t in out if (t['progress'] or 0) < 1]
+    if active:
+        native = {(n.get('hash') or '').lower(): n for n in json.loads(rdt('/Api/Torrents'))}
+        for t in active:
+            n = native.get(t['hash'])
+            if not n: continue
+            t['status_text'], t['error'] = n.get('statusText'), n.get('error')
+            if (n.get('rdProgress') or 0) < 100:
+                t.update(stage='debrid', progress=(n.get('rdProgress') or 0) / 100, dlspeed=n.get('rdSpeed') or 0, seeders=n.get('rdSeeders'))
+                continue
+            downloads = json.loads(rdt('/Api/Torrents/Get/' + urllib.parse.quote(n['torrentId']))).get('downloads') or []
+            total = sum(d.get('bytesTotal') or 0 for d in downloads)
+            if total:
+                t.update(stage='local', progress=sum(d.get('bytesDone') or 0 for d in downloads) / total,
+                         dlspeed=sum(d.get('speed') or 0 for d in downloads))
+                if t['progress'] >= 1: t.update(stage='finishing', progress=0.999)
+    for t in out: del t['hash']
+    return out
 
 
 def search(query, kind):

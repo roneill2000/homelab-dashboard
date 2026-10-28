@@ -58,6 +58,23 @@ class DownloadTests(unittest.TestCase):
         self.assertNotIn('secret', json.dumps(body)); self.assertNotIn('idx/1', json.dumps(body))
         self.assertEqual(call('/api/downloads/search?q=a', OK, post=False)[1], [400])
 
+    def test_recent_uses_real_stage_progress(self):
+        qbit = [{'name': 'A', 'hash': 'AA', 'progress': 0.69, 'added_on': 2, 'state': 'downloading'},
+                {'name': 'B', 'hash': 'bb', 'progress': 0.1, 'added_on': 1, 'state': 'metaDL'},
+                {'name': 'C', 'hash': 'cc', 'progress': 1, 'added_on': 0, 'state': 'pausedUP'}]
+        native = [{'hash': 'aa', 'torrentId': 't1', 'rdProgress': 100, 'statusText': 'Downloading file 1/1'},
+                  {'hash': 'bb', 'torrentId': 't2', 'rdProgress': 20, 'rdSpeed': 5, 'rdSeeders': 0}]
+        pages = {'/api/v2/torrents/info': qbit, '/Api/Torrents': native,
+                 '/Api/Torrents/Get/t1': {'downloads': [{'bytesTotal': 100, 'bytesDone': 38, 'speed': 7}]}}
+        with patch.object(dp, 'rdt', side_effect=lambda path, data=None: json.dumps(pages[path]).encode()):
+            a, b, c = dp.recent()
+        self.assertEqual((a['stage'], a['progress'], a['dlspeed']), ('local', 0.38, 7))
+        self.assertEqual((b['stage'], b['progress'], b['seeders']), ('debrid', 0.2, 0))
+        self.assertEqual((c.get('stage'), c['progress']), (None, 1))
+        pages['/Api/Torrents/Get/t1'] = {'downloads': [{'bytesTotal': 100, 'bytesDone': 100}]}
+        with patch.object(dp, 'rdt', side_effect=lambda path, data=None: json.dumps(pages[path]).encode()):
+            self.assertEqual(dp.recent()[0]['stage'], 'finishing')
+
 
 if __name__ == '__main__':
     unittest.main()
