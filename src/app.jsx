@@ -523,15 +523,40 @@ function App(){
     }
    }else if(phase==='commit'){
     if(m){
-     m.style.transform='';
-     m.style.transition='';
-     m.style.borderRadius='';
+     const isDialog=m.classList.contains('m3-dialog');
+     const isSheet=m.classList.contains('is-sheet');
+     const isDockedSearch=m.classList.contains('m3-search-view')&&window.innerWidth>=840;
+     m.style.transition='transform 0.18s cubic-bezier(0.4, 0, 1, 1), opacity 0.18s ease, border-radius 0.18s ease';
+     if(isDialog){
+      m.style.transform='translate(-50%, -46%) scale(0.9)';
+     }else if(isSheet){
+      m.style.transform='translateY(100%)';
+     }else if(isDockedSearch){
+      m.style.transform='translateX(-50%) scale(0.9)';
+     }else{
+      m.style.transform='scale(0.9)';
+     }
+     m.style.opacity='0';
     }
-    s.forEach(el=>{el.style.opacity='';el.style.transition=''});
+    s.forEach(el=>{
+     el.style.transition='opacity 0.18s ease';
+     el.style.opacity='0';
+    });
     if(main){
+     main.style.transition='transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)';
      main.style.transform='';
-     main.style.transition='';
     }
+    setTimeout(()=>{
+     if(m){
+      m.style.transform='';
+      m.style.transition='';
+      m.style.opacity='';
+      m.style.borderRadius='';
+     }
+     s.forEach(el=>{el.style.opacity='';el.style.transition=''});
+     if(main){main.style.transform='';main.style.transition=''}
+     closeAllOverlays();
+    },180);
    }
   };
   window.addEventListener('predictiveback',onPb);
@@ -640,7 +665,7 @@ function App(){
  const railExpanded=win==='large'?railPref:(win==='expanded'&&railModal);
  const xrailItem=([id,label,icon])=><button key={id} type="button" className="m3-xrail__item nav-item" onClick={()=>navigate(id)} aria-current={view===id?'page':undefined} aria-label={navName(id,label)+(id==='updates'&&updBadge?` ${updBadge} pending`:'')}><span className="m3-nav-indicator m3-xrail__indicator"><BadgeHost count={!railExpanded&&id==='updates'?updBadge:undefined}><Icon name={icon} size={24}/></BadgeHost></span><span className="m3-xrail__label">{railExpanded?label:SHORT[id]}</span>{railExpanded&&id==='services'&&<span className="m3-xrail__count">{catalog.length}</span>}{railExpanded&&id==='updates'&&updBadge&&<span className="m3-xrail__count">{updBadge}</span>}</button>;
  const railItems=navigation;
- const modalDrawer=(win==='compact'||(win==='medium'&&menu))&&<><div className="m3-scrim" style={menu?undefined:{display:'none'}} onClick={()=>setMenu(false)} aria-hidden="true"/><nav className={'m3-nav-drawer is-modal'+(win==='compact'?' is-sheet':'')+(menu?' open':'')} aria-label={win==='compact'?'More destinations':'Navigation menu'} onPointerDown={sheetDown} onPointerMove={sheetMove} onPointerUp={sheetUp} onPointerCancel={sheetUp} role={menu?'dialog':undefined} aria-modal={menu?'true':undefined} onKeyDown={trapTab} ref={el=>{if(el)el.inert=!menu}}>{drawerBody(true)}</nav></>;
+ const modalDrawer=(win==='compact'||(win==='medium'&&menu))&&<><div className="m3-scrim" style={menu?undefined:{display:'none'}} onClick={()=>setMenu(false)} aria-hidden="true"/><nav className={'m3-nav-drawer is-modal'+(win==='compact'?' sidebar is-sheet':'')+(menu?' open':'')} aria-label={win==='compact'?'More destinations':'Navigation menu'} onPointerDown={sheetDown} onPointerMove={sheetMove} onPointerUp={sheetUp} onPointerCancel={sheetUp} role={menu?'dialog':undefined} aria-modal={menu?'true':undefined} onKeyDown={trapTab} ref={el=>{if(el)el.inert=!menu}}>{drawerBody(true)}</nav></>;
  const serviceDirectory=<><div className="section-heading"><div><h2>{view==='services'?'Service directory':'Services'} <span className="count">{displayed.length}</span></h2></div><div className="directory-controls"><label className="inline-search"><Icon name="search" size={16}/><input aria-label="Filter services" placeholder="Filter services or IPs…" value={search} onChange={ev=>setSearch(ev.target.value)}/></label><span className="m3-select"><select aria-label="Service status filter" value={filter} onChange={ev=>setFilter(ev.target.value)}><option value="all">All statuses</option><option value="pinned">Pinned</option><option value="online">Online</option><option value="offline">Unreachable</option><option value="unmonitored">Unmonitored</option><option value="stale">Stale</option></select><Icon name="arrow_drop_down" size={24} className="m3-select__icon"/></span></div></div>{view==='services'&&<div className="segments service-categories" role="group" aria-label="Service category">{[['all','All'],...SERVICE_GROUPS].map(([v,l])=><button key={v} className={category===v?'selected':''} aria-pressed={category===v} onClick={()=>setCategory(v)}>{l}</button>)}</div>}{displayed.length?(view==='services'?grouped(displayed):rows(displayed)):<div className="empty"><Icon name="search" size={30}/><h3>No matching services</h3><p>Try a different name or IP address.</p><button className="m3-btn m3-btn--tonal m3-state secondary-button" onClick={()=>{setSearch('');setFilter('all');setCategory('all')}}>Clear filters</button></div>}</>;
  const jump=id=>{const el=document.getElementById(id);if(!el)return;el.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});el.focus({preventScroll:true})};
  const shell=<>
