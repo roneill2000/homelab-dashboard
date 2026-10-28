@@ -38,7 +38,7 @@ const skipViewTransition=()=>reducedMotion()||inWebView();
 export function withPageTransition(update,from){
   const settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   if(reducedMotion()){update();return settle()}
-  const src=from?.isConnected?from:document.querySelector('main h1');let ghost=null,r0=null;
+  const src=from?.isConnected?from:null;let ghost=null,r0=null;
   if(src){r0=src.getBoundingClientRect();const cs=getComputedStyle(src);ghost=src.cloneNode(true);ghost.removeAttribute('id');ghost.setAttribute('aria-hidden','true');
     Object.assign(ghost.style,{position:'fixed',left:r0.left+'px',top:r0.top+'px',width:r0.width+'px',height:r0.height+'px',margin:'0',boxSizing:'border-box',
       font:cs.font,color:cs.color,letterSpacing:cs.letterSpacing,whiteSpace:cs.whiteSpace,padding:cs.padding,background:cs.backgroundColor,borderRadius:cs.borderRadius,
@@ -52,11 +52,9 @@ export function withPageTransition(update,from){
   const parts=[...content.children].flatMap(c=>c.classList.contains('m3-top-app-bar')?[]:c===header?[...header.querySelectorAll('.m3-page-header__subtitle'),...[...header.children].slice(1)]:[c]);
   const rise=[{opacity:0,transform:'translateY(40px)'},{opacity:1,transform:'none'}];
   const runs=parts.map(c=>c.animate(rise,{duration,easing}));
-  // Title to title (nav switches) sits in the same spot, so a crossfade would overlap two words: fade through instead,
-  // the old title gone before the new one rises in. A tapped element (from) still morphs into the title.
-  if(title&&ghost&&!from){document.body.appendChild(ghost);
-    ghost.animate([{opacity:1},{opacity:0}],{duration:90,easing:'cubic-bezier(0.3,0,1,1)',fill:'forwards'}).finished.finally(()=>ghost.remove());
-    runs.push(title.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:Math.min(duration,420),delay:90,easing,fill:'backwards'}))}
+  // Nav switches: the old title leaves with the old page and the new one rises in (a fading copy of the old word read
+  // as the wrong title). A tapped element (from) still morphs into the title.
+  if(title&&!from)runs.push(title.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:Math.min(duration,420),easing}));
   else if(title&&ghost&&r0){const r1=title.getBoundingClientRect();
     if(r1.width&&r1.height&&r0.width&&r0.height){document.body.appendChild(ghost);
       const dx=r0.left-r1.left,dy=r0.top-r1.top,sx=r0.width/r1.width,sy=r0.height/r1.height;
