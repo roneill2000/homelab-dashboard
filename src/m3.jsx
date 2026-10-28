@@ -187,12 +187,15 @@ export function SelectField({label,value,onChange,options,dense,className,childr
 // open the rest of the page is inert. Focus moves in (initialFocusRef or the first button) and returns on close.
 export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialog-title',initialFocusRef}){
   const box=useRef();
+  // Callers pass inline onClose arrows and App re-renders every second (clock), so the setup below must run once per
+  // open, not on every new onClose: re-running it stole focus back to the first button about once a second.
+  const closeRef=useRef(onClose);closeRef.current=onClose;
   useEffect(()=>{const previous=document.activeElement;(initialFocusRef?.current||box.current?.querySelector('button'))?.focus();
     const others=[...document.body.children].filter(el=>el!==box.current?.parentElement&&!el.contains(box.current));const was=others.map(el=>el.inert);others.forEach(el=>{el.inert=true});const unlock=lockScroll();
     window.dispatchEvent(new CustomEvent('m3:dialog-open'));
-    const handleClose = () => onClose?.();
+    const handleClose = () => closeRef.current?.();
     window.addEventListener('m3:close-all-overlays', handleClose);
-    return()=>{unlock();others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus();window.removeEventListener('m3:close-all-overlays', handleClose);window.dispatchEvent(new CustomEvent('m3:dialog-close'))}},[onClose]);
+    return()=>{unlock();others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus();window.removeEventListener('m3:close-all-overlays', handleClose);window.dispatchEvent(new CustomEvent('m3:dialog-close'))}},[]);
   const keys=ev=>{if(ev.key==='Escape'){ev.stopPropagation();onClose?.();return}if(ev.key!=='Tab')return;const n=tabbables(box.current);
     if(!n.length)return;if(ev.shiftKey&&document.activeElement===n[0]){ev.preventDefault();n.at(-1).focus()}
     else if(!ev.shiftKey&&document.activeElement===n.at(-1)){ev.preventDefault();n[0].focus()}};

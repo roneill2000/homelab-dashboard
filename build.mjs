@@ -60,7 +60,8 @@ function wrapHoverInCss(css) {
       }
       continue;
     }
-    result += css[i]; i++;
+    if (i < n) result += css[i]; // trailing whitespace once left i === n and appended "undefined"
+    i++;
   }
   return result;
 }

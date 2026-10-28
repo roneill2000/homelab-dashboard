@@ -340,3 +340,10 @@ html.m3-scroll-locked body{overscroll-behavior:none}
    point never covers "Open larger chart". */
 .chart-tooltip,.activity-panel .chart-tooltip{max-width:calc(100% - 96px)}
 .chart__expand{z-index:4}
+/* Red-team UI fixes (27 Oct). Long unbroken strings (weather text, log hosts and units, timeline details) wrap instead
+   of pushing the phone page sideways. */
+.m3-page-header__subtitle,.log-group-heading h3,.log-group-host,.timeline-day li p,.timeline-source{overflow-wrap:anywhere;min-width:0}
+/* More sheet: items sit 12px in from both edges like the M3 navigation drawer, so the current-page pill isn't cut off. */
+.is-sheet .m3-nav-drawer__item,.is-sheet .m3-nav-drawer__item[aria-current=page]{margin-inline:12px;padding-inline:16px;width:auto;border-radius:var(--md-sys-shape-corner-full);transform:none}
+/* Touch: log text, summaries, timeline details and AI answers stay selectable so an error line can be copied. */
+@media (hover:none){.log-message,.log-group-summary,.timeline-day p,.nightly-pattern,.qwen-answer,.qwen-answer *,.evidence pre,pre,code{-webkit-user-select:text;user-select:text}}
