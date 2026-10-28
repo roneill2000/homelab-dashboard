@@ -18,6 +18,29 @@ _last_speed = None
 _last_active_at = 0
 _last_active_model = None
 _loop_started = False
+# Every GET /slots counts as activity for llama.cpp's --sleep-idle-seconds, so polling it every 1.2 s kept the gaming
+# PC's model loaded forever (27 Oct 2026). Poll it fast only while someone is watching (the Local AI page pings
+# request_live()), otherwise only every WATCHDOG_INTERVAL, which is longer than the 300 s idle timer.
+WATCHDOG_INTERVAL = 360
+STUCK_SECONDS = 300
+_live_until = 0
+_last_slot_check = 0
+_stuck = None        # {'key': (model, task id), 'decoded': n, 'since': t} while a slot is processing
+_watchdog = {}       # last watchdog action, reported in the snapshot
+
+
+def request_live(seconds=30):
+    global _live_until
+    with _lock:
+        _live_until = max(_live_until, time.time() + seconds)
+
+
+def unload(base_url, token, model):
+    body = json.dumps({'model': model}).encode('utf-8')
+    req = urllib.request.Request(base_url + '/models/unload', data=body, method='POST',
+                                 headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return response.status
 
 
 def fetch(url, token=None):
@@ -76,7 +99,7 @@ def webui():
 
 
 def desktop():
-    global _token_samples, _last_speed, _last_active_at, _last_active_model
+    global _token_samples, _last_speed, _last_active_at, _last_active_model, _last_slot_check, _stuck, _watchdog
     config = json.loads(CONFIG.read_text())
     if config.get('url') != 'http://192.168.0.12:8080/v1':
         raise ValueError('Unexpected model endpoint')
@@ -90,13 +113,35 @@ def desktop():
     is_active = False
     is_recent = False
     
-    if loaded_model:
+    now = time.time()
+    with _lock:
+        watching = now < _live_until
+    due = now - _last_slot_check >= WATCHDOG_INTERVAL
+    if loaded_model and (watching or due):
         try:
+            _last_slot_check = now
             base_url = config['url'].replace('/v1', '')
-            slots_data = fetch(f"{base_url}/slots?model={loaded_model}", config['token'])
+            slots_data = fetch(f"{base_url}/slots?model={loaded_model}&autoload=false", config['token'])
             if isinstance(slots_data, list):
                 active_slot = next((s for s in slots_data if s.get('is_processing')), None)
-                now = time.time()
+                # Watchdog: a slot that stays "processing" with no new tokens for STUCK_SECONDS is stuck; unload the
+                # model so the GPU stops working (the router reloads it on the next request).
+                if active_slot:
+                    tok = active_slot.get('next_token')
+                    dec = tok[0].get('n_decoded', 0) if isinstance(tok, list) and tok else (tok or {}).get('n_decoded', 0) if isinstance(tok, dict) else 0
+                    key = (loaded_model, active_slot.get('id_task'))
+                    if _stuck and _stuck['key'] == key and _stuck['decoded'] == dec:
+                        if now - _stuck['since'] >= STUCK_SECONDS:
+                            try:
+                                unload(base_url, config['token'], loaded_model)
+                                _watchdog = dict(action='unloaded', model=loaded_model, at=int(now), stuck_seconds=int(now - _stuck['since']))
+                            except Exception:
+                                _watchdog = dict(action='unload_failed', model=loaded_model, at=int(now))
+                            _stuck = None
+                    else:
+                        _stuck = dict(key=key, decoded=dec, since=now)
+                else:
+                    _stuck = None
                 if active_slot:
                     is_active = True
                     is_recent = False
@@ -147,7 +192,9 @@ def desktop():
         active_speed=active_speed,
         is_active=is_active,
         is_recent=is_recent,
-        active_model=loaded_model if is_active else None
+        active_model=loaded_model if is_active else None,
+        live=watching,
+        watchdog=dict(_watchdog) if _watchdog else None
     )
 
 

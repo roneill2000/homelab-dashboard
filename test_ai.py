@@ -35,3 +35,41 @@ class AITests(unittest.TestCase):
    self.assertEqual(a.snapshot()['desktop']['models'][0]['id'],'a')
 
 if __name__=='__main__':unittest.main()
+
+class SlotPollingTests(unittest.TestCase):
+ # GET /slots resets llama.cpp's idle timer, so it may only be polled while watched or every WATCHDOG_INTERVAL.
+ def run_desktop(self,t,slots,state='loaded'):
+  from unittest.mock import MagicMock
+  cfg=MagicMock();cfg.read_text.return_value=json.dumps({'url':'http://192.168.0.12:8080/v1','token':'k'})
+  calls=[]
+  def fetch(url,token=None):
+   calls.append(url)
+   if url.endswith('/models'):return {'data':[{'id':'m','status':{'value':state}}]}
+   return slots
+  with patch.object(a,'CONFIG',cfg),patch.object(a,'fetch',side_effect=fetch),patch('time.time',return_value=t):
+   a.desktop()
+  return [c for c in calls if '/slots' in c]
+ def setUp(self):
+  for name,val in (('_live_until',0),('_last_slot_check',0),('_stuck',None),('_watchdog',{}),('_token_samples',[])):
+   p=patch.object(a,name,val);p.start();self.addCleanup(p.stop)
+ def test_idle_model_is_not_polled_between_watchdog_checks(self):
+  idle=[{'id':0,'is_processing':False}]
+  self.assertEqual(len(self.run_desktop(10000,idle)),1)          # first check is due
+  for t in (10001,10100,10350):self.assertEqual(self.run_desktop(t,idle),[])
+  self.assertEqual(len(self.run_desktop(10361,idle)),1)          # next one after 360 s, longer than the 300 s idle timer
+ def test_watching_polls_every_time_and_sleeping_model_never(self):
+  idle=[{'id':0,'is_processing':False}]
+  with patch('time.time',return_value=20000):a.request_live(30)
+  for t in (20001,20002,20003):self.assertEqual(len(self.run_desktop(t,idle)),1)
+  self.assertTrue(all('autoload=false' in c for c in self.run_desktop(20004,idle)))
+  self.assertEqual(self.run_desktop(20005,idle,state='sleeping'),[])
+ def test_stuck_generation_unloads_once_and_progress_does_not(self):
+  stuck=[{'id':0,'is_processing':True,'id_task':7,'next_token':[{'n_decoded':42}]}]
+  with patch.object(a,'unload') as un:
+   self.run_desktop(30000,stuck);self.run_desktop(30361,stuck)
+   un.assert_called_once_with('http://192.168.0.12:8080','k','m')
+   self.assertEqual(a._watchdog['action'],'unloaded')
+  with patch.object(a,'unload') as un:
+   for i,t in enumerate((40000,40361,40722)):
+    self.run_desktop(t,[{'id':0,'is_processing':True,'id_task':8,'next_token':[{'n_decoded':100+i*50}]}])
+   un.assert_not_called()

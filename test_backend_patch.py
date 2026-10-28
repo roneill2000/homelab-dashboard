@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -431,6 +431,16 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(patch_widget(out), out)
         with self.assertRaises(ValueError):
             patch_widget('class DashboardHandler(BaseHTTPRequestHandler):\n    pass\n')
+
+
+class AiLiveTests(unittest.TestCase):
+    def test_route_added_once_and_refuses_drift(self):
+        src = 'class H:\n    def do_GET(self):\n        if self.path.startswith("/api/telemetry"):\n            pass\n'
+        out = patch_ai_live(src)
+        self.assertIn('"/api/ai/live"', out)
+        self.assertEqual(patch_ai_live(out), out)
+        with self.assertRaises(ValueError):
+            patch_ai_live('class H: pass\n')
 
 
 if __name__ == '__main__':

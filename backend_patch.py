@@ -801,3 +801,25 @@ def patch_widget(source):
     source = source.replace(route_at, route + route_at)
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_ai_live(source):
+    """GET /api/ai/live: the Local AI page says someone is watching, so ai_monitor polls the gaming PC's /slots fast for
+    30 s (live tokens/s). Without it the monitor stays quiet and the model can reach llama.cpp's idle sleep."""
+    marker = '# HOMELAB_AI_LIVE_V1'
+    if marker in source:
+        return source
+    route_at = '        if self.path.startswith("/api/telemetry"):\n'
+    if source.count(route_at) != 1:
+        raise ValueError('dashboard handler shape changed; ai-live patch not applied')
+    route = (f'        {marker}\n'
+             '        if self.path == "/api/ai/live":\n'
+             '            import ai_monitor\n'
+             '            ai_monitor.request_live()\n'
+             '            self.send_response(204)\n'
+             '            self.send_header("Cache-Control", "no-store")\n'
+             '            self.end_headers()\n'
+             '            return\n')
+    source = source.replace(route_at, route + route_at)
+    compile(source, '<dashboard>', 'exec')
+    return source

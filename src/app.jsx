@@ -639,6 +639,10 @@ function App(){
    const root=getComputedStyle(document.documentElement);const surface=root.getPropertyValue('--md-sys-color-surface').trim();const status=/^#[0-9a-f]{6}$/i.test(surface)?surface:toHex(getComputedStyle(document.body).backgroundColor);
    const bar=document.querySelector('.m3-nav-bar');const nav=bar&&getComputedStyle(bar).display!=='none'?toHex(getComputedStyle(bar).backgroundColor)||status:status;
    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',status);try{window.AndroidBridge?.setSystemBars?.(status,nav,theme==='light')}catch{}});return()=>cancelAnimationFrame(id)},[theme,win]);
+ // While the Local AI page is open, ask the server to poll the gaming PC fast (live tokens/s). Otherwise it stays quiet
+ // so the model can reach llama.cpp's idle sleep (fast /slots polling kept it loaded for hours).
+ useEffect(()=>{if(view!=='ai')return;const ping=()=>{if(!document.hidden)fetch('/api/ai/live',{cache:'no-store'}).catch(()=>{})};ping();const iv=setInterval(ping,15000);
+  document.addEventListener('visibilitychange',ping);return()=>{clearInterval(iv);document.removeEventListener('visibilitychange',ping)}},[view]);
  // Tells the Android splash screen the dashboard has painted.
  useEffect(()=>{requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.AndroidBridge?.ready?.()}catch{}}))},[]);
  const [upd,setUpd]=useState(null),[fleet,setFleet]=useState(null),[fleetError,setFleetError]=useState(false);
