@@ -8,11 +8,11 @@ Sharper copies: [desktop MP4](showcase/motion-desktop.mp4), [phone MP4](showcase
 
 ## Features
 
-- **Health & Actions:** Immediate status ("All clear" or attention list), pinned services, and quick actions (wake/sleep gaming PC, pause Pi-hole, trigger updates).
+- **Health & Actions:** Immediate status ("All clear" or attention list) with health tiles that open their page, pinned services, and quick actions (wake/sleep gaming PC, pause Pi-hole, trigger updates).
 - **Storage & Network:** Real-time throughput, disk latency, SMART health, and 24h rolling history in SQLite. Predicts Unraid cache fills and runs the mover proactively.
 - **Local AI:** Real-time status for llama.cpp on the RTX 5070 Ti (with vision) and a helper model on an Arc A310 for homelab queries and nightly log reviews.
 - **Updates & Backups:** Container `apt` upgrades and Docker image pulls with automatic rollback snapshots. Tracks Proxmox backup jobs and Google Drive restic snapshots.
-- **Mobile & Responsive:** Adapts from phones (bottom bar + More sheet) to ultrawides. Follows Material 3 Expressive motion and color tokens.
+- **Mobile & Responsive:** Adapts from phones (bottom bar + More sheet) to ultrawides. Follows Material 3 Expressive motion and color tokens. The [Android app](https://github.com/roneill2000/homelab-android) wraps it with predictive back and haptics.
 
 <p align="center">
   <img src="showcase/motion-phone.gif" width="30%" alt="Phone walkthrough" />
@@ -56,6 +56,8 @@ python3 deploy.py
 - Runs on the local network/VPN only.
 - State-changing actions require confirmation, a same-origin request, and an `X-Dashboard-Action` header.
 - Content-Security-Policy with per-request nonces; embedded telemetry data is escaped.
+- The page can't be framed by other sites, requests for unknown host names are refused (DNS rebinding), and idle connections time out.
+- The syslog monitor serves only its own page and the dashboard: no cross-site reads, no cross-site clearing, and log names are limited to real hosts.
 - Update runner uses a locked-down SSH key accepted only from the dashboard host.
 - No secrets or API keys are stored in the repo or sent to the browser.
 
