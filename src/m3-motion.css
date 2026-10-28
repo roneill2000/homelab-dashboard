@@ -139,7 +139,6 @@
   @keyframes m3-fade-in-only{from{opacity:0}}@keyframes m3-fade-out-only{to{opacity:0}}
   html.vt-local::view-transition-old(page),html.vt-local::view-transition-new(page){animation:none}
 }
-@supports (view-transition-name:none){@media (prefers-reduced-motion:no-preference){[aria-current=page]>.m3-nav-indicator{animation:none}}}
 /* "Full" corners as real values on pressable controls (half their height). The 9999px token made the press spring
    interpolate 9999 -> 8 px, overshoot below zero and flash square; with 20/24px the morph is a smooth squircle. */
 .m3-btn,.primary-button,.secondary-button,.issue-chip,.section-jump,.quick-actions>.m3-btn{--md-sys-shape-corner-full:20px}

@@ -394,3 +394,4 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .ov-rows .ov-host{display:block}
 .nowrap{white-space:nowrap}
 .m3-skeleton--inline{display:inline-block;vertical-align:middle}
+.chart-line{animation:chart-line-in .18s ease-out}@keyframes chart-line-in{from{opacity:0}}@media (prefers-reduced-motion:reduce){.chart-line{animation:none}}

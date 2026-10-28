@@ -31,11 +31,18 @@ const skipViewTransition=()=>reducedMotion()||inWebView();
 // from: the element that was activated. Its snapshot morphs into the new page's title (shared element); the old title
 // steps aside for the duration so only one element carries the name in each snapshot.
 // Resolves once the new page is on screen (after the transition, or two frames when there is none).
-export function withPageTransition(update,from){
-  if(!document.startViewTransition||skipViewTransition()){update();return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}
-  const title=document.querySelector('main h1');
-  if(from&&title&&from!==title){from.style.viewTransitionName='page-title';title.style.viewTransitionName='none'}
-  return document.startViewTransition(()=>{ReactDOM.flushSync(update);if(from)from.style.viewTransitionName='';if(title)title.style.viewTransitionName=''}).finished.catch(()=>{});
+// Page switches render the new page at once and slide its sections in with a compositor-only animation. A view
+// transition here had to capture the old page first, which dropped one or two frames on every switch at 120 Hz.
+export function withPageTransition(update){
+  const settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  if(skipViewTransition()){update();return settle()}
+  ReactDOM.flushSync(update);
+  const content=document.querySelector('.m3-app__content');if(!content?.animate)return settle();
+  const css=getComputedStyle(document.documentElement),easing=css.getPropertyValue('--md-sys-motion-spring-expressive-slow-spatial').trim()||'cubic-bezier(0.2,0,0,1)';
+  const duration=parseFloat(css.getPropertyValue('--md-sys-motion-spring-expressive-slow-spatial-duration'))||600;
+  const parts=[...content.children].filter(c=>!c.classList.contains('m3-top-app-bar'));
+  const runs=parts.map(c=>c.animate([{opacity:0,transform:'translateY(40px)'},{opacity:1,transform:'none'}],{duration,easing}));
+  return Promise.all(runs.map(a=>a.finished)).catch(()=>{});
 }
 // In-page shared element: the activated element morphs into the element matching toSelector after the update (a picked
 // row into its detail card). The page itself holds still (html.vt-local).
