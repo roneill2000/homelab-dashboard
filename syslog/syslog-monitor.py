@@ -218,13 +218,22 @@ class SyslogHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body_bytes)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header("Connection", "close")
         self.end_headers()
         if not head_only:
             self.wfile.write(body_bytes)
+
+    def _same_origin(self):
+        # Browsers send Origin on POST; the dashboard backend (urllib) sends none. Any browser request must come from
+        # a page whose origin host matches this request's Host (this page directly, or via the logs.lan proxy).
+        if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+            return False
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        return urlparse(origin).netloc.lower() == (self.headers.get("Host") or "").lower()
 
     def do_OPTIONS(self):
         self._send_bytes(204, "text/plain", b"", head_only=True)
@@ -239,6 +248,9 @@ class SyslogHandler(BaseHTTPRequestHandler):
         global alerts, cleared_before_ts
         parsed = urlparse(self.path)
         if parsed.path == "/api/clear":
+            if not self._same_origin():
+                self._send_bytes(403, "application/json", b'{"error":"cross-origin request refused"}')
+                return
             with lock:
                 alerts.clear()
                 cleared_before_ts = time.time()
@@ -281,7 +293,8 @@ class SyslogHandler(BaseHTTPRequestHandler):
 
             lines = []
             log_files = [f for f in glob.glob(os.path.join(LOG_DIR, "*.log")) if not os.path.islink(f)]
-            target_files = log_files if host == "all" else [os.path.join(LOG_DIR, f"{host}.log")]
+            by_host = {os.path.basename(f)[:-len(".log")]: f for f in log_files}
+            target_files = log_files if host == "all" else ([by_host[host]] if host in by_host else [])
             per_file_tail = 80000 if host == "all" else 250000
 
             for fpath in target_files:
@@ -522,9 +535,9 @@ class SyslogHandler(BaseHTTPRequestHandler):
     const allPill = `<div class="host-pill ${{cur === 'all' ? 'active' : ''}}" onclick="selectHostPill('all')"><span class="dot"></span>All Hosts (${{hosts.length}})</div>`;
     const pills = hosts.map(h => {{
       const age = h.last_seen_sec < 60 ? `${{h.last_seen_sec}}s` : `${{Math.round(h.last_seen_sec/60)}}m`;
-      return `<div class="host-pill ${{cur === h.host ? 'active' : ''}}" onclick="selectHostPill('${{h.host}}')">
+      return `<div class="host-pill ${{cur === h.host ? 'active' : ''}}" data-host="${{escHtml(h.host)}}" onclick="selectHostPill(this.dataset.host)">
         <span class="dot ${{h.active ? '' : 'idle'}}"></span>
-        <span>${{h.host}}</span>
+        <span>${{escHtml(h.host)}}</span>
         <span style="color:var(--muted); font-size:11px;">${{age}}</span>
       </div>`;
     }}).join('');
@@ -547,7 +560,7 @@ class SyslogHandler(BaseHTTPRequestHandler):
   }}
 
   function escHtml(s) {{
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }}
 
   async function updateStats() {{
