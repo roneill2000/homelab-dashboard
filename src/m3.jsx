@@ -31,17 +31,35 @@ const skipViewTransition=()=>reducedMotion()||inWebView();
 // from: the element that was activated. Its snapshot morphs into the new page's title (shared element); the old title
 // steps aside for the duration so only one element carries the name in each snapshot.
 // Resolves once the new page is on screen (after the transition, or two frames when there is none).
-// Page switches render the new page at once and slide its sections in with a compositor-only animation. A view
-// transition here had to capture the old page first, which dropped one or two frames on every switch at 120 Hz.
-export function withPageTransition(update){
+// Page switches render the new page at once and slide its sections in with compositor-only animations. The title
+// morphs from the old title (or the tapped element) into the new one: a copy of the old one glides and resizes onto the
+// new title while it fades in. A view transition did this before, but it captured the whole page first, which dropped
+// one or two frames per switch at 120 Hz, and Android WebView mis-composited it, so this also runs in the app.
+export function withPageTransition(update,from){
   const settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-  if(skipViewTransition()){update();return settle()}
+  if(reducedMotion()){update();return settle()}
+  const src=from?.isConnected?from:document.querySelector('main h1');let ghost=null,r0=null;
+  if(src){r0=src.getBoundingClientRect();const cs=getComputedStyle(src);ghost=src.cloneNode(true);ghost.removeAttribute('id');ghost.setAttribute('aria-hidden','true');
+    Object.assign(ghost.style,{position:'fixed',left:r0.left+'px',top:r0.top+'px',width:r0.width+'px',height:r0.height+'px',margin:'0',boxSizing:'border-box',
+      font:cs.font,color:cs.color,letterSpacing:cs.letterSpacing,whiteSpace:cs.whiteSpace,padding:cs.padding,background:cs.backgroundColor,borderRadius:cs.borderRadius,
+      overflow:'hidden',transformOrigin:'0 0',pointerEvents:'none',zIndex:'30',viewTransitionName:'none',animation:'none'})}
   ReactDOM.flushSync(update);
   const content=document.querySelector('.m3-app__content');if(!content?.animate)return settle();
   const css=getComputedStyle(document.documentElement),easing=css.getPropertyValue('--md-sys-motion-spring-expressive-slow-spatial').trim()||'cubic-bezier(0.2,0,0,1)';
   const duration=parseFloat(css.getPropertyValue('--md-sys-motion-spring-expressive-slow-spatial-duration'))||600;
-  const parts=[...content.children].filter(c=>!c.classList.contains('m3-top-app-bar'));
-  const runs=parts.map(c=>c.animate([{opacity:0,transform:'translateY(40px)'},{opacity:1,transform:'none'}],{duration,easing}));
+  const title=content.querySelector('.m3-page-header__title'),header=title?.closest('.m3-page-header');
+  // The header itself holds still so the title's own motion isn't added to the slide; its other parts slide with the page.
+  const parts=[...content.children].flatMap(c=>c.classList.contains('m3-top-app-bar')?[]:c===header?[...header.querySelectorAll('.m3-page-header__subtitle'),...[...header.children].slice(1)]:[c]);
+  const rise=[{opacity:0,transform:'translateY(40px)'},{opacity:1,transform:'none'}];
+  const runs=parts.map(c=>c.animate(rise,{duration,easing}));
+  if(title&&ghost&&r0){const r1=title.getBoundingClientRect();
+    if(r1.width&&r1.height&&r0.width&&r0.height){document.body.appendChild(ghost);
+      const dx=r0.left-r1.left,dy=r0.top-r1.top,sx=r0.width/r1.width,sy=r0.height/r1.height;
+      runs.push(title.animate([{transformOrigin:'0 0',transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transformOrigin:'0 0',transform:'none'}],{duration,easing}));
+      title.animate([{opacity:0},{opacity:1}],{duration:duration*.5,delay:duration*.08,easing:'cubic-bezier(0.2,0,0,1)',fill:'backwards'});
+      ghost.animate([{transform:'none'},{transform:`translate(${-dx}px,${-dy}px) scale(${1/sx},${1/sy})`}],{duration,easing,fill:'forwards'});
+      const fade=ghost.animate([{opacity:1},{opacity:0}],{duration:duration*.35,easing:'cubic-bezier(0.3,0,1,1)',fill:'forwards'});
+      Promise.all([fade.finished]).finally(()=>setTimeout(()=>ghost.remove(),duration*.7))}}
   return Promise.all(runs.map(a=>a.finished)).catch(()=>{});
 }
 // In-page shared element: the activated element morphs into the element matching toSelector after the update (a picked
