@@ -2401,7 +2401,11 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .pc-gpu .gpu-readings.is-stale strong{opacity:.6}
 /* Section descriptions use the full width (old 170/220px caps wrapped them into tall narrow columns on phones). */
 .section-heading>div:first-child{flex:1 1 auto;min-width:0}
-.section-heading p{max-width:none}@media (prefers-reduced-motion:no-preference){
+.section-heading p{max-width:none}
+/* Model picker: the wrapper sets the width and the trigger fills it (the trigger used to size itself to 300px inside a
+   190px flex item and ran under the Ask button). On the AI page it takes the room left beside Ask. */
+.m3-select--qwen .m3-menu-select__trigger{width:100%!important;min-width:0!important;max-width:none!important}@media (min-width:600px){.qwen-input-row .m3-select--qwen{flex:0 1 auto;min-width:180px;max-width:300px}}
+.ai-task--ask .qwen-input-row .m3-select--qwen{flex:1 1 0;min-width:0;max-width:none}@media (prefers-reduced-motion:no-preference){
 
 /* Page change: the new page rises 40px and settles with overshoot while the old one fades out fast (shared Y axis). */
 ::view-transition-old(page){animation:m3-page-out var(--md-sys-motion-spring-fast-effects-duration) var(--md-sys-motion-spring-fast-effects) both}
