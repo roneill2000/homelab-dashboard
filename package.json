@@ -5,7 +5,8 @@
   "scripts": {
     "build": "node build.mjs",
     "check": "node run-checks.mjs",
-    "check:all": "node run-checks.mjs --all"
+    "check:all": "node run-checks.mjs --all",
+    "test": "python3 -m unittest discover -p 'test_*.py' && python3 -m unittest discover -s syslog -p 'test_*.py'"
   },
   "devDependencies": {
     "@material/material-color-utilities": "0.4.0",

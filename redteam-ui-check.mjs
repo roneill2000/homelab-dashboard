@@ -41,7 +41,7 @@ try{
   const chip=p.locator('.ov-hero .issue-chip',{hasText:/down/});
   expect(await chip.count()).toBeGreaterThan(0);
   await chip.first().click();await p.waitForTimeout(1200);
-  expect(await p.locator('select[aria-label="Service status filter"]').inputValue()).toBe('offline');
+  expect(await p.getByRole('combobox',{name:'Service status filter'}).textContent()).toBe('Unreachable');
   await p.context().close()});
 
  await test('4 resize closes the More sheet',async()=>{
