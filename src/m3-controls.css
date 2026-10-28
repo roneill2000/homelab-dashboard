@@ -393,3 +393,4 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .ov-num{font-weight:600;color:var(--md-sys-color-on-surface);font-variant-numeric:tabular-nums}
 .ov-rows .ov-host{display:block}
 .nowrap{white-space:nowrap}
+.m3-skeleton--inline{display:inline-block;vertical-align:middle}
