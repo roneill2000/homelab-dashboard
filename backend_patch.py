@@ -715,8 +715,8 @@ def patch_hardening(source):
 
 WIDGET_HELPERS = r'''
 def _dashboard_widget_summary(now=None):
-    # Same rules as the app's serviceState()/hero (src/app.jsx): readings older than 45 s are stale, a missing reading
-    # is unknown (never zero), and services with no monitor are not counted.
+    # Home-screen widget, at a glance: the gaming PC (headline), downloads, and problems (empty when all is well).
+    # Same freshness rules as the app: readings older than 45 s are stale; a missing reading is null, never zero.
     import json, time as _time
     now = _time.time() if now is None else now
     try:
@@ -725,55 +725,92 @@ def _dashboard_widget_summary(now=None):
         ids = []
     with STATE_LOCK:
         t = json.loads(json.dumps(TELEMETRY))
-    updated = t.get('updated_at')
-    fresh = isinstance(updated, (int, float)) and now - updated < 45
     def obj(v):
         return v if isinstance(v, dict) else {}
-    media, ai, services = obj(t.get('media')), obj(t.get('ai')), obj(t.get('services'))
-    direct = {'openwebui': ai.get('webui'), 'pve': t.get('pve'), 'unraid': t.get('unraid'), 'scrutiny': t.get('scrutiny'),
+    def fresh_src(s):
+        s = obj(s); last = s.get('last_success_at')
+        return s.get('online') is True and isinstance(last, (int, float)) and now - last < 45 and not s.get('error')
+    def number(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else None
+    updated = t.get('updated_at')
+    fresh = isinstance(updated, (int, float)) and now - updated < 45
+    media, ai_t, services = obj(t.get('media')), obj(t.get('ai')), obj(t.get('services'))
+    direct = {'openwebui': ai_t.get('webui'), 'pve': t.get('pve'), 'unraid': t.get('unraid'), 'scrutiny': t.get('scrutiny'),
               'syslog': t.get('syslog'), 'netalertx': t.get('netalertx'), 'sabnzbd': media.get('sabnzbd'),
               'sonarr': media.get('sonarr'), 'readarr': media.get('readarr'), 'prowlarr': media.get('prowlarr'),
               'jellyfin': media.get('jellyfin')}
     def state(sid):
-        if not updated:
-            return 'unknown'
         source = direct.get(sid)
         value = source.get('online') if isinstance(source, dict) and source.get('online') is not None else services.get(sid)
         if value is None:
             return None
-        if now - updated > 45:
+        if not fresh:
             return 'stale'
         if isinstance(source, dict) and isinstance(source.get('last_success_at'), (int, float)) and now - source['last_success_at'] > 45:
             return 'stale'
         if not isinstance(source, dict) and isinstance(services.get('last_success_at'), (int, float)) and now - services['last_success_at'] > 45:
             return 'stale'
         return value
-    states = [state(i) for i in ids]
-    known = [s for s in states if s is not None and s != 'unknown']
-    up = sum(1 for s in known if s is True)
-    down = sum(1 for s in known if s is False)
-    def source_fresh(s):
-        s = obj(s)
-        last = s.get('last_success_at')
-        return s.get('online') is True and ('last_success_at' not in s or (isinstance(last, (int, float)) and now - last < 45)) and not s.get('error')
-    pihole, net, sys_ = obj(t.get('pihole')), obj(t.get('netalertx')), obj(t.get('syslog'))
-    dns = pihole.get('status') if fresh and pihole.get('status') in ('protected', 'paused', 'mixed') else 'unknown'
-    def number(v):
-        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else None
-    if not fresh:
-        status, headline = 'no_reading', 'No reading'
-    elif down:
-        status, headline = 'attention', f"{down} {'service' if down == 1 else 'services'} down"
-    elif dns in ('paused', 'mixed'):
-        status, headline = 'attention', 'DNS blocking paused' if dns == 'paused' else 'DNS blocking mixed'
+    states = [state(i) for i in ids] if updated else []
+    known = [s for s in states if s is not None]
+    up, down = sum(1 for s in known if s is True), sum(1 for s in known if s is False)
+    # Gaming PC: router state (does not touch the model, so idle sleep still works) and one cached GPU read.
+    pc = {'state': 'unknown', 'model': None, 'gpu': None}
+    try:
+        import ai_monitor
+        desk = obj(ai_monitor.snapshot().get('desktop'))
+        if not fresh_src(desk):
+            pc['state'] = 'off'
+        else:
+            models = [m for m in desk.get('models') or [] if isinstance(m, dict)]
+            loaded = next((m.get('id') for m in models if m.get('state') == 'loaded'), None)
+            loading = next((m.get('id') for m in models if m.get('state') == 'loading'), None)
+            pc['model'] = loaded or loading
+            pc['state'] = 'generating' if loaded and desk.get('is_active') else 'model_loaded' if loaded else 'loading' if loading else 'idle'
+            if desk.get('is_active') and isinstance(desk.get('active_speed'), (int, float)):
+                pc['tok_s'] = desk['active_speed']
+            ai_monitor.pc_gpu_poll(now)
+            g = ai_monitor._pc_gpu.get('latest')
+            if isinstance(g, dict) and isinstance(g.get('observed_at'), (int, float)) and now - g['observed_at'] < 60:
+                pc['gpu'] = {k: g.get(k) for k in ('power_w', 'temperature_c', 'utilization_pct', 'vram_used_mib', 'vram_total_mib')}
+    except Exception:
+        pass
+    sab = obj(media.get('sabnzbd'))
+    if fresh_src(sab):
+        q = number(sab.get('queue'))
+        speed = str(sab.get('speed') or '').strip()
+        moving = bool(speed) and not speed.startswith('0.00') and not speed.startswith('0 ')
+        downloads = {'state': 'active' if moving or (q or 0) > 0 else 'idle', 'speed': speed or None, 'queue': q}
     else:
-        status, headline = 'all_up', 'All services up'
-    return {'status': status, 'headline': headline,
-            'services_up': up if fresh else None, 'services_known': len(known) if fresh else None,
-            'dns': dns,
-            'devices_connected': number(net.get('connected')) if source_fresh(net) else None,
-            'devices_total': number(net.get('total')) if source_fresh(net) else None,
-            'log_errors_24h': number(sys_.get('errors_24h')) if fresh and source_fresh(sys_) else None,
+        downloads = {'state': 'unknown', 'speed': None, 'queue': None}
+    problems = []
+    if not fresh:
+        problems.append('No fresh readings')
+    else:
+        if down:
+            problems.append(f"{down} {'service' if down == 1 else 'services'} down")
+        dns = obj(t.get('pihole')).get('status')
+        if dns == 'paused':
+            problems.append('DNS blocking paused')
+        elif dns == 'mixed':
+            problems.append('DNS blocking mixed')
+        scr = obj(t.get('scrutiny'))
+        if fresh_src(scr) and any(isinstance(d, dict) and d.get('healthy') is False for d in scr.get('drives') or []):
+            problems.append('Drive health warning')
+        sl = obj(t.get('syslog'))
+        if fresh_src(sl) and (number(sl.get('errors_24h')) or 0) > 0:
+            n = int(sl['errors_24h']); problems.append(f"{n} log {'error' if n == 1 else 'errors'}")
+    try:
+        import storage_monitor
+        latest = obj(obj(obj(storage_monitor.snapshot(60).get('activity')).get('recovery')).get('backup')).get('latest')
+        if isinstance(latest, dict) and latest.get('status') not in (None, 'OK'):
+            problems.append('Backup job failed')
+    except Exception:
+        pass
+    headline = {'off': 'PC asleep or off', 'idle': 'PC on · no model loaded', 'loading': 'Loading a model',
+                'model_loaded': 'Model loaded', 'generating': 'Generating', 'unknown': 'PC status unknown'}[pc['state']]
+    return {'status': 'attention' if problems else 'all_up', 'headline': headline, 'pc': pc, 'downloads': downloads,
+            'problems': problems, 'services_up': up if fresh else None, 'services_known': len(known) if fresh else None,
             'updated_at': updated if isinstance(updated, (int, float)) else None}
 
 '''
@@ -781,10 +818,17 @@ def _dashboard_widget_summary(now=None):
 
 def patch_widget(source):
     """GET /api/widget: the home-screen widget's compact summary, computed with the app's rules (catalog.json from build)."""
-    marker = '# HOMELAB_WIDGET_V1'
+    marker = '# HOMELAB_WIDGET_V2'
     if marker in source:
         return source
     handler = 'class DashboardHandler(BaseHTTPRequestHandler):\n'
+    old = '# HOMELAB_WIDGET_V1\n'
+    if source.count(old) == 1 and source.count(handler) == 1:
+        # Upgrade: swap the V1 helpers (between the marker and the handler class) for the current ones.
+        i, j = source.index(old), source.index(handler)
+        source = source[:i] + marker + '\n' + WIDGET_HELPERS + source[j:]
+        compile(source, '<dashboard>', 'exec')
+        return source
     route_at = '        if self.path.startswith("/api/telemetry"):\n'
     for needle in (handler, route_at):
         if source.count(needle) != 1:

@@ -388,50 +388,66 @@ class WidgetTests(unittest.TestCase):
            '        if self.path.startswith("/api/telemetry"):\n'
            '            pass\n')
 
-    def summary(self, telemetry, ids, now=1000):
-        import json, tempfile, os
+    def summary(self, telemetry, ids, desktop=None, gpu=None, backup='OK', now=1000):
+        import json, sys, types
         from unittest.mock import mock_open
+        ai = types.ModuleType('ai_monitor')
+        ai.snapshot = lambda: {'desktop': desktop or {'online': False}}
+        ai._pc_gpu = {'latest': gpu}
+        ai.pc_gpu_poll = lambda t: None
+        sm = types.ModuleType('storage_monitor')
+        sm.snapshot = lambda w: {'activity': {'recovery': {'backup': {'latest': {'status': backup}}}}}
         ns = {'BaseHTTPRequestHandler': object}
         exec(compile(patch_widget(self.SRC), 'widget', 'exec'), ns)
         ns['TELEMETRY'].update(telemetry)
-        with patch('builtins.open', mock_open(read_data=json.dumps(ids))):
+        with patch.dict(sys.modules, {'ai_monitor': ai, 'storage_monitor': sm}), patch('builtins.open', mock_open(read_data=json.dumps(ids))):
             return ns['_dashboard_widget_summary'](now=now)
 
     def base(self, **over):
         t = {'updated_at': 990, 'services': {'router': True, 'kuma': True, 'last_success_at': 990},
              'pve': {'online': True, 'last_success_at': 990}, 'pihole': {'status': 'protected'},
-             'netalertx': {'online': True, 'connected': 29, 'total': 68, 'last_success_at': 990},
+             'media': {'sabnzbd': {'online': True, 'speed': '0.00 KB/s', 'queue': 0, 'last_success_at': 990}},
+             'scrutiny': {'online': True, 'drives': [{'healthy': True}], 'last_success_at': 990},
              'syslog': {'online': True, 'errors_24h': 0, 'last_success_at': 990}}
         t.update(over)
         return t
 
-    def test_counts_like_the_app_and_ignores_unmonitored(self):
+    def test_quiet_day_pc_off_downloads_idle_no_problems(self):
         s = self.summary(self.base(), ['router', 'kuma', 'pve', 'files'])
-        self.assertEqual((s['status'], s['services_up'], s['services_known'], s['dns']), ('all_up', 3, 3, 'protected'))
-        self.assertEqual((s['devices_connected'], s['devices_total'], s['log_errors_24h']), (29, 68, 0))
+        self.assertEqual((s['pc']['state'], s['headline'], s['downloads']['state'], s['problems'], s['status']),
+                         ('off', 'PC asleep or off', 'idle', [], 'all_up'))
+        self.assertEqual((s['services_up'], s['services_known']), (3, 3))
 
-    def test_down_service_and_paused_dns_are_attention(self):
-        t = self.base(); t['services'] = {**t['services'], 'kuma': False}
-        s = self.summary(t, ['router', 'kuma', 'pve'])
-        self.assertEqual((s['status'], s['headline'], s['services_up']), ('attention', '1 service down', 2))
-        s = self.summary(self.base(pihole={'status': 'paused'}), ['router'])
-        self.assertEqual((s['status'], s['headline']), ('attention', 'DNS blocking paused'))
+    def test_model_loaded_downloads_active_and_every_problem_source(self):
+        t = self.base(media={'sabnzbd': {'online': True, 'speed': '42.1 MB/s', 'queue': 3, 'last_success_at': 990}},
+                      scrutiny={'online': True, 'drives': [{'healthy': False}], 'last_success_at': 990},
+                      syslog={'online': True, 'errors_24h': 2, 'last_success_at': 990}, pihole={'status': 'paused'})
+        t['services'] = {**t['services'], 'kuma': False}
+        desk = {'online': True, 'last_success_at': 995, 'models': [{'id': 'qwen', 'state': 'loaded'}], 'is_active': False}
+        gpu = {'power_w': 164.2, 'temperature_c': 62, 'utilization_pct': 97, 'vram_used_mib': 15000, 'vram_total_mib': 16303, 'observed_at': 990}
+        s = self.summary(t, ['router', 'kuma'], desktop=desk, gpu=gpu, backup='ERROR')
+        self.assertEqual((s['pc']['state'], s['pc']['model'], s['pc']['gpu']['power_w']), ('model_loaded', 'qwen', 164.2))
+        self.assertEqual((s['downloads']['state'], s['downloads']['speed'], s['downloads']['queue']), ('active', '42.1 MB/s', 3))
+        self.assertEqual(s['problems'], ['1 service down', 'DNS blocking paused', 'Drive health warning', '2 log errors', 'Backup job failed'])
+        self.assertEqual(s['status'], 'attention')
 
-    def test_stale_or_missing_telemetry_is_no_reading_never_zero(self):
-        for t in ({}, self.base(updated_at=900)):
-            s = self.summary(t, ['router', 'pve'])
-            self.assertEqual(s['status'], 'no_reading')
-            self.assertIsNone(s['services_up']); self.assertIsNone(s['services_known'])
-            self.assertIsNone(s['log_errors_24h'])
-        s = self.summary(self.base(netalertx={'online': True, 'connected': 29, 'total': 68, 'last_success_at': 900}), ['router'])
-        self.assertIsNone(s['devices_connected'])
+    def test_stale_readings_are_a_problem_never_zeros(self):
+        s = self.summary(self.base(updated_at=900), ['router', 'pve'])
+        self.assertEqual(s['problems'][0], 'No fresh readings')
+        self.assertIsNone(s['services_up'])
+        s = self.summary(self.base(media={'sabnzbd': {'online': True, 'queue': 0, 'last_success_at': 900}}), ['router'])
+        self.assertEqual((s['downloads']['state'], s['downloads']['queue']), ('unknown', None))
+        old_gpu = {'power_w': 100, 'observed_at': 800}
+        s = self.summary(self.base(), ['router'], desktop={'online': True, 'last_success_at': 995, 'models': []}, gpu=old_gpu)
+        self.assertEqual((s['pc']['state'], s['pc']['gpu']), ('idle', None))
 
-    def test_idempotent_and_refuses_drifted_source(self):
-        out = patch_widget(self.SRC)
+    def test_upgrades_v1_in_place_idempotent_and_refuses_drift(self):
+        v1 = self.SRC.replace('class DashboardHandler', '# HOMELAB_WIDGET_V1\ndef _dashboard_widget_summary(now=None):\n    return {}\n\nclass DashboardHandler')
+        out = patch_widget(v1)
+        self.assertNotIn('WIDGET_V1', out); self.assertIn('WIDGET_V2', out); self.assertIn("'pc': pc", out)
         self.assertEqual(patch_widget(out), out)
         with self.assertRaises(ValueError):
             patch_widget('class DashboardHandler(BaseHTTPRequestHandler):\n    pass\n')
-
 
 class AiLiveTests(unittest.TestCase):
     def test_route_added_once_and_refuses_drift(self):
