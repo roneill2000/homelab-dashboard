@@ -10,7 +10,7 @@ Sharper copies: [desktop MP4](showcase/motion-desktop.mp4), [phone MP4](showcase
 
 - **Health & Actions:** Immediate status ("All clear" or attention list) with health tiles that open their page, pinned services, and quick actions (wake/sleep gaming PC, pause Pi-hole, trigger updates).
 - **Storage & Network:** Real-time throughput, disk latency, SMART health, and 24h rolling history in SQLite. Predicts Unraid cache fills and runs the mover proactively.
-- **Local AI:** Real-time status for llama.cpp on the RTX 5070 Ti (with vision) and a helper model on an Arc A310 for homelab queries and nightly log reviews.
+- **Local AI:** Real-time status for llama.cpp on the RTX 5070 Ti (with vision), live GPU power, temperature, load and VRAM from a tiny on-demand reader on the PC (`pc/gpu_metrics.py`), and a helper model on an Arc A310 for homelab queries and nightly log reviews. The model is left to sleep when idle, and a stuck generation is unloaded automatically.
 - **Updates & Backups:** Container `apt` upgrades and Docker image pulls with automatic rollback snapshots. Tracks Proxmox backup jobs and Google Drive restic snapshots.
 - **Mobile & Responsive:** Adapts from phones (bottom bar + More sheet) to ultrawides. Follows Material 3 Expressive motion and color tokens. The [Android app](https://github.com/roneill2000/homelab-android) wraps it with predictive back and haptics.
 
