@@ -146,4 +146,7 @@ const css = fontsCss + tokensCss + m3ShapesCss() + processedCss;
 const js = result.outputFiles[0].text.replaceAll('</script','<\\/script');
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#091613"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg">${preloads}<title>Homelab · Control room</title><style>${css}</style><script src="/static/react.js"></script><script src="/static/react-dom.js"></script><script>/*__INITIAL_TELEMETRY_SLOT__*/</script></head><body><div id="root"></div><noscript>This dashboard needs JavaScript to display live telemetry.</noscript><script>${js}</script></body></html>`;
 await writeFile('index.html',html);
+// Service ids for the server's /api/widget, so it counts exactly the services the app counts.
+const { catalogRows } = await import('./src/catalog.mjs');
+await writeFile('catalog.json', JSON.stringify(catalogRows.map(row => row[0])) + '\n');
 console.log(`Built index.html (${Math.round(html.length/1024)} KiB)`);

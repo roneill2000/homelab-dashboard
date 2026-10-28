@@ -30,7 +30,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     self.send_error(404)
                     return
-            elif path.path in ('/api/telemetry', '/static/react.js', '/static/react-dom.js', '/icon.svg', '/manifest.json'):
+            elif path.path in ('/api/telemetry', '/api/widget', '/static/react.js', '/static/react-dom.js', '/icon.svg', '/manifest.json'):
                 with urllib.request.urlopen('http://192.168.0.2' + path.path, timeout=10) as response:
                     body = response.read()
                     content_type = response.headers.get('Content-Type')

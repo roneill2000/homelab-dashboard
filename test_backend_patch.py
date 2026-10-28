@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend, patch_compression, patch_fonts, patch_hardening, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -377,6 +377,60 @@ class FontsTests(unittest.TestCase):
         self.assertEqual(patch_fonts(out), out)
         with self.assertRaises(ValueError):
             patch_fonts('class DashboardHandler: pass\n')
+
+
+class WidgetTests(unittest.TestCase):
+    SRC = ('import json, threading\n'
+           'STATE_LOCK = threading.Lock()\n'
+           'TELEMETRY = {}\n'
+           'class DashboardHandler(BaseHTTPRequestHandler):\n'
+           '    def do_GET(self):\n'
+           '        if self.path.startswith("/api/telemetry"):\n'
+           '            pass\n')
+
+    def summary(self, telemetry, ids, now=1000):
+        import json, tempfile, os
+        from unittest.mock import mock_open
+        ns = {'BaseHTTPRequestHandler': object}
+        exec(compile(patch_widget(self.SRC), 'widget', 'exec'), ns)
+        ns['TELEMETRY'].update(telemetry)
+        with patch('builtins.open', mock_open(read_data=json.dumps(ids))):
+            return ns['_dashboard_widget_summary'](now=now)
+
+    def base(self, **over):
+        t = {'updated_at': 990, 'services': {'router': True, 'kuma': True, 'last_success_at': 990},
+             'pve': {'online': True, 'last_success_at': 990}, 'pihole': {'status': 'protected'},
+             'netalertx': {'online': True, 'connected': 29, 'total': 68, 'last_success_at': 990},
+             'syslog': {'online': True, 'errors_24h': 0, 'last_success_at': 990}}
+        t.update(over)
+        return t
+
+    def test_counts_like_the_app_and_ignores_unmonitored(self):
+        s = self.summary(self.base(), ['router', 'kuma', 'pve', 'files'])
+        self.assertEqual((s['status'], s['services_up'], s['services_known'], s['dns']), ('all_up', 3, 3, 'protected'))
+        self.assertEqual((s['devices_connected'], s['devices_total'], s['log_errors_24h']), (29, 68, 0))
+
+    def test_down_service_and_paused_dns_are_attention(self):
+        t = self.base(); t['services'] = {**t['services'], 'kuma': False}
+        s = self.summary(t, ['router', 'kuma', 'pve'])
+        self.assertEqual((s['status'], s['headline'], s['services_up']), ('attention', '1 service down', 2))
+        s = self.summary(self.base(pihole={'status': 'paused'}), ['router'])
+        self.assertEqual((s['status'], s['headline']), ('attention', 'DNS blocking paused'))
+
+    def test_stale_or_missing_telemetry_is_no_reading_never_zero(self):
+        for t in ({}, self.base(updated_at=900)):
+            s = self.summary(t, ['router', 'pve'])
+            self.assertEqual(s['status'], 'no_reading')
+            self.assertIsNone(s['services_up']); self.assertIsNone(s['services_known'])
+            self.assertIsNone(s['log_errors_24h'])
+        s = self.summary(self.base(netalertx={'online': True, 'connected': 29, 'total': 68, 'last_success_at': 900}), ['router'])
+        self.assertIsNone(s['devices_connected'])
+
+    def test_idempotent_and_refuses_drifted_source(self):
+        out = patch_widget(self.SRC)
+        self.assertEqual(patch_widget(out), out)
+        with self.assertRaises(ValueError):
+            patch_widget('class DashboardHandler(BaseHTTPRequestHandler):\n    pass\n')
 
 
 if __name__ == '__main__':

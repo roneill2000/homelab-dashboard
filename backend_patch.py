@@ -711,3 +711,93 @@ def patch_hardening(source):
     source = source.replace(get, get + guard).replace(post, post + guard)
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+WIDGET_HELPERS = r'''
+def _dashboard_widget_summary(now=None):
+    # Same rules as the app's serviceState()/hero (src/app.jsx): readings older than 45 s are stale, a missing reading
+    # is unknown (never zero), and services with no monitor are not counted.
+    import json, time as _time
+    now = _time.time() if now is None else now
+    try:
+        ids = json.load(open('/opt/homelab-dashboard/catalog.json', encoding='utf-8'))
+    except Exception:
+        ids = []
+    with STATE_LOCK:
+        t = json.loads(json.dumps(TELEMETRY))
+    updated = t.get('updated_at')
+    fresh = isinstance(updated, (int, float)) and now - updated < 45
+    def obj(v):
+        return v if isinstance(v, dict) else {}
+    media, ai, services = obj(t.get('media')), obj(t.get('ai')), obj(t.get('services'))
+    direct = {'openwebui': ai.get('webui'), 'pve': t.get('pve'), 'unraid': t.get('unraid'), 'scrutiny': t.get('scrutiny'),
+              'syslog': t.get('syslog'), 'netalertx': t.get('netalertx'), 'sabnzbd': media.get('sabnzbd'),
+              'sonarr': media.get('sonarr'), 'readarr': media.get('readarr'), 'prowlarr': media.get('prowlarr'),
+              'jellyfin': media.get('jellyfin')}
+    def state(sid):
+        if not updated:
+            return 'unknown'
+        source = direct.get(sid)
+        value = source.get('online') if isinstance(source, dict) and source.get('online') is not None else services.get(sid)
+        if value is None:
+            return None
+        if now - updated > 45:
+            return 'stale'
+        if isinstance(source, dict) and isinstance(source.get('last_success_at'), (int, float)) and now - source['last_success_at'] > 45:
+            return 'stale'
+        if not isinstance(source, dict) and isinstance(services.get('last_success_at'), (int, float)) and now - services['last_success_at'] > 45:
+            return 'stale'
+        return value
+    states = [state(i) for i in ids]
+    known = [s for s in states if s is not None and s != 'unknown']
+    up = sum(1 for s in known if s is True)
+    down = sum(1 for s in known if s is False)
+    def source_fresh(s):
+        s = obj(s)
+        last = s.get('last_success_at')
+        return s.get('online') is True and ('last_success_at' not in s or (isinstance(last, (int, float)) and now - last < 45)) and not s.get('error')
+    pihole, net, sys_ = obj(t.get('pihole')), obj(t.get('netalertx')), obj(t.get('syslog'))
+    dns = pihole.get('status') if fresh and pihole.get('status') in ('protected', 'paused', 'mixed') else 'unknown'
+    def number(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else None
+    if not fresh:
+        status, headline = 'no_reading', 'No reading'
+    elif down:
+        status, headline = 'attention', f"{down} {'service' if down == 1 else 'services'} down"
+    elif dns in ('paused', 'mixed'):
+        status, headline = 'attention', 'DNS blocking paused' if dns == 'paused' else 'DNS blocking mixed'
+    else:
+        status, headline = 'all_up', 'All services up'
+    return {'status': status, 'headline': headline,
+            'services_up': up if fresh else None, 'services_known': len(known) if fresh else None,
+            'dns': dns,
+            'devices_connected': number(net.get('connected')) if source_fresh(net) else None,
+            'devices_total': number(net.get('total')) if source_fresh(net) else None,
+            'log_errors_24h': number(sys_.get('errors_24h')) if fresh and source_fresh(sys_) else None,
+            'updated_at': updated if isinstance(updated, (int, float)) else None}
+
+'''
+
+
+def patch_widget(source):
+    """GET /api/widget: the home-screen widget's compact summary, computed with the app's rules (catalog.json from build)."""
+    marker = '# HOMELAB_WIDGET_V1'
+    if marker in source:
+        return source
+    handler = 'class DashboardHandler(BaseHTTPRequestHandler):\n'
+    route_at = '        if self.path.startswith("/api/telemetry"):\n'
+    for needle in (handler, route_at):
+        if source.count(needle) != 1:
+            raise ValueError('dashboard handler shape changed; widget patch not applied')
+    route = ('        if self.path == "/api/widget":\n'
+             '            body = json.dumps(_dashboard_widget_summary()).encode("utf-8")\n'
+             '            self.send_response(200)\n'
+             '            self.send_header("Content-Type", "application/json")\n'
+             '            self.send_header("Cache-Control", "no-store")\n'
+             '            self.end_headers()\n'
+             '            self.wfile.write(body)\n'
+             '            return\n')
+    source = source.replace(handler, marker + '\n' + WIDGET_HELPERS + handler)
+    source = source.replace(route_at, route + route_at)
+    compile(source, '<dashboard>', 'exec')
+    return source
