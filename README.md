@@ -30,7 +30,7 @@ Requires Node.js 18+ and Python 3.10+.
 npm ci
 npm run build          # writes index.html
 python3 preview.py     # local preview on 127.0.0.1:8799
-npm run check          # 10 Playwright check suites
+npm run check          # confirms index.html matches a fresh build, then 10 Playwright check suites
 python3 -m unittest discover -v
 ```
 
