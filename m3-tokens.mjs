@@ -36,13 +36,13 @@ function block(isDark) {
     lines.push(`--md-custom-${name}:${hexFromArgb(c.color)}`, `--md-custom-on-${name}:${hexFromArgb(c.onColor)}`,
       `--md-custom-${name}-container:${hexFromArgb(c.colorContainer)}`, `--md-custom-on-${name}-container:${hexFromArgb(c.onColorContainer)}`);
   }
-  // Chart series --md-chart-1..5: pine (primary hue), pink, blue, green and violet. Ryan asked for no orange or yellow
-  // lines, so pink and green replace the tertiary cedar and amber; blue and violet are harmonised to the seed. Tone/chroma per theme were chosen with the dataviz palette validator (lightness band, chroma floor, colour-blind
+  // Chart series --md-chart-1..5: pine (primary hue), soft grey, blue, green and violet. Ryan asked for no orange, yellow
+  // or pink lines, so a near-neutral grey and green replace the tertiary cedar and amber; blue and violet are harmonised. Tone/chroma per theme were chosen with the dataviz palette validator (lightness band, chroma floor, colour-blind
   // separation of neighbours, >= 3:1 against the card surface): dark tone 60 / chroma 48, light tone 50 / chroma 70.
   const [tone, chroma] = isDark ? [60, 48] : [50, 70];
   const harmonised = hex => Hct.fromInt(Blend.harmonize(argbFromHex(hex), seed.toInt())).hue;
-  [fidelity.primaryPalette.hue, Hct.fromInt(argbFromHex('#e0457b')).hue, harmonised(CUSTOM.blue), Hct.fromInt(argbFromHex('#5cb85c')).hue, harmonised(CUSTOM.purple)]
-    .forEach((h, i) => lines.push(`--md-chart-${i + 1}:${hexFromArgb(Hct.from(h, chroma, tone).toInt())}`));
+  [fidelity.primaryPalette.hue, fidelity.primaryPalette.hue, harmonised(CUSTOM.blue), Hct.fromInt(argbFromHex('#5cb85c')).hue, harmonised(CUSTOM.purple)]
+    .forEach((h, i) => lines.push(`--md-chart-${i + 1}:${hexFromArgb((i === 1 ? Hct.from(h, 4, isDark ? 82 : 42) : Hct.from(h, chroma, tone)).toInt())}`));
   return lines.join(';');
 }
 
