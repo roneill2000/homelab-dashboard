@@ -390,5 +390,6 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .m3-select--qwen .m3-menu-select__trigger{width:100%!important;min-width:0!important;max-width:none!important}
 @media (min-width:600px){.qwen-input-row .m3-select--qwen{flex:0 1 auto;min-width:180px;max-width:300px}}
 .ai-task--ask .qwen-input-row .m3-select--qwen{flex:1 1 0;min-width:0;max-width:none}
-.ov-rows .ov-num{font-weight:600;color:var(--md-sys-color-on-surface);font-variant-numeric:tabular-nums}
+.ov-num{font-weight:600;color:var(--md-sys-color-on-surface);font-variant-numeric:tabular-nums}
 .ov-rows .ov-host{display:block}
+.nowrap{white-space:nowrap}
