@@ -607,6 +607,38 @@ def patch_compression(source):
     return source
 
 
+FONTS_ROUTE = r'''        elif self.path.startswith("/static/fonts/"):
+            import re, os
+            m = re.fullmatch(r"/static/fonts/([a-z0-9-]+\.woff2)", self.path)
+            if not m:
+                self.send_error(404, "Not Found")
+                return
+            fonts_dir = os.environ.get("HOMELAB_FONTS_DIR", "/opt/homelab-dashboard/fonts")
+            fpath = os.path.join(fonts_dir, m.group(1))
+            if os.path.isfile(fpath):
+                with open(fpath, "rb") as f:
+                    body = f.read()
+                self._dashboard_send(body, "font/woff2", "public, max-age=31536000, immutable", _dashboard_etag(body))
+                return
+            self.send_error(404, "Not Found")
+            return
+'''
+
+
+def patch_fonts(source):
+    """Serve immutable woff2 font files from /opt/homelab-dashboard/fonts/ with strict allowlist."""
+    marker = '# HOMELAB_FONTS_V1'
+    if marker in source:
+        return source
+    target = '        elif self.path in ("/static/react.js", "/static/react-dom.js"):\n'
+    if target not in source:
+        raise ValueError('static file route shape changed; fonts patch not applied')
+    replacement = marker + '\n' + FONTS_ROUTE + target
+    source = source.replace(target, replacement, 1)
+    compile(source, '<dashboard>', 'exec')
+    return source
+
+
 INLINE_SAFE_OLD = '''            rendered = INDEX_HTML.replace(
                 "/*__INITIAL_TELEMETRY_SLOT__*/",
                 f"window.__INITIAL_TELEMETRY__ = {initial_json};"

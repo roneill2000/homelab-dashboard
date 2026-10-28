@@ -21,6 +21,15 @@ class Handler(BaseHTTPRequestHandler):
                 window = urllib.parse.parse_qs(path.query).get('window', ['3600'])[0]
                 body = json.dumps(storage_monitor.snapshot(int(window))).encode()
                 content_type = 'application/json'
+            elif path.path.startswith('/static/fonts/'):
+                fname = path.path[len('/static/fonts/'):]
+                fpath = BASE / 'fonts' / fname
+                if fpath.is_file():
+                    body = fpath.read_bytes()
+                    content_type = 'font/woff2'
+                else:
+                    self.send_error(404)
+                    return
             elif path.path in ('/api/telemetry', '/static/react.js', '/static/react-dom.js', '/icon.svg', '/manifest.json'):
                 with urllib.request.urlopen('http://192.168.0.2' + path.path, timeout=10) as response:
                     body = response.read()

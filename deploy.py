@@ -5,7 +5,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parent
 REMOTE = r"""
-import ast, datetime, hashlib, json, os, pathlib, shutil, subprocess, time, urllib.request
+import ast, base64, datetime, hashlib, json, os, pathlib, shutil, subprocess, time, urllib.request
 payload = json.loads(PAYLOAD)
 backend = pathlib.Path('/usr/local/bin/homelab-dashboard.py')
 source = backend.read_text(encoding='utf-8')
@@ -31,6 +31,7 @@ updated = patch_namespace['patch_remove_kasm'](updated)
 updated = patch_namespace['patch_pihole_vip'](updated)
 updated = patch_namespace['patch_m3_brand'](updated)
 updated = patch_namespace['patch_compression'](updated)
+updated = patch_namespace['patch_fonts'](updated)
 updated = patch_namespace['patch_inline_safe'](updated)
 updated = patch_namespace['patch_hardening'](updated)
 marker = '# HOMELAB_STORAGE_V2'
@@ -72,6 +73,12 @@ backup = pathlib.Path('/opt/homelab-dashboard/backups') / datetime.datetime.now(
 backup.mkdir(parents=True, mode=0o700)
 os.chmod(backup.parent, 0o700)
 targets = {'/usr/local/bin/ai_monitor.py': payload['ai_monitor.py'], '/usr/local/bin/gpu_monitor.py': payload['gpu_monitor.py'], '/usr/local/bin/net_monitor.py': payload['net_monitor.py'], '/usr/local/bin/qwen_proxy.py': payload['qwen_proxy.py'], '/usr/local/bin/update_proxy.py': payload['update_proxy.py'], '/usr/local/bin/log_monitor.py': payload['log_monitor.py'], '/usr/local/bin/activity_monitor.py': payload['activity_monitor.py'], str(backend): updated, '/usr/local/bin/storage_monitor.py': payload['storage_monitor.py'], '/opt/homelab-dashboard/index.html': payload['index.html']}
+fonts_dir = pathlib.Path('/opt/homelab-dashboard/fonts')
+fonts_dir.mkdir(parents=True, exist_ok=True)
+for fname, b64 in payload.get('fonts', {}).items():
+    fp = fonts_dir / fname
+    fp.write_bytes(base64.b64decode(b64))
+    os.chmod(fp, 0o644)
 manifest = {}
 for target, content in targets.items():
     p = pathlib.Path(target)
@@ -107,6 +114,12 @@ print(json.dumps({'backup':str(backup),'status':'healthy','backend_sha256':hashl
 """
 
 if __name__ == '__main__':
+    import base64
+    fonts_payload = {
+        p.name: base64.b64encode(p.read_bytes()).decode('ascii')
+        for p in (ROOT / 'fonts').glob('*.woff2')
+    }
     data = {name:(ROOT/name).read_text(encoding='utf-8') for name in ('index.html','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','net_monitor.py','ai_monitor.py')}
+    data['fonts'] = fonts_payload
     script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
     subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)
