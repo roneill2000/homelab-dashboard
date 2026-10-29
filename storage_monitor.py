@@ -196,6 +196,39 @@ def snapshot(window=3600):
     return dict(ai=ai_monitor.snapshot(),network=net_monitor.snapshot(connect,window,bucket,aggregate_history),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
                 sample_seconds=10, bucket_seconds=bucket, retention_hours=24, source='Glances cumulative disk counters')
 
+_snap = {}
+_snap_lock = threading.Lock()
+_wanted = {3600: 0.0}
+
+
+def cached_snapshot(window=3600, max_age=12):
+    """The /api/storage answer from memory. The collector loop rebuilds the default 1-hour view (and any window asked for
+    in the last 10 minutes) right after each 10 s sample, so opening the app or site never waits on the database."""
+    window = min(86400, max(900, int(window)))
+    now = time.time()
+    with _snap_lock:
+        _wanted[window] = now
+        hit = _snap.get(window)
+    if hit and now - hit[0] < max_age:
+        return hit[1]
+    body = json.dumps(snapshot(window)).encode('utf-8')
+    with _snap_lock:
+        _snap[window] = (time.time(), body)
+    return body
+
+
+def _warm():
+    now = time.time()
+    with _snap_lock:
+        windows = [w for w, t in _wanted.items() if w == 3600 or now - t < 600]
+        for w in [w for w in _snap if w not in windows]:
+            del _snap[w]
+    for w in windows:
+        body = json.dumps(snapshot(w)).encode('utf-8')
+        with _snap_lock:
+            _snap[w] = (time.time(), body)
+
+
 def start():
     global _started
     if _started:
@@ -208,6 +241,10 @@ def start():
                 collect()
             except Exception as exc:
                 print('Storage collector:', type(exc).__name__, flush=True)
+            try:
+                _warm()
+            except Exception as exc:
+                print('Storage snapshot cache:', type(exc).__name__, flush=True)
             time.sleep(10)
     threading.Thread(target=loop, name='storage-history', daemon=True).start()
     net_monitor.start(connect)

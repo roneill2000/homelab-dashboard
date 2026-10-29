@@ -35,7 +35,7 @@ const skipViewTransition=()=>reducedMotion()||inWebView();
 // morphs from the old title (or the tapped element) into the new one: a copy of the old one glides and resizes onto the
 // new title while it fades in. A view transition did this before, but it captured the whole page first, which dropped
 // one or two frames per switch at 120 Hz, and Android WebView mis-composited it, so this also runs in the app.
-export function withPageTransition(update,from){
+export function withPageTransition(update,from,origin){
   const settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   if(reducedMotion()){update();return settle()}
   const src=from?.isConnected?from:null;let ghost=null,r0=null;
@@ -51,10 +51,13 @@ export function withPageTransition(update,from){
   // The header itself holds still so the title's own motion isn't added to the slide; its other parts slide with the page.
   const parts=[...content.children].flatMap(c=>c.classList.contains('m3-top-app-bar')?[]:c===header?[...header.querySelectorAll('.m3-page-header__subtitle'),...[...header.children].slice(1)]:[c]);
   const rise=[{opacity:0,transform:'translateY(40px)'},{opacity:1,transform:'none'}];
-  const runs=parts.map(c=>c.animate(rise,{duration,easing}));
+  // From a navigation button: every part scales up out of that button's centre (bottom bar: up from that tab, side rail:
+  // out from the left), so the page visibly comes from what was pressed. Otherwise the page rises in place.
+  const grow=el=>{const r=el.getBoundingClientRect();return [{opacity:0,transformOrigin:`${origin.x-r.left}px ${origin.y-r.top}px`,transform:'scale(.86)'},{opacity:1,transformOrigin:`${origin.x-r.left}px ${origin.y-r.top}px`,transform:'none'}]};
+  const runs=parts.map(c=>c.animate(origin?grow(c):rise,{duration,easing}));
   // Nav switches: the old title leaves with the old page and the new one rises in (a fading copy of the old word read
   // as the wrong title). A tapped element (from) still morphs into the title.
-  if(title&&!from)runs.push(title.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:Math.min(duration,420),easing}));
+  if(title&&!from)runs.push(title.animate(origin?grow(title):[{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:Math.min(duration,origin?duration:420),easing}));
   else if(title&&ghost&&r0){const r1=title.getBoundingClientRect();
     if(r1.width&&r1.height&&r0.width&&r0.height){document.body.appendChild(ghost);
       // One uniform scale (never separate x/y, which squashed and stretched the text), kept near 1 so a big tile doesn't balloon the title.

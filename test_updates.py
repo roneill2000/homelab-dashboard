@@ -140,21 +140,28 @@ class FleetCacheTests(unittest.TestCase):
 
 
 class FleetLoopTests(unittest.TestCase):
-    def test_background_refresh_starts_once_and_fills_the_cache(self):
-        import time as t
-        proxy.FLEET.clear(); proxy.FLEET.update(at=0, body=None); proxy._LOOP['started'] = False
-        calls = []
+    def test_one_cycle_refreshes_fleet_and_events_then_sleeps(self):
+        class Stop(Exception): pass
+        proxy.FLEET.clear(); proxy.FLEET.update(at=0, body=None); proxy.EVENTS.clear(); proxy.EVENTS.update(at=0, body=None)
+        calls, naps = [], []
+        def sleep(s): naps.append(s); raise Stop
         with patch.object(proxy, 'remote', side_effect=lambda cmd, timeout=15: calls.append(cmd) or {'cloud_backup': {'running': False}}), \
-             patch.object(proxy.time, 'sleep', side_effect=lambda s: t.sleep(0.05) if s else None), \
-             patch('os.path.exists', return_value=True):
-            self.assertTrue(proxy.start_fleet_loop())
-            self.assertFalse(proxy.start_fleet_loop())               # second call is a no-op
-            for _ in range(40):
-                if proxy.FLEET['body']: break
-                t.sleep(0.02)
+             patch.object(proxy.time, 'sleep', side_effect=sleep), \
+             patch.object(proxy.threading, 'Thread') as thread:
+            with self.assertRaises(Stop): proxy._fleet_loop()
+        self.assertEqual(calls, ['health'])
         self.assertEqual(proxy.FLEET['body'], {'cloud_backup': {'running': False}})
-        self.assertGreaterEqual(len(calls), 1)
+        thread.assert_called_once()                      # events refresh handed to a background thread
+        self.assertEqual(naps, [50])
 
+    def test_starts_once_and_only_on_the_dashboard_host(self):
+        proxy._LOOP['started'] = False
+        with patch.object(proxy.threading, 'Thread') as thread, patch('os.path.exists', return_value=False):
+            self.assertFalse(proxy.start_fleet_loop())
+        with patch.object(proxy.threading, 'Thread') as thread, patch('os.path.exists', return_value=True):
+            self.assertTrue(proxy.start_fleet_loop()); self.assertFalse(proxy.start_fleet_loop())
+        thread.assert_called_once()
+        proxy._LOOP['started'] = False
 
 class PiTests(unittest.TestCase):
     def test_parse_pi_extra(self):

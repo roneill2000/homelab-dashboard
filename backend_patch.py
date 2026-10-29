@@ -882,3 +882,32 @@ def patch_ai_live(source):
         source = source.replace(route_at, route + route_at)
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_storage_fast(source):
+    """/api/storage from the collector's in-memory snapshot (rebuilt every 10 s), gzipped: about 0.4 s became a few ms,
+    so the Overview's activity and backup rows are there as soon as the app or site opens."""
+    marker = '# HOMELAB_STORAGE_FAST_V1'
+    if marker in source:
+        return source
+    old = ('                body = json.dumps(storage_monitor.snapshot(window)).encode("utf-8")\n'
+           '            except Exception:\n'
+           '                self.send_error(503, "Storage history unavailable")\n'
+           '                return\n'
+           '            self.send_response(200)\n'
+           '            self.send_header("Content-Type", "application/json")\n'
+           '            self.send_header("Cache-Control", "no-store")\n'
+           '            self.end_headers()\n'
+           '            self.wfile.write(body)\n'
+           '            return\n')
+    new = ('                body = storage_monitor.cached_snapshot(window)\n'
+           '            except Exception:\n'
+           '                self.send_error(503, "Storage history unavailable")\n'
+           '                return\n'
+           '            self._dashboard_send(body, "application/json", "no-store")\n'
+           '            return\n')
+    if source.count(old) != 1:
+        raise ValueError('storage route shape changed; fast storage patch not applied')
+    source = source.replace(old, new) + '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

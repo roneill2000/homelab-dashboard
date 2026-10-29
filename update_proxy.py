@@ -49,6 +49,8 @@ def _fleet_loop():
         if not busy:
             try:_refresh_fleet()
             except Exception:pass
+        try:events(wait=False)  # keeps the timeline warm too (refreshes itself in the background every 5 min)
+        except Exception:pass
         with FLEET_LOCK:body=FLEET['body']
         running=isinstance(body,dict) and (body.get('cloud_backup') or {}).get('running')
         time.sleep(12 if running else 50)
@@ -91,11 +93,27 @@ def fleet():
     return dict(body,checked_at=int(at)) if isinstance(body,dict) else body
 
 
-def events():
-    # "What changed" timeline from Proxmox; collecting takes ~15 s, so cache for five minutes.
+def _refresh_events():
+    try:
+        body=remote('events',timeout=90)
+        with EVENTS_LOCK:EVENTS.update(at=time.time(),body=body)
+    finally:
+        with EVENTS_LOCK:EVENTS['refreshing']=False
+
+
+def events(wait=True):
+    # "What changed" timeline from Proxmox. Collecting takes ~15 s, so the last answer is served at once and refreshed in
+    # the background when over five minutes old (the fleet loop also keeps it warm); only the very first call waits.
     with EVENTS_LOCK:
-        if EVENTS['body'] is not None and time.time()-EVENTS['at']<300:return EVENTS['body']
-        body=remote('events',timeout=90);EVENTS.update(at=time.time(),body=body);return body
+        body,at=EVENTS['body'],EVENTS['at']
+        start=(body is None or time.time()-at>=300) and not EVENTS.get('refreshing')
+        if start:EVENTS['refreshing']=True
+    if start and (body is None and wait):
+        _refresh_events()
+        with EVENTS_LOCK:body=EVENTS['body']
+    elif start:threading.Thread(target=_refresh_events,daemon=True).start()
+    if body is None and wait:raise RuntimeError('events unavailable')
+    return body
 
 
 PC_MAC='34:5a:60:01:a1:9a'  # gaming PC, Realtek 5GbE (Wake on Magic Packet + Shutdown WoL enabled)

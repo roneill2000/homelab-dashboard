@@ -663,7 +663,10 @@ function App(){
   if(navModal){navOpener.current=document.activeElement;const box=document.querySelector(railModal?'.m3-xrail':'.m3-nav-drawer.is-modal');{let n=0;const tryFocus=()=>{const t=box?.querySelector('[aria-current=page]')||box?.querySelector('button,a');t?.focus();if(!box?.contains(document.activeElement)&&n++<20)requestAnimationFrame(tryFocus)};requestAnimationFrame(tryFocus)}}
   else if(navOpener.current){const o=navOpener.current;navOpener.current=null;if(navigatedRef.current){navigatedRef.current=false;requestAnimationFrame(()=>document.querySelector('main h1')?.focus({preventScroll:true}))}else if(o.isConnected&&o.getClientRects().length&&!o.closest('.m3-nav-drawer'))o.focus();else tabbables(document.querySelector('.m3-top-app-bar,.m3-nav-rail,.m3-xrail'))[0]?.focus()}},[navModal]);const [scrolled,setScrolled]=useState(false);const sheetSeen=useRef(false);useEffect(()=>{const on=()=>setScrolled(window.scrollY>4);on();window.addEventListener('scroll',on,{passive:true});return()=>window.removeEventListener('scroll',on)},[]);const cmdRef=useRef(null),toastTimer=useRef(),loadRef=useRef(),storageRef=useRef();
  const notify=msg=>{setToast(msg);clearTimeout(toastTimer.current);toastTimer.current=setTimeout(()=>setToast(''),3600)};
- const lastSource=useRef(null);useEffect(()=>{const on=ev=>{const el=ev.target.closest?.('button,a,[role=button]');lastSource.current=el&&el.closest('main')&&!el.closest('.m3-nav-bar,.m3-nav-rail,.m3-xrail,.m3-nav-drawer')?{el,t:performance.now()}:null};document.addEventListener('pointerdown',on,true);document.addEventListener('keydown',on,true);return()=>{document.removeEventListener('pointerdown',on,true);document.removeEventListener('keydown',on,true)}},[]);
+ // lastSource: a tapped tile/row in the page (morphs into the title). lastNav: the centre of the tapped navigation item,
+ // so the new page grows out of the button that was pressed.
+ const lastSource=useRef(null),lastNav=useRef(null);useEffect(()=>{const on=ev=>{const el=ev.target.closest?.('button,a,[role=button]');lastSource.current=el&&el.closest('main')&&!el.closest('.m3-nav-bar,.m3-nav-rail,.m3-xrail,.m3-nav-drawer')?{el,t:performance.now()}:null;
+  const nav=el?.closest('.m3-nav-bar,.m3-nav-rail,.m3-xrail,.m3-nav-drawer')&&el;if(nav){const r=nav.getBoundingClientRect();lastNav.current={x:r.left+r.width/2,y:r.top+r.height/2,t:performance.now()}}};document.addEventListener('pointerdown',on,true);document.addEventListener('keydown',on,true);return()=>{document.removeEventListener('pointerdown',on,true);document.removeEventListener('keydown',on,true)}},[]);
  const navigatedRef=useRef(false);// section: element id to scroll to and focus once the new page is showing (Overview shortcuts into a long page).
  const navigate=(v,section,opts={})=>{
   haptic('tap');
@@ -674,8 +677,9 @@ function App(){
   if(v!==view){
    navigatedRef.current=true;
    const src=lastSource.current&&performance.now()-lastSource.current.t<1500&&lastSource.current.el.isConnected?lastSource.current.el:null;
-   lastSource.current=null;
-   withPageTransition(()=>{window.scrollTo({top:0,behavior:'instant'});setScrolled(false);setView(v);setSearch('');setFilter(opts.filter||'all')},src).then(()=>section&&jump(section));
+   const origin=!src&&lastNav.current&&performance.now()-lastNav.current.t<1500?lastNav.current:null;
+   lastSource.current=null;lastNav.current=null;
+   withPageTransition(()=>{window.scrollTo({top:0,behavior:'instant'});setScrolled(false);setView(v);setSearch('');setFilter(opts.filter||'all')},src,origin).then(()=>section&&jump(section));
   }else{
    setSearch('');setFilter(opts.filter||'all');if(section)jump(section);
   }
