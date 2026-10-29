@@ -487,7 +487,7 @@ details[open] > summary .gpu-history__chevron {
 .is-sheet .m3-sheet__handle{display:block;align-self:center;width:32px;height:4px;margin:16px 0 12px;border-radius:2px;background:var(--md-sys-color-on-surface-variant);opacity:.4}
 .is-sheet .m3-sheet__title{margin:0;padding:0 16px 8px;font:var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--md-sys-typescale-title-medium-font);color:var(--md-sys-color-on-surface)}
 .is-sheet .m3-nav-drawer__brand,.is-sheet .m3-nav-drawer__footer{display:none}
-.is-sheet .m3-nav-drawer__close{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.is-sheet .m3-nav-drawer__close{display:none}
 .is-sheet .m3-nav-drawer__item{display:flex;flex-direction:row;align-items:center;gap:16px;min-height:56px;height:56px;padding:0 16px;border-radius:0;text-align:left;
   background:transparent;font:var(--md-sys-typescale-title-medium-weight) 14px/1.25 var(--md-sys-typescale-title-medium-font);color:var(--md-sys-color-on-surface);position:relative}
 .is-sheet .m3-nav-drawer__item .material-symbols-rounded{font-size:24px;width:24px;height:24px;color:var(--md-sys-color-on-surface-variant)}
@@ -528,7 +528,7 @@ details[open] > summary .gpu-history__chevron {
 /* Heading counts read as secondary text, not outlined web badges. */
 h2 .count,h3 .count,.section-heading .count{border:0;background:none;padding:0 0 0 6px;min-width:0;height:auto;color:var(--md-sys-color-on-surface-variant);font-weight:400;font-size:.8em;box-shadow:none}
 /* Local AI: two task cards first (Chat with a model, Ask about the homelab), side by side from 1200px. */
-.ai-tasks{display:grid;gap:16px;margin:0 0 32px;align-items:start}
+.ai-tasks{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin:0 0 32px;align-items:start}
 @media (min-width:1200px){.ai-tasks{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 .ai-task{display:flex;flex-direction:column;gap:16px;margin:0;padding:24px;border-radius:var(--md-sys-shape-corner-extra-large);background:var(--md-sys-color-surface-container)}
 .ai-task__head,.ai-task--ask .qwen-heading{display:flex;align-items:center;gap:16px;margin:0}

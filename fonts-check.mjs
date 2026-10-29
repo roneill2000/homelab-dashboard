@@ -52,7 +52,7 @@ assert.ok(localFontRequests.length > 0, 'Must request local fonts');
 console.log(`Local fonts requested: ${localFontRequests.length}`);
 
 // Verify Material Symbols icons rendered
-const icons = page.locator('.material-symbols-rounded');
+const icons = page.locator('.material-symbols-rounded:visible');
 const count = await icons.count();
 assert.ok(count > 0, 'Icons must be present');
 const iconBox = await icons.first().boundingBox();

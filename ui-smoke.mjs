@@ -41,7 +41,7 @@ assert.equal(await page.locator('.command-results a').getAttribute('href'),'http
 await page.keyboard.press('Escape');
 assert.equal(await page.getByRole('dialog').count(),0);
 await page.getByRole('button',{name:'Network & DNS',exact:true}).click();
-await page.getByRole('button',{name:'Pause blocking · 5 min',exact:true}).click();
+await page.getByRole('button',{name:'Pause DNS 5 min',exact:true}).click();
 await page.getByRole('dialog').waitFor();
 await page.getByRole('button',{name:'Cancel',exact:true}).click();
 assert.equal(await page.getByRole('dialog').count(),0);

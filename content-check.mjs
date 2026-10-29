@@ -24,7 +24,7 @@ await expect(pve.locator('.badge')).toHaveText('Stale');
 await expect(pve.locator('.host-stats')).toContainText('—');
 await expect(pve.locator('.source-note')).toContainText('Last successful read');
 await p.getByRole('button',{name:'Network & DNS',exact:true}).click();
-await expect(p.getByRole('button',{name:/Pause blocking|Resume blocking/})).toBeDisabled();
+await expect(p.getByRole('button',{name:/Pause DNS|Resume blocking|Resume DNS/})).toBeDisabled();
 await p.getByRole('button',{name:'Media & downloads',exact:true}).click();
 await expect(p.locator('.service-card').filter({hasText:'SABnzbd'}).locator('.service-dot')).toHaveAttribute('aria-label','Stale');
 await expect(p.locator('.service-card').filter({hasText:'Readarr'})).toContainText('113 books · 8 queued');

@@ -413,3 +413,23 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .ov-hero.ov-hero--checking{--hero-ink:var(--md-sys-color-on-surface);--hero-fill:var(--md-sys-color-surface-container-highest);background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface)}
 .offsite-progress>.source-note{margin:0 0 8px}
 .offsite-progress>.m3-linear-progress{position:relative;margin:0 0 4px}
+/* UI audit fixes (29 Oct 2026) */
+/* Local AI launch links may wrap on narrow phones rather than push the page sideways. */
+@media (max-width:480px){.ai-task__links{flex-wrap:wrap}}
+/* Collapsed Ask bar stays one line: an ellipsis, never a half-cut second placeholder line. */
+.qwen-collapsed .qwen-input-row textarea{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Bare <summary> rows get a chevron so they read as expandable. */
+details>summary:not(:has(.material-symbols-rounded))::after{content:'expand_more';font-family:'Material Symbols Rounded';font-size:20px;line-height:1;margin-left:4px;font-feature-settings:'liga';color:var(--md-sys-color-on-surface-variant);transition:transform .2s}
+details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rotate(180deg)}
+/* Network host rows: the selected row's caption keeps full contrast. */
+.net-row.is-selected .net-row__body small{opacity:1}
+/* Ultrawide: content sits beside the rail and uses more width instead of floating in the middle. */
+@media (min-width:2200px){.m3-app__content{max-width:1840px;margin:0}}
+/* Phone service rows: two lines of description instead of an ellipsis after a few words. */
+@media (max-width:599px){.service-card--row p{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
+/* Small inline links get a 44px-tall hit area without changing their look. */
+.text-button.inline{position:relative}
+.text-button.inline::after{content:'';position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+.update-detail__link{min-height:44px}
+/* Stacked Ask controls (narrow phones, zoomed text) never grow past the card. */
+.qwen-input-row>*,.ai-task--ask .qwen-input-row .m3-select--qwen{max-width:100%}

@@ -17,7 +17,7 @@ await expect(readings.locator('div').filter({has:p.getByText('RdtClient',{exact:
 await go('infra');
 const backup=p.locator('.recovery-card').filter({hasText:'Proxmox backup jobs'});
 const parity=p.locator('.recovery-card').filter({hasText:'Unraid parity'});
-await expect(backup.locator('.badge')).toHaveText('Check job');await expect(backup).toContainText('24h ago');
+await expect(backup.locator('.badge')).toHaveText('Check job');await expect(backup).toContainText('24 h ago');
 await expect(parity.locator('.recovery-value')).toHaveText('Paused');await expect(parity).toContainText('Completion pending');await expect(parity).not.toContainText('sync errors');await expect(parity).not.toContainText('check P');
 data.activity.latest.ts=now-90;await p.getByRole('button',{name:'Refresh telemetry'}).click();
 await expect(backup.locator('.badge')).toHaveText('Unknown');await expect(parity.locator('.recovery-value')).toHaveText('Unknown');
