@@ -458,3 +458,10 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 .np-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
 .np-reason{text-transform:none}
 .now-playing{margin-bottom:24px}
+/* Enlarged chart: zoom toolbar and drag selection. */
+.chart-zoom{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 8px}
+.chart-zoom__btns{display:inline-flex;gap:2px}
+.chart-zoom__hint{flex-basis:100%;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size)}
+.chart-brush{fill:color-mix(in srgb,var(--md-sys-color-primary) 18%,transparent);stroke:var(--md-sys-color-primary);stroke-width:1;vector-effect:non-scaling-stroke}
+.chart--dialog .chart-tooltip{position:static;transform:none;margin:8px 0 0;min-height:28px}
+.chart--dialog svg{-webkit-user-select:none;user-select:none}
