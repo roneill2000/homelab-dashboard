@@ -190,8 +190,8 @@
 
 
 
-.ov-hero{--hero-ink:var(--md-sys-color-primary-fixed);--hero-fill:var(--md-sys-color-primary-container)}
-.ov-hero--attention{--hero-ink:var(--md-sys-color-tertiary-fixed);--hero-fill:var(--md-sys-color-tertiary-container)}
+.ov-hero{--hero-ink:var(--md-sys-color-on-primary-container);--hero-fill:var(--md-sys-color-primary-container)}
+.ov-hero--attention{--hero-ink:var(--md-sys-color-on-tertiary-container);--hero-fill:var(--md-sys-color-tertiary-container)}
 
 
 
@@ -204,8 +204,10 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 /* Hero card tonal roles (A5). The pine theme is a Fidelity scheme, so primary-container is the seed pine in both themes.
    Dark: the pine card with primary-fixed ink and tiles a step darker. Light: a pale primary-fixed card with dark ink and
    white tiles, so the light page doesn't carry a dark slab. Attention swaps to the cedar tertiary roles. */
-.ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-primary-fixed)}
-.ov-hero--attention{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-tertiary-fixed)}
+/* Text uses the container's own 'on' colour: it contrasts in every scheme, including Android's wallpaper ones where the
+   container is light in dark mode (the old fixed-tone ink vanished there). */
+.ov-hero{background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container)}
+.ov-hero--attention{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container)}
 :root[data-theme=light] .ov-hero{background:var(--md-sys-color-primary-fixed);color:var(--md-sys-color-on-primary-fixed)}
 :root[data-theme=light] .ov-hero--attention{background:var(--md-sys-color-tertiary-fixed);color:var(--md-sys-color-on-tertiary-fixed)}
 .ov-hero .summary-grid>.summary-stat,.ov-hero .summary-grid>.summary-stat:nth-child(n){background:color-mix(in srgb,var(--md-sys-color-surface-container-lowest) 55%,transparent);color:var(--md-sys-color-on-surface);border:0;border-radius:var(--md-sys-shape-corner-large)}

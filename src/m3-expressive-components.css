@@ -337,8 +337,8 @@
 /* ---------- Follow-up audit (26 Oct 2026) ---------- */
 /* 1. Hero text: primary-fixed / tertiary-fixed (light tones) on the dark container in BOTH themes, no opacity.
       Measured: 7.36:1 on the hero, 6.03:1 on its metric tiles; attention 7.42:1 / 6.11:1. */
-.ov-hero{color:var(--md-sys-color-primary-fixed)}
-.ov-hero--attention{color:var(--md-sys-color-tertiary-fixed)}
+.ov-hero{color:var(--md-sys-color-on-primary-container)}
+.ov-hero--attention{color:var(--md-sys-color-on-tertiary-container)}
 .ov-hero__eyebrow,.ov-hero__sub,.ov-hero .summary-grid>.summary-stat :is(small,p,em){opacity:1}
 .ov-hero .summary-grid>.summary-stat em{opacity:1}
 /* 2. Phone hero: compact. Actions wrap (no hidden overflow), metrics become a tight 2x2 without supporting lines. */
