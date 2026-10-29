@@ -954,3 +954,29 @@ def patch_now_playing(source):
     source = source.replace(handler, NOW_PLAYING_HELPER + handler, 1) + '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+WIDGET_CLOUD = r'''    try:  # cloud backup problems, from the background-refreshed fleet cache (never a fresh 8 s probe here)
+        import update_proxy
+        cb = ((update_proxy.FLEET.get('body') or {}).get('cloud_backup')) or {}
+        if cb and not cb.get('running'):
+            if cb.get('last_failed_start'):
+                problems.append('Cloud backup failed')
+            elif any(isinstance(x, dict) and x.get('last') and now - x['last'] > (x.get('stale_h') or 36) * 3600 for x in cb.get('sources') or []):
+                problems.append('Cloud backup stale')
+    except Exception:
+        pass
+'''
+
+
+def patch_widget_cloud(source):
+    """Add cloud backup failures to the widget's problems, which the Android app also turns into notifications."""
+    marker = '# HOMELAB_WIDGET_CLOUD_V1'
+    if marker in source:
+        return source
+    anchor = "    return {'status': 'attention' if problems else 'all_up',"
+    if source.count(anchor) != 1:
+        raise ValueError('widget summary shape changed; cloud problems not added')
+    source = source.replace(anchor, WIDGET_CLOUD + anchor) + '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

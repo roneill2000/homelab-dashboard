@@ -443,7 +443,7 @@ export const haptic=(type='tap')=>{
 };
 function App(){
  const [data,setData]=useState(window.__INITIAL_TELEMETRY__?.updated_at?window.__INITIAL_TELEMETRY__:{}),[storage,setStorage]=useState(null),[error,setError]=useState(false),[storageError,setStorageError]=useState(false),[view,setView]=useState(()=>{const h=location.hash.replace(/^#\/?/,'');if(h&&!VIEWS.includes(h))history.replaceState(null,'','#/overview');return VIEWS.includes(h)?h:'overview'}),[search,setSearch]=useState(''),[command,setCommand]=useState(false),[range,setRange]=useState(3600),[capacity,setCapacity]=useState(false),[now,setNow]=useState(Date.now()),[refreshing,setRefreshing]=useState(false),[toast,setToast]=useState(''),[dialog,setDialog]=useState(null),[busy,setBusy]=useState(false),[menu,setMenu]=useState(false),[filter,setFilter]=useState('all');
- const [compare,setCompare]=useState(()=>window.innerWidth>=840),[diskPick,setDiskPick]=useState('cache');const [category,setCategory]=useState('all');useEffect(()=>setCategory('all'),[view]);const [favorites,setFavorites]=useStored('homelab.favorites.v2',['pve','jellyfin','sabnzbd','files','guacamole','router']);const [theme,setTheme]=useStored('homelab.theme.v2',window.matchMedia?.('(prefers-color-scheme: light)').matches?'light':'dark');const [seedPref,setSeedPref]=useStored('homelab.seed.v1','auto');const [wallSeed,setWallSeed]=useState(readWallpaperSeed);const [palette,setPalette]=useState(false);const win=useWindowClass();const [railPref,setRailPref]=useStored('homelab.rail.v1',true);const [railModal,setRailModal]=useState(false);const navOpener=useRef(null);const [sheet,setSheet]=useState(false);
+ const [compare,setCompare]=useState(()=>window.innerWidth>=840),[diskPick,setDiskPick]=useState('cache');const [category,setCategory]=useState('all');useEffect(()=>setCategory('all'),[view]);const [favorites,setFavorites]=useStored('homelab.favorites.v2',['pve','jellyfin','sabnzbd','files','guacamole','router']);const [theme,setTheme]=useStored('homelab.theme.v2',window.matchMedia?.('(prefers-color-scheme: light)').matches?'light':'dark');const [seedPref,setSeedPref]=useStored('homelab.seed.v1','auto');const [wallSeed,setWallSeed]=useState(readWallpaperSeed);const [sysColors,setSysColors]=useState(readSystemColors);const [palette,setPalette]=useState(false);const win=useWindowClass();const [railPref,setRailPref]=useStored('homelab.rail.v1',true);const [railModal,setRailModal]=useState(false);const navOpener=useRef(null);const [sheet,setSheet]=useState(false);
  const [dialogActive,setDialogActive]=useState(false);
  const [cmdClosing,setCmdClosing]=useState(false);
  const closeCommand=()=>{
@@ -693,8 +693,11 @@ function App(){
  const seed=resolveSeed(seedPref,wallSeed);
  const applied=useRef([]);
  useLayoutEffect(()=>{const el=document.documentElement;applied.current.forEach(k=>el.style.removeProperty(k));applied.current=[];
-  if(!seed)return;const t=m3Tokens(theme!=='light',seed);for(const [k,v] of Object.entries(t))el.style.setProperty(k,v);applied.current=Object.keys(t)},[seed,theme]);
- useEffect(()=>{const on=()=>{if(!document.hidden)setWallSeed(readWallpaperSeed())};document.addEventListener('visibilitychange',on);return()=>document.removeEventListener('visibilitychange',on)},[]);
+  if(!seed)return;const t=m3Tokens(theme!=='light',seed);
+  // Wallpaper on Android 14+: the system's own roles replace the generated ones, so colours match other apps exactly.
+  if(seedPref==='auto'&&sysColors)for(const [k,v] of Object.entries(sysColors[theme==='light'?'light':'dark']||{}))if(/^#[0-9a-f]{6}$/i.test(v))t['--md-sys-color-'+k]=v;
+  for(const [k,v] of Object.entries(t))el.style.setProperty(k,v);applied.current=Object.keys(t)},[seed,theme,seedPref,sysColors]);
+ useEffect(()=>{const on=()=>{if(!document.hidden){setWallSeed(readWallpaperSeed());setSysColors(readSystemColors())}};document.addEventListener('visibilitychange',on);return()=>document.removeEventListener('visibilitychange',on)},[]);
  // Android status and navigation bars follow the theme: the page surface behind the status bar, the nav bar container
  // (or the surface when there's no bottom bar) behind the gesture bar. The native side validates and remembers them.
  useEffect(()=>{const id=requestAnimationFrame(()=>{const toHex=c=>{const m=String(c).match(/\d+(\.\d+)?/g);if(!m||m.length<3)return null;return '#'+m.slice(0,3).map(x=>Math.round(+x).toString(16).padStart(2,'0')).join('')};
@@ -882,6 +885,8 @@ function NowPlaying({jf}){
 // Material You colour choices. The wallpaper seed comes from the Android app's bridge (system_accent1_500, Android 12+).
 const COLOUR_PRESETS=[['pine','Pine',PINE],['#1d5c8a','Ocean','#1d5c8a'],['#3f4fa8','Indigo','#3f4fa8'],['#6b4ca3','Violet','#6b4ca3'],['#9c3d5a','Rose','#9c3d5a'],
  ['#a04a2a','Ember','#a04a2a'],['#8a6a1a','Amber','#8a6a1a'],['#4f6b3a','Sage','#4f6b3a'],['#4a5560','Slate','#4a5560']];
+// Android 14+: the exact Material You roles other apps use, light and dark ({light:{primary:'#…',…},dark:{…}}).
+function readSystemColors(){try{const v=window.AndroidBridge?.getSystemColors?.();const d=v?JSON.parse(v):null;return d&&d.light&&d.dark?d:null}catch{return null}}
 function readWallpaperSeed(){try{const v=window.AndroidBridge?.getWallpaperSeed?.();return /^#[0-9a-f]{6}$/i.test(v||'')?v:null}catch{return null}}
 function resolveSeed(pref,wall){if(pref==='auto')return wall;if(pref==='pine')return null;return /^#[0-9a-f]{6}$/i.test(pref||'')?pref:null}
 function ColourDialog({pref,wall,onPick,close}){
@@ -906,7 +911,9 @@ function DownloadsPanel({notify=()=>{}}){
  const [text,setText]=useState(''),[kind,setKind]=useState('torrent'),[results,setResults]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState({}),[shown,setShown]=useState(15),[recent,setRecent]=useState(()=>lastRecent);
  const isMagnet=/^magnet:\?/i.test(text.trim());
  const poll=useRef(null),seq=useRef(0),ctl=useRef(null);
- useEffect(()=>{let alive=true,timer;async function get(){try{const r=await fetch('/api/downloads',{cache:'no-store',signal:AbortSignal.timeout(15000)});const d=await r.json();const items=r.ok&&Array.isArray(d?.items)?d.items:null;if(items)lastRecent=items;if(alive)setRecent(items||{error:d?.error||'RdtClient is not answering.'})}catch{if(alive)setRecent({error:'RdtClient is not answering.'})}finally{if(alive)timer=setTimeout(get,document.hidden?30000:5000)}}
+ useEffect(()=>{let alive=true,timer;async function get(){try{const r=await fetch('/api/downloads',{cache:'no-store',signal:AbortSignal.timeout(15000)});const d=await r.json();const items=r.ok&&Array.isArray(d?.items)?d.items:null;if(items)lastRecent=items;
+   // Android app: something is downloading, so keep a progress notification going after the app is left.
+   if(items?.some(t=>(t.progress??1)<1&&!/error/i.test(t.state||''))){try{window.AndroidBridge?.watchDownloads?.()}catch{}}if(alive)setRecent(items||{error:d?.error||'RdtClient is not answering.'})}catch{if(alive)setRecent({error:'RdtClient is not answering.'})}finally{if(alive)timer=setTimeout(get,document.hidden?30000:5000)}}
   poll.current=()=>{clearTimeout(timer);get()};get();return()=>{alive=false;clearTimeout(timer)}},[]);
  // Each search cancels the one before it (switching Debrid/Usenet mid-search can't show the other kind's results) and
  // gives up after 45 s, so a hung indexer never locks the panel. Errors are worded for people, not raw browser text.
