@@ -911,3 +911,46 @@ def patch_storage_fast(source):
     source = source.replace(old, new) + '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+NOW_PLAYING_HELPER = r'''
+def _jf_now_playing(sessions):
+    """Who is watching what on Jellyfin, without tokens or paths: title, show, user, device, play method, progress."""
+    out = []
+    for s in sessions or []:
+        it = s.get('NowPlayingItem') or {}
+        if not it:
+            continue
+        ps, tc = s.get('PlayState') or {}, s.get('TranscodingInfo') or {}
+        run, pos = it.get('RunTimeTicks') or 0, ps.get('PositionTicks') or 0
+        poster = it.get('SeriesId') if it.get('Type') == 'Episode' and it.get('SeriesId') else it.get('Id')
+        out.append({'title': it.get('Name'), 'series': it.get('SeriesName'), 'season': it.get('ParentIndexNumber'),
+                    'episode': it.get('IndexNumber'), 'year': it.get('ProductionYear'), 'type': it.get('Type'),
+                    'user': s.get('UserName'), 'device': s.get('DeviceName'), 'client': s.get('Client'),
+                    'method': ps.get('PlayMethod'), 'paused': bool(ps.get('IsPaused')),
+                    'progress': round(pos / run, 4) if run else None, 'runtime_s': int(run / 1e7) if run else None,
+                    'video': tc.get('VideoCodec'), 'height': tc.get('Height'), 'bitrate': tc.get('Bitrate'),
+                    'reasons': (tc.get('TranscodeReasons') or [])[:3],
+                    'poster': poster if isinstance(poster, str) and len(poster) == 32 else None})
+    return out[:8]
+
+'''
+
+
+def patch_now_playing(source):
+    """Jellyfin sessions were only counted; keep a sanitized now-playing list in telemetry too (no extra request), and
+    remember the auth header in-process so download_proxy can relay poster images without the token reaching the page."""
+    marker = '# HOMELAB_NOW_PLAYING_V1'
+    if marker in source:
+        return source
+    old_count = "            active = sum((1 for s in jf_ses if s.get('NowPlayingItem')))\n"
+    old_field = "'active_streams': active,"
+    handler = 'class DashboardHandler(BaseHTTPRequestHandler):\n'
+    for needle in (old_count, old_field, handler):
+        if source.count(needle) != 1:
+            raise ValueError('Jellyfin task shape changed; now-playing patch not applied')
+    source = source.replace(old_count, old_count + "            globals()['_JF_HDR'] = jf_hdr\n")
+    source = source.replace(old_field, "'active_streams': active, 'now_playing': _jf_now_playing(jf_ses),")
+    source = source.replace(handler, NOW_PLAYING_HELPER + handler, 1) + '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

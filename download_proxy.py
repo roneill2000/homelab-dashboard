@@ -130,8 +130,34 @@ def _reply(handler, code, data):
     handler.send_header('Content-Length', str(len(raw))); handler.end_headers(); handler.wfile.write(raw)
 
 
+POSTER = re.compile(r'/api/media/poster/([0-9a-f]{32})')
+
+
+def poster(item_id):
+    """A Jellyfin poster, fetched with the backend's own Jellyfin header (kept in the dashboard process, never sent out)."""
+    import __main__
+    hdr = getattr(__main__, '_JF_HDR', None)
+    if not hdr: raise LookupError
+    req = urllib.request.Request(f'http://192.168.0.17:8096/Items/{item_id}/Images/Primary?fillHeight=270&quality=82', headers=hdr)
+    with urllib.request.urlopen(req, timeout=8) as r:
+        kind = r.headers.get('Content-Type', '')
+        body = r.read(2_000_000)
+    if not kind.startswith('image/'): raise LookupError
+    return kind, body
+
+
 def handle(handler, post=False):
     url = urllib.parse.urlparse(handler.path)
+    m = POSTER.fullmatch(url.path)
+    if m and not post:
+        try:
+            kind, body = poster(m.group(1))
+            handler.send_response(200); handler.send_header('Content-Type', kind)
+            handler.send_header('Cache-Control', 'private, max-age=86400'); handler.send_header('Content-Length', str(len(body)))
+            handler.end_headers(); handler.wfile.write(body)
+        except Exception:
+            handler.send_response(404); handler.send_header('Content-Length', '0'); handler.end_headers()
+        return True
     if url.path == '/api/downloads' and not post:
         try: _reply(handler, 200, {'items': recent()})
         except Exception: _reply(handler, 503, {'error': 'RdtClient is not answering.'})
