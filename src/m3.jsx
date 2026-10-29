@@ -168,16 +168,20 @@ export function LinearProgress({value,max=100,tone,label,wavy,color,className,..
   const T=4,A=3,L=40,GAP=4,STOP=4,H=wavy?10:T,mid=H/2,cap=T/2;
   const ink=color||(tone==='warning'?'var(--md-custom-amber)':tone==='error'?'var(--md-sys-color-error)':'var(--accent,var(--md-sys-color-primary))');
   const end=Math.max(0,w*pct/100);const actEnd=Math.max(cap,end-cap);
-  let wave='';if(wavy&&end>cap){for(let x=-L;x<=actEnd+L;x+=2)wave+=(wave?'L':'M')+x.toFixed(1)+' '+(mid+A*Math.sin(2*Math.PI*x/L)).toFixed(2)}
+  // Wavy: the wave is redrawn each frame between fixed ends (flat, round-capped) instead of sliding a long path under a
+  // clip, which cut the ends square and made them bob.
+  const waveRef=useRef(null);
+  const wavePath=phase=>{let d='';const ramp=L/2;for(let x=cap;x<=actEnd;x+=2){const env=Math.min(1,(x-cap)/ramp,(actEnd-x)/ramp);d+=(d?'L':'M')+x.toFixed(1)+' '+(mid+A*Math.max(0,env)*Math.sin(2*Math.PI*(x-phase)/L)).toFixed(2)}return d};
+  useEffect(()=>{if(!wavy||!(end>cap))return;const el=waveRef.current;if(!el)return;
+    if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){el.setAttribute('d',wavePath(0));return}
+    let raf;const t0=performance.now();const tick=t=>{el.setAttribute('d',wavePath(((t-t0)/1000*L)%L));raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf)},[wavy,end,actEnd,mid]);
   const trackStart=pct>0?end+GAP+cap:cap,trackEnd=w-cap-(pct<100?STOP+2:0);
-  const id=useRef('lp'+Math.random().toString(36).slice(2)).current;
   return <div ref={ref} className={cx('m3-xprogress',wavy&&'m3-xprogress--wavy',className)} style={{height:H}} role="progressbar" aria-label={label}
     aria-valuemin={0} aria-valuemax={max} aria-valuenow={ok?num:undefined} {...props}>
     {w>0&&<svg width={w} height={H} aria-hidden="true">
       {trackStart<trackEnd&&<line x1={trackStart} y1={mid} x2={trackEnd} y2={mid} className="m3-xprogress__track" strokeWidth={T} strokeLinecap="round"/>}
       {pct<100&&<circle cx={w-STOP/2} cy={mid} r={STOP/2} style={{fill:ink}}/>}
-      {pct>0&&(wavy?<><clipPath id={id}><rect x="0" y="0" width={end} height={H}/></clipPath>
-        <g clipPath={`url(#${id})`}><path d={wave} className="m3-xprogress__wave" style={{stroke:ink}} strokeWidth={T} strokeLinecap="round" fill="none"/></g></>
+      {pct>0&&(wavy?<path ref={waveRef} d={wavePath(0)} className="m3-xprogress__wave" style={{stroke:ink}} strokeWidth={T} strokeLinecap="round" strokeLinejoin="round" fill="none"/>
         :<line x1={cap} y1={mid} x2={actEnd} y2={mid} style={{stroke:ink}} strokeWidth={T} strokeLinecap="round"/>)}
     </svg>}</div>;
 }
@@ -272,7 +276,15 @@ export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialo
     window.dispatchEvent(new CustomEvent('m3:dialog-open'));
     const handleClose = () => closeRef.current?.();
     window.addEventListener('m3:close-all-overlays', handleClose);
-    return()=>{unlock();others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus();window.removeEventListener('m3:close-all-overlays', handleClose);window.dispatchEvent(new CustomEvent('m3:dialog-close'))}},[]);
+    // Callers unmount the dialog the moment it closes; a short-lived inert copy plays the exit so closing matches opening.
+    const layer=box.current?.parentElement;
+    return()=>{if(layer&&!reducedMotion()){const g=layer.cloneNode(true);g.inert=true;g.style.pointerEvents='none';g.setAttribute('aria-hidden','true');document.body.appendChild(g);
+        const d=g.querySelector('.m3-dialog'),sc=g.querySelector('.m3-scrim'),ease='cubic-bezier(0.3,0,0.8,0.15)';
+        [d,sc].forEach(el=>{if(el)el.style.animation='none'});
+        d?.animate([{opacity:1,transform:'translate(-50%,-50%)'},{opacity:0,transform:'translate(-50%,-48%) scale(.96)'}],{duration:150,easing:ease,fill:'forwards'});
+        const out=sc?.animate([{opacity:1},{opacity:0}],{duration:150,easing:ease,fill:'forwards'});
+        (out?out.finished:Promise.resolve()).catch(()=>{}).finally(()=>g.remove())}
+      unlock();others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus();window.removeEventListener('m3:close-all-overlays', handleClose);window.dispatchEvent(new CustomEvent('m3:dialog-close'))}},[]);
   const keys=ev=>{if(ev.key==='Escape'){ev.stopPropagation();onClose?.();return}if(ev.key!=='Tab')return;const n=tabbables(box.current);
     if(!n.length)return;if(ev.shiftKey&&document.activeElement===n[0]){ev.preventDefault();n.at(-1).focus()}
     else if(!ev.shiftKey&&document.activeElement===n.at(-1)){ev.preventDefault();n[0].focus()}};

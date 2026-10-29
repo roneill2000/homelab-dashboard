@@ -3,8 +3,7 @@
 .m3-xprogress{position:relative;width:100%;display:block;margin-top:6px;overflow:hidden;contain:inline-size}
 .m3-xprogress svg{display:block;overflow:visible}
 .m3-xprogress__track{stroke:var(--md-sys-color-secondary-container)}
-.m3-xprogress__wave{animation:m3-wave 1s linear infinite}
-@keyframes m3-wave{to{transform:translateX(40px)}}
+
 /* ---------- Shape morph on press (buttons and icon buttons go from round to rounded-square) ---------- */
 .m3-icon-btn{transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
   box-shadow var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects),

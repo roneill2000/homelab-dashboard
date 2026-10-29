@@ -437,3 +437,6 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 .m3-top-app-bar .m3-top-app-bar__title{flex:1 1 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The phone sheet's spring overshoot never lifts it off the screen edge: its surface continues below. */
 .m3-nav-drawer.is-sheet::after{content:'';position:absolute;left:0;right:0;top:100%;height:32px;background:inherit}
+/* Updates placeholders are the height of real rows, so the list doesn't jump when it arrives. */
+.update-list .update-row.update-row--skeleton{display:flex;align-items:center;min-height:67px}
+@media (max-width:839px){.update-list .update-row.update-row--skeleton{min-height:91px}}
