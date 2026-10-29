@@ -411,3 +411,5 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .m3-field__input:focus-visible{outline:none}
 /* Overview hero while backup status is still unknown: neutral, neither green nor attention. */
 .ov-hero.ov-hero--checking{--hero-ink:var(--md-sys-color-on-surface);--hero-fill:var(--md-sys-color-surface-container-highest);background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface)}
+.offsite-progress>.source-note{margin:0 0 8px}
+.offsite-progress>.m3-linear-progress{position:relative;margin:0 0 4px}
