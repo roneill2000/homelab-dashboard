@@ -139,6 +139,23 @@ class FleetCacheTests(unittest.TestCase):
         self.assertEqual(proxy.FLEET['body']['n'], 2)
 
 
+class FleetLoopTests(unittest.TestCase):
+    def test_background_refresh_starts_once_and_fills_the_cache(self):
+        import time as t
+        proxy.FLEET.clear(); proxy.FLEET.update(at=0, body=None); proxy._LOOP['started'] = False
+        calls = []
+        with patch.object(proxy, 'remote', side_effect=lambda cmd, timeout=15: calls.append(cmd) or {'cloud_backup': {'running': False}}), \
+             patch.object(proxy.time, 'sleep', side_effect=lambda s: t.sleep(0.05) if s else None), \
+             patch('os.path.exists', return_value=True):
+            self.assertTrue(proxy.start_fleet_loop())
+            self.assertFalse(proxy.start_fleet_loop())               # second call is a no-op
+            for _ in range(40):
+                if proxy.FLEET['body']: break
+                t.sleep(0.02)
+        self.assertEqual(proxy.FLEET['body'], {'cloud_backup': {'running': False}})
+        self.assertGreaterEqual(len(calls), 1)
+
+
 class PiTests(unittest.TestCase):
     def test_parse_pi_extra(self):
         info = u.parse_pi_extra('C 123\nS 1.15 1.09 1.04|484|981|51092|5|600000|Ubuntu 26.04.1 LTS|6.1.31-sun50iw9|active|4\n'

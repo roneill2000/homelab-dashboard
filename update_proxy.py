@@ -38,6 +38,35 @@ def _refresh_fleet():
         with FLEET_LOCK:FLEET['refreshing']=False
 
 
+def _fleet_loop():
+    # Keep host and backup status fresh whether or not anyone is looking, so opening the app or site shows a current
+    # answer at once instead of an old copy or the ~8 s probe. Every 50 s (under the 60 s cache age), 12 s while a cloud
+    # backup uploads so its progress bar moves.
+    while True:
+        with FLEET_LOCK:
+            busy=FLEET.get('refreshing')
+            if not busy:FLEET['refreshing']=True
+        if not busy:
+            try:_refresh_fleet()
+            except Exception:pass
+        with FLEET_LOCK:body=FLEET['body']
+        running=isinstance(body,dict) and (body.get('cloud_backup') or {}).get('running')
+        time.sleep(12 if running else 50)
+
+
+_LOOP={'started':False};_LOOP_LOCK=threading.Lock()
+
+
+def start_fleet_loop():
+    import os
+    if not os.path.exists(KEY):return False  # only on the dashboard host (tests and previews never probe Proxmox)
+    with _LOOP_LOCK:
+        if _LOOP['started']:return False
+        _LOOP['started']=True
+    threading.Thread(target=_fleet_loop,name='fleet-refresh',daemon=True).start()
+    return True
+
+
 def fleet():
     # Read-only container health and backup state from Proxmox. A probe takes ~8 s, so once there is a result it is
     # answered at once and refreshed in the background when over a minute old; only the very first call waits.
@@ -91,6 +120,7 @@ def wake_pc():
 
 
 def handle(handler,post=False):
+    start_fleet_loop()
     path=urllib.parse.urlparse(handler.path).path
     import download_proxy
     if download_proxy.handle(handler,post):return True
