@@ -259,7 +259,9 @@
 .ov-favorites .service-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))}
 .ov-side{display:grid;gap:16px}
 .ov-status{background:var(--md-sys-color-surface-container);border-radius:var(--md-sys-shape-corner-large-increased);padding:16px 8px 8px}
-.ov-status--bad{background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container)}
+/* Same warm tone as the attention hero above it; the chip and the failing row keep the red. */
+.ov-status--bad{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container)}
+:root[data-theme=light] .ov-status--bad{background:var(--md-sys-color-tertiary-fixed);color:var(--md-sys-color-on-tertiary-fixed)}
 .ov-status__head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px}
 .ov-status__head h3{margin:0;font:var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--md-sys-typescale-title-medium-font)}
 .ov-status__body{margin:8px 8px 4px;color:var(--md-sys-color-on-surface-variant);font:var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font)}
