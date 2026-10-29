@@ -1,6 +1,6 @@
 // Material 3 React components for the dashboard. Styling lives in src/m3-components.css (class names below).
 // Every component is a thin wrapper: pass extra props (aria-*, onClick, data-*) and they reach the root element.
-const {useState,useEffect,useRef}=React;
+const {useState,useEffect,useLayoutEffect,useRef}=React;
 
 // Material Symbols Rounded names for the dashboard's icon keys. Any other string is used as a Material Symbols name
 // directly (add it to m3-icons.mjs so the font subset includes it).
@@ -166,7 +166,8 @@ export function CardHeader({icon,title,subtitle,trailing,headingLevel=3}){
 // actually in progress (uploads, updates). Flat for static values such as disk usage. Values: m3-expressive.css.
 export function LinearProgress({value,max=100,tone,label,wavy,color,className,...props}){
   const ref=useRef();const [w,setW]=useState(0);
-  useEffect(()=>{const el=ref.current;if(!el)return;setW(el.clientWidth);const ro=new ResizeObserver(([e])=>setW(e.contentRect.width));ro.observe(el);return()=>ro.disconnect()},[]);
+  // Measured before the first paint, so the bar is drawn (and its fill starts) with the page, not a frame later.
+  useLayoutEffect(()=>{const el=ref.current;if(!el)return;setW(el.clientWidth);const ro=new ResizeObserver(([e])=>setW(e.contentRect.width));ro.observe(el);return()=>ro.disconnect()},[]);
   const num=Number(value),ok=Number.isFinite(num)&&max>0,pct=ok?Math.max(0,Math.min(100,num/max*100)):0;
   const T=4,A=3,L=40,GAP=4,STOP=4,H=wavy?10:T,mid=H/2,cap=T/2;
   const ink=color||(tone==='warning'?'var(--md-custom-amber)':tone==='error'?'var(--md-sys-color-error)':'var(--accent,var(--md-sys-color-primary))');

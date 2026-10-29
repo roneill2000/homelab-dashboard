@@ -59,7 +59,8 @@
 @keyframes m3-icon-bounce{from{transform:scale(.7)}}
 
 /* Progress bars fill in from the left when they appear. */
-.m3-xprogress svg{animation:m3-fill var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 150ms backwards}
+/* Fills alongside the page's own entrance (about 350 ms), not after it. */
+.m3-xprogress svg{animation:m3-fill 350ms var(--md-sys-motion-easing-emphasized-decelerate) backwards}
 @keyframes m3-fill{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 
 /* Small moments: live dot breathes, the theme toggle spins, the selected segment's check pops, the sheet handle stretches. */
