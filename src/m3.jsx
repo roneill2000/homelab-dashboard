@@ -53,7 +53,9 @@ export function withPageTransition(update,from,origin){
   const rise=[{opacity:0,transform:'translateY(40px)'},{opacity:1,transform:'none'}];
   // From a navigation button: every part scales up out of that button's centre (bottom bar: up from that tab, side rail:
   // out from the left), so the page visibly comes from what was pressed. Otherwise the page rises in place.
-  const grow=el=>{const r=el.getBoundingClientRect();return [{opacity:0,transformOrigin:`${origin.x-r.left}px ${origin.y-r.top}px`,transform:'scale(.86)'},{opacity:1,transformOrigin:`${origin.x-r.left}px ${origin.y-r.top}px`,transform:'none'}]};
+  // Wide screens start smaller: the rail sits right beside the content, so .86 barely moved it (Ryan, 29 Oct).
+  const startScale=window.innerWidth>=840?.78:.86;
+  const grow=el=>{const r=el.getBoundingClientRect();return [{opacity:0,transformOrigin:`${origin.x-r.left}px ${origin.y-r.top}px`,transform:`scale(${startScale})`},{opacity:1,transformOrigin:`${origin.x-r.left}px ${origin.y-r.top}px`,transform:'none'}]};
   const runs=parts.map(c=>c.animate(origin?grow(c):rise,{duration,easing}));
   // Nav switches: the old title leaves with the old page and the new one rises in (a fading copy of the old word read
   // as the wrong title). A tapped element (from) still morphs into the title.
