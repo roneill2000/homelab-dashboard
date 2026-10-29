@@ -115,6 +115,30 @@ class SleepTests(unittest.TestCase):
         codes, s = self.post(ok, b'{"force": "yes"}'); s.assert_called_once_with(force=False)
 
 
+class FleetCacheTests(unittest.TestCase):
+    def test_answers_from_cache_and_refreshes_in_background(self):
+        import threading, time as t
+        proxy.FLEET.clear(); proxy.FLEET.update(at=0, body=None)
+        gate = threading.Event(); calls = []
+        def remote(cmd, timeout=15):
+            calls.append(cmd)
+            if len(calls) > 1: gate.wait(2)
+            return {'n': len(calls)}
+        with patch.object(proxy, 'remote', side_effect=remote):
+            self.assertEqual(proxy.fleet()['n'], 1)                 # first call waits for the probe
+            self.assertEqual(proxy.fleet()['n'], 1); self.assertEqual(len(calls), 1)  # fresh: cached
+            proxy.FLEET['at'] -= 120
+            started = t.time(); old = proxy.fleet()
+            self.assertEqual(old['n'], 1); self.assertLess(t.time() - started, 0.5)   # stale: old copy at once
+            self.assertEqual(old['checked_at'], int(proxy.FLEET['at']))
+            proxy.fleet(); gate.set()
+            for _ in range(50):
+                if proxy.FLEET['body']['n'] == 2: break
+                t.sleep(0.02)
+        self.assertEqual(len(calls), 2)                              # one background refresh, not one per request
+        self.assertEqual(proxy.FLEET['body']['n'], 2)
+
+
 class PiTests(unittest.TestCase):
     def test_parse_pi_extra(self):
         info = u.parse_pi_extra('C 123\nS 1.15 1.09 1.04|484|981|51092|5|600000|Ubuntu 26.04.1 LTS|6.1.31-sun50iw9|active|4\n'

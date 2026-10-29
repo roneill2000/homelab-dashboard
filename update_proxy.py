@@ -30,11 +30,34 @@ def status():
         body=remote('status');CACHE.update(at=time.time(),body=body);return body
 
 
+def _refresh_fleet():
+    try:
+        body=remote('health',timeout=90)
+        with FLEET_LOCK:FLEET.update(at=time.time(),body=body)
+    finally:
+        with FLEET_LOCK:FLEET['refreshing']=False
+
+
 def fleet():
-    # Read-only container health from Proxmox; a probe takes ~8 s, so cache for a minute.
+    # Read-only container health and backup state from Proxmox. A probe takes ~8 s, so once there is a result it is
+    # answered at once and refreshed in the background when over a minute old; only the very first call waits.
+    # checked_at lets the page ask again shortly after it was handed an old copy.
     with FLEET_LOCK:
-        if FLEET['body'] is not None and time.time()-FLEET['at']<60:return FLEET['body']
-        body=remote('health',timeout=90);FLEET.update(at=time.time(),body=body);return body
+        body,at=FLEET['body'],FLEET['at']
+        stale=body is None or time.time()-at>=60
+        start=stale and not FLEET.get('refreshing')
+        if start:FLEET['refreshing']=True
+    if body is None:
+        if start:_refresh_fleet()
+        else:
+            for _ in range(900):
+                time.sleep(0.1)
+                with FLEET_LOCK:
+                    if FLEET['body'] is not None:break
+        with FLEET_LOCK:body,at=FLEET['body'],FLEET['at']
+        if body is None:raise RuntimeError('fleet probe failed')
+    elif start:threading.Thread(target=_refresh_fleet,daemon=True).start()
+    return dict(body,checked_at=int(at)) if isinstance(body,dict) else body
 
 
 def events():

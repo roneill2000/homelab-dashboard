@@ -176,7 +176,7 @@ export function LinearProgress({value,max=100,tone,label,wavy,color,className,..
       {trackStart<trackEnd&&<line x1={trackStart} y1={mid} x2={trackEnd} y2={mid} className="m3-xprogress__track" strokeWidth={T} strokeLinecap="round"/>}
       {pct<100&&<circle cx={w-STOP/2} cy={mid} r={STOP/2} style={{fill:ink}}/>}
       {pct>0&&(wavy?<><clipPath id={id}><rect x="0" y="0" width={end} height={H}/></clipPath>
-        <path d={wave} clipPath={`url(#${id})`} className="m3-xprogress__wave" style={{stroke:ink}} strokeWidth={T} strokeLinecap="round" fill="none"/></>
+        <g clipPath={`url(#${id})`}><path d={wave} className="m3-xprogress__wave" style={{stroke:ink}} strokeWidth={T} strokeLinecap="round" fill="none"/></g></>
         :<line x1={cap} y1={mid} x2={actEnd} y2={mid} style={{stroke:ink}} strokeWidth={T} strokeLinecap="round"/>)}
     </svg>}</div>;
 }
