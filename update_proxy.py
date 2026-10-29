@@ -112,7 +112,13 @@ def events(wait=True):
         _refresh_events()
         with EVENTS_LOCK:body=EVENTS['body']
     elif start:threading.Thread(target=_refresh_events,daemon=True).start()
-    if body is None and wait:raise RuntimeError('events unavailable')
+    if body is None and wait:  # a background refresh is already collecting it: wait for that instead of failing
+        for _ in range(900):
+            time.sleep(0.1)
+            with EVENTS_LOCK:
+                body=EVENTS['body']
+                if body is not None or not EVENTS.get('refreshing'):break
+        if body is None:raise RuntimeError('events unavailable')
     return body
 
 
