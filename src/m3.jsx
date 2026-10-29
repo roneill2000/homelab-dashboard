@@ -180,10 +180,15 @@ export function LinearProgress({value,max=100,tone,label,wavy,color,className,..
     if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){el.setAttribute('d',wavePath(0));return}
     let raf;const t0=performance.now();const tick=t=>{el.setAttribute('d',wavePath(((t-t0)/1000*L)%L));raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf)},[wavy,end,actEnd,mid]);
   const trackStart=pct>0?end+GAP+cap:cap,trackEnd=w-cap-(pct<100?STOP+2:0);
+  const tailStart=cap*2+GAP;  // where the track begins while the used part is still empty
   return <div ref={ref} className={cx('m3-xprogress',wavy&&'m3-xprogress--wavy',className)} style={{height:H}} role="progressbar" aria-label={label}
     aria-valuemin={0} aria-valuemax={max} aria-valuenow={ok?num:undefined} {...props}>
     {w>0&&<svg width={w} height={H} aria-hidden="true">
-      {trackStart<trackEnd&&<line x1={trackStart} y1={mid} x2={trackEnd} y2={mid} className="m3-xprogress__track" strokeWidth={T} strokeLinecap="round"/>}
+      {trackStart<trackEnd&&(pct>0&&!wavy
+        // Drawn from the right end leftwards and shortened in step with the used part's growth (same timing), so the
+        // track never shows where the bar will stop before it gets there.
+        ?<line x1={trackEnd} y1={mid} x2={tailStart} y2={mid} pathLength="1" className="m3-xprogress__track m3-xprogress__track--grow" style={{'--track-f':Math.max(0,Math.min(1,(trackEnd-trackStart)/Math.max(1,trackEnd-tailStart)))}} strokeWidth={T} strokeLinecap="round"/>
+        :<line x1={trackStart} y1={mid} x2={trackEnd} y2={mid} className="m3-xprogress__track" strokeWidth={T} strokeLinecap="round"/>)}
       {pct<100&&<circle cx={w-STOP/2} cy={mid} r={STOP/2} style={{fill:ink}}/>}
       {pct>0&&(wavy?<path ref={waveRef} d={wavePath(0)} className="m3-xprogress__wave" style={{stroke:ink}} strokeWidth={T} strokeLinecap="round" strokeLinejoin="round" fill="none"/>
         :<line className="m3-xprogress__active" pathLength="1" x1={cap} y1={mid} x2={actEnd} y2={mid} style={{stroke:ink}} strokeWidth={T} strokeLinecap="round"/>)}

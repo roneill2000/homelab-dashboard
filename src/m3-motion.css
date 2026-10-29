@@ -61,6 +61,8 @@
 /* Progress bars fill in from the left when they appear. */
 /* The used part draws itself in from the left with the page's entrance; the track stays put. */
 .m3-xprogress__active{stroke-dasharray:1 1;animation:m3-grow 650ms cubic-bezier(0.3,0,0.2,1) backwards}
+.m3-xprogress__track--grow{animation:m3-track 650ms cubic-bezier(0.3,0,0.2,1) backwards}
+@keyframes m3-track{from{stroke-dasharray:1 1}}
 @keyframes m3-grow{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
 @keyframes m3-fill{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 
@@ -165,3 +167,5 @@
 /* The page container keeps its place between pages; only its height differs. The default group animation tweened that
    height on the main thread for every page change, so it is switched off (the page snapshots still rise and fade). */
 ::view-transition-group(page){animation:none}
+/* The growing track's resting length (applies with or without motion). */
+.m3-xprogress__track--grow{stroke-dasharray:var(--track-f) 1}
