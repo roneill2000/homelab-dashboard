@@ -28,12 +28,15 @@ await page.waitForTimeout(50);
 const h1 = page.getByRole('heading', { name: 'Overview', exact: true });
 await h1.waitFor();
 
-const boxAt50ms = await h1.boundingBox();
-assert.ok(boxAt50ms, 'h1 must have a bounding box at DOMContentLoaded+50ms');
+// Measure the rendered text, not the element: the heading's box also stretches when header content beside it
+// loads, which is layout, not a font swap.
+const textBox = () => h1.evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); const b = r.getBoundingClientRect(); return { width: b.width, height: b.height }; });
+const boxAt50ms = await textBox();
+assert.ok(boxAt50ms.width > 0, 'h1 text must render at DOMContentLoaded+50ms');
 
 await page.waitForTimeout(2000);
-const boxAt2s = await h1.boundingBox();
-assert.ok(boxAt2s, 'h1 must have a bounding box at 2s');
+const boxAt2s = await textBox();
+assert.ok(boxAt2s.width > 0, 'h1 text must render at 2s');
 
 // Assert identical glyph / bounding box widths (no font swap)
 console.log(`h1 width at 50ms: ${boxAt50ms.width}, at 2s: ${boxAt2s.width}`);
