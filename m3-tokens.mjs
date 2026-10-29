@@ -20,8 +20,9 @@ const ROLES = Object.getOwnPropertyNames(Object.getPrototypeOf(DC))
   .filter(k => { try { return DC[k]() instanceof DynamicColor; } catch { return false; } });
 const kebab = s => s.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
 
-function block(isDark) {
-  const seed = Hct.fromInt(argbFromHex(SEED));
+// Token values for one theme from a seed colour. The page also calls this at runtime (Material You: wallpaper or picked colour).
+export function tokens(isDark, seedHex = SEED) {
+  const seed = Hct.fromInt(argbFromHex(seedHex));
   const fidelity = new SchemeFidelity(seed, isDark, 0, SPEC);
   // Fidelity's own neutrals are near-grey; tint surfaces and outlines with the seed hue (chroma 10 / 14) so the
   // page reads as pine at dusk. Light theme uses less tint (4 / 7): at light tones the same chroma reads as mint (Ryan, 27 Oct).
@@ -30,11 +31,12 @@ function block(isDark) {
     platform: fidelity.platform, primaryPalette: fidelity.primaryPalette, secondaryPalette: fidelity.secondaryPalette,
     tertiaryPalette: fidelity.tertiaryPalette, errorPalette: fidelity.errorPalette,
     neutralPalette: TonalPalette.fromHueAndChroma(seed.hue, isDark ? 10 : 4), neutralVariantPalette: TonalPalette.fromHueAndChroma(seed.hue, isDark ? 14 : 7) });
-  const lines = ROLES.map(k => `--md-sys-color-${kebab(k)}:${hexFromArgb(DC[k]().getArgb(scheme))}`);
+  const out = {};
+  for (const k of ROLES) out[`--md-sys-color-${kebab(k)}`] = hexFromArgb(DC[k]().getArgb(scheme));
   for (const [name, hex] of Object.entries(CUSTOM)) {
-    const c = customColor(argbFromHex(SEED), { name, value: argbFromHex(hex), blend: true })[isDark ? 'dark' : 'light'];
-    lines.push(`--md-custom-${name}:${hexFromArgb(c.color)}`, `--md-custom-on-${name}:${hexFromArgb(c.onColor)}`,
-      `--md-custom-${name}-container:${hexFromArgb(c.colorContainer)}`, `--md-custom-on-${name}-container:${hexFromArgb(c.onColorContainer)}`);
+    const c = customColor(argbFromHex(seedHex), { name, value: argbFromHex(hex), blend: true })[isDark ? 'dark' : 'light'];
+    Object.assign(out, { [`--md-custom-${name}`]: hexFromArgb(c.color), [`--md-custom-on-${name}`]: hexFromArgb(c.onColor),
+      [`--md-custom-${name}-container`]: hexFromArgb(c.colorContainer), [`--md-custom-on-${name}-container`]: hexFromArgb(c.onColorContainer) });
   }
   // Chart series --md-chart-1..5: pine (primary hue), soft grey, blue, green and violet. Ryan asked for no orange, yellow
   // or pink lines, so a near-neutral grey and green replace the tertiary cedar and amber; blue and violet are harmonised. Tone/chroma per theme were chosen with the dataviz palette validator (lightness band, chroma floor, colour-blind
@@ -42,9 +44,11 @@ function block(isDark) {
   const [tone, chroma] = isDark ? [60, 48] : [50, 70];
   const harmonised = hex => Hct.fromInt(Blend.harmonize(argbFromHex(hex), seed.toInt())).hue;
   [fidelity.primaryPalette.hue, fidelity.primaryPalette.hue, harmonised(CUSTOM.blue), Hct.fromInt(argbFromHex('#5cb85c')).hue, harmonised(CUSTOM.purple)]
-    .forEach((h, i) => lines.push(`--md-chart-${i + 1}:${hexFromArgb((i === 1 ? Hct.from(h, 4, isDark ? 82 : 42) : Hct.from(h, chroma, tone)).toInt())}`));
-  return lines.join(';');
+    .forEach((h, i) => { out[`--md-chart-${i + 1}`] = hexFromArgb((i === 1 ? Hct.from(h, 4, isDark ? 82 : 42) : Hct.from(h, chroma, tone)).toInt()); });
+  return out;
 }
+
+const block = isDark => Object.entries(tokens(isDark)).map(([k, v]) => `${k}:${v}`).join(';');
 
 export function m3TokensCss() {
   return `/* GENERATED: m3-tokens (m3-tokens.mjs, seed ${SEED}, spec ${SPEC}) */:root{color-scheme:dark;${block(true)}}:root[data-theme=light]{color-scheme:light;${block(false)}}`;

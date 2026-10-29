@@ -1,9 +1,9 @@
 {
-  "icons_hash": "1cb063c87cbbff8a8e86de6085c35125c82966593fdf71995e4803ebfcba6db9",
+  "icons_hash": "8683b923d2933ceab3c23ec310fa3e6e3a77cf5cb7b5759d0e04bac9dee63038",
   "fonts": {
     "google-sans-code": "google-sans-code-latin-98eee6fe.woff2",
     "google-sans-flex": "google-sans-flex-latin-9ec7b22b.woff2",
     "roboto-flex": "roboto-flex-latin-e97ca92c.woff2",
-    "material-symbols-rounded": "material-symbols-rounded-8c96b7db.woff2"
+    "material-symbols-rounded": "material-symbols-rounded-486b78b8.woff2"
   }
 }
