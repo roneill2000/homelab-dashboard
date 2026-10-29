@@ -44,7 +44,9 @@ def fleet():
     # checked_at lets the page ask again shortly after it was handed an old copy.
     with FLEET_LOCK:
         body,at=FLEET['body'],FLEET['at']
-        stale=body is None or time.time()-at>=60
+        # While a cloud backup runs, refresh every 15 s so its progress bar moves; otherwise once a minute.
+        ttl=15 if isinstance(body,dict) and (body.get('cloud_backup') or {}).get('running') else 60
+        stale=body is None or time.time()-at>=ttl
         start=stale and not FLEET.get('refreshing')
         if start:FLEET['refreshing']=True
     if body is None:
