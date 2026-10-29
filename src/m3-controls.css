@@ -433,3 +433,7 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 .update-detail__link{min-height:44px}
 /* Stacked Ask controls (narrow phones, zoomed text) never grow past the card. */
 .qwen-input-row>*,.ai-task--ask .qwen-input-row .m3-select--qwen{max-width:100%}
+/* The hidden top-bar title takes a fixed share of the bar (not its text width), so the search bar never shifts between pages. */
+.m3-top-app-bar .m3-top-app-bar__title{flex:1 1 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The phone sheet's spring overshoot never lifts it off the screen edge: its surface continues below. */
+.m3-nav-drawer.is-sheet::after{content:'';position:absolute;left:0;right:0;top:100%;height:32px;background:inherit}

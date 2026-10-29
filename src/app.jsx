@@ -315,14 +315,21 @@ function AskQwen({gpu,ai,slim=false,task=false}){
  const coarse=useMemo(()=>window.matchMedia('(pointer: coarse)').matches,[]),[typing,setTyping]=useState(false),tapCollapsed=useRef(false);
  const noKbd=coarse&&slim&&!typing;
  useEffect(()=>{if(collapsed)setTyping(false)},[collapsed]);
-  const sectionRef=useRef(null),lastH=useRef(0),lastCollapsed=useRef(collapsed);
- useLayoutEffect(()=>{const el=sectionRef.current;if(!el)return;const to=el.offsetHeight,from=lastH.current;
-  if(lastCollapsed.current!==collapsed&&from&&from!==to&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches&&el.animate){
+  const sectionRef=useRef(null),lastH=useRef(0),lastMB=useRef(0),lastCollapsed=useRef(collapsed),anim=useRef(null);
+ useLayoutEffect(()=>{const el=sectionRef.current;if(!el)return;
+  const flip=lastCollapsed.current!==collapsed,run=anim.current;
+  // Interrupted mid-way: start from where the box is on screen now and drop the old animation, so they never stack.
+  const from=run?el.getBoundingClientRect().height:lastH.current,fromMB=run?parseFloat(getComputedStyle(el).marginBottom):lastMB.current;
+  if(flip&&run){run.cancel();anim.current=null}
+  const to=el.offsetHeight,toMB=parseFloat(getComputedStyle(el).marginBottom);
+  if(flip&&from&&from!==to&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches&&el.animate){
    // Open: an even ease so the growth is visible. Close: quick ease-out, since the hidden content leaves an empty gap.
-   el.animate([{height:from+'px',overflow:'hidden'},{height:to+'px',overflow:'hidden'}],collapsed?{duration:180,easing:'cubic-bezier(0.2,0,0,1)'}:{duration:420,easing:'cubic-bezier(0.4,0,0.2,1)'});
+   // The bottom margin changes with the state too; animating it with the height keeps the content below from jumping.
+   const a=el.animate([{height:from+'px',marginBottom:fromMB+'px',overflow:'hidden'},{height:to+'px',marginBottom:toMB+'px',overflow:'hidden'}],collapsed?{duration:180,easing:'cubic-bezier(0.2,0,0,1)'}:{duration:420,easing:'cubic-bezier(0.4,0,0.2,1)'});
+   anim.current=a;a.onfinish=a.oncancel=()=>{if(anim.current===a)anim.current=null};
    if(!collapsed)el.querySelectorAll('.qwen-heading,label[for=qwen-prompt],.qwen-help,.qwen-status,.qwen-gpu').forEach((c,i)=>c.animate([{opacity:0,transform:'translateY(-8px)'},{opacity:1,transform:'none'}],{duration:300,delay:120+i*40,easing:'cubic-bezier(0.2,0,0,1)',fill:'backwards'}));
   }
-  lastCollapsed.current=collapsed;lastH.current=to});
+  lastCollapsed.current=collapsed;if(flip||!anim.current){lastH.current=to;lastMB.current=toMB}});
   const labels={idle:'Ready',queued:'Queued',loading:'Loading model',generating:'Writing answer',complete:'Answer ready',failed:'Request failed',busy:'Model in use'};
  return <section ref={sectionRef} className={'qwen-section'+(collapsed?' qwen-collapsed':'')+(slim?' qwen-slim':'')+(task?' ai-task ai-task--ask':'')} aria-labelledby="qwen-heading"><div className="qwen-heading">{task&&<span className="ai-task__icon"><Icon name="psychology" size={24}/></span>}<h2 id="qwen-heading">{task?'Ask about the homelab':'Ask AI'}</h2><span className="qwen-model">{job?.model&&['queued','loading','generating','complete'].includes(job.status)?job.model:targetLabel(target)}</span></div><div className="m3-card m3-card--outlined panel qwen-panel"><form onSubmit={submit} onFocus={()=>setFocused(true)} onBlur={ev=>{if(!ev.currentTarget.contains(ev.relatedTarget))setFocused(false)}}><label htmlFor="qwen-prompt">Your question</label><div className="qwen-input-row"><textarea id="qwen-prompt" readOnly={noKbd} onPointerDown={()=>{tapCollapsed.current=collapsed}} onClick={e=>{if(noKbd&&!tapCollapsed.current){const t=e.currentTarget;setTyping(true);t.readOnly=false;t.blur();t.focus()}}} rows={collapsed?1:2} maxLength="3000" value={prompt} onChange={event=>setPrompt(event.target.value)} placeholder={slim&&collapsed?'Ask about your homelab…':'How busy is the scratch disk right now?'} aria-describedby="qwen-help qwen-count"/><MenuSelect className="m3-select--qwen qwen-target" aria-label="Which model answers" value={target} disabled={active} onChange={v=>{haptic('tap');setTarget(v);try{localStorage.setItem('qwenTarget',v)}catch{}}}
   options={[{value:'a310',label:'Gemma 4 E4B · fast (~14–18 tok/s)',group:'A310 · Unraid'},
@@ -645,7 +652,7 @@ function App(){
   return()=>{window.removeEventListener('touchstart',start);window.removeEventListener('touchmove',move);window.removeEventListener('touchend',end);window.removeEventListener('touchcancel',end)}},[win,command,menu]);
  useEffect(()=>{const sel=['#main','.skip','.m3-nav-bar',win==='medium'?'.m3-nav-rail':null].filter(Boolean);for(const q of sel){const el=document.querySelector(q);if(el)el.inert=navModal}
   if(navModal){navOpener.current=document.activeElement;const box=document.querySelector(railModal?'.m3-xrail':'.m3-nav-drawer.is-modal');{let n=0;const tryFocus=()=>{const t=box?.querySelector('[aria-current=page]')||box?.querySelector('button,a');t?.focus();if(!box?.contains(document.activeElement)&&n++<20)requestAnimationFrame(tryFocus)};requestAnimationFrame(tryFocus)}}
-  else if(navOpener.current){const o=navOpener.current;navOpener.current=null;if(navigatedRef.current){navigatedRef.current=false;requestAnimationFrame(()=>document.querySelector('main h1')?.focus({preventScroll:true}))}else if(o.isConnected&&o.getClientRects().length&&!o.closest('.m3-nav-drawer'))o.focus();else tabbables(document.querySelector('.m3-top-app-bar,.m3-nav-rail,.m3-xrail'))[0]?.focus()}},[navModal]);const [scrolled,setScrolled]=useState(false);useEffect(()=>{const on=()=>setScrolled(window.scrollY>4);on();window.addEventListener('scroll',on,{passive:true});return()=>window.removeEventListener('scroll',on)},[]);const cmdRef=useRef(null),toastTimer=useRef(),loadRef=useRef(),storageRef=useRef();
+  else if(navOpener.current){const o=navOpener.current;navOpener.current=null;if(navigatedRef.current){navigatedRef.current=false;requestAnimationFrame(()=>document.querySelector('main h1')?.focus({preventScroll:true}))}else if(o.isConnected&&o.getClientRects().length&&!o.closest('.m3-nav-drawer'))o.focus();else tabbables(document.querySelector('.m3-top-app-bar,.m3-nav-rail,.m3-xrail'))[0]?.focus()}},[navModal]);const [scrolled,setScrolled]=useState(false);const sheetSeen=useRef(false);useEffect(()=>{const on=()=>setScrolled(window.scrollY>4);on();window.addEventListener('scroll',on,{passive:true});return()=>window.removeEventListener('scroll',on)},[]);const cmdRef=useRef(null),toastTimer=useRef(),loadRef=useRef(),storageRef=useRef();
  const notify=msg=>{setToast(msg);clearTimeout(toastTimer.current);toastTimer.current=setTimeout(()=>setToast(''),3600)};
  const lastSource=useRef(null);useEffect(()=>{const on=ev=>{const el=ev.target.closest?.('button,a,[role=button]');lastSource.current=el&&el.closest('main')&&!el.closest('.m3-nav-bar,.m3-nav-rail,.m3-xrail,.m3-nav-drawer')?{el,t:performance.now()}:null};document.addEventListener('pointerdown',on,true);document.addEventListener('keydown',on,true);return()=>{document.removeEventListener('pointerdown',on,true);document.removeEventListener('keydown',on,true)}},[]);
  const navigatedRef=useRef(false);// section: element id to scroll to and focus once the new page is showing (Overview shortcuts into a long page).
@@ -659,7 +666,7 @@ function App(){
    navigatedRef.current=true;
    const src=lastSource.current&&performance.now()-lastSource.current.t<1500&&lastSource.current.el.isConnected?lastSource.current.el:null;
    lastSource.current=null;
-   withPageTransition(()=>{setView(v);setSearch('');setFilter(opts.filter||'all')},src).then(()=>section&&jump(section));
+   withPageTransition(()=>{window.scrollTo({top:0,behavior:'instant'});setScrolled(false);setView(v);setSearch('');setFilter(opts.filter||'all')},src).then(()=>section&&jump(section));
   }else{
    setSearch('');setFilter(opts.filter||'all');if(section)jump(section);
   }
@@ -743,7 +750,9 @@ function App(){
  const railExpanded=win==='large'?railPref:(win==='expanded'&&railModal);
  const xrailItem=([id,label,icon])=><button key={id} type="button" className="m3-xrail__item nav-item" onClick={()=>navigate(id)} aria-current={view===id?'page':undefined} aria-label={navName(id,label)+(id==='updates'&&updBadge?` ${updBadge} pending`:'')}><span className="m3-nav-indicator m3-xrail__indicator"><BadgeHost count={!railExpanded&&id==='updates'?updBadge:undefined}><Icon name={icon} size={24}/></BadgeHost></span><span className="m3-xrail__label">{railExpanded?label:SHORT[id]}</span>{railExpanded&&id==='services'&&<span className="m3-xrail__count">{catalog.length}</span>}{railExpanded&&id==='updates'&&updBadge&&<span className="m3-xrail__count">{updBadge}</span>}</button>;
  const railItems=navigation;
- const modalDrawer=(win==='compact'||(win==='medium'&&menu))&&<><div className="m3-scrim" style={menu?undefined:{display:'none'}} onClick={()=>setMenu(false)} aria-hidden="true"/><nav className={'m3-nav-drawer is-modal'+(win==='compact'?' sidebar is-sheet':'')+(menu?' open':'')} aria-label={win==='compact'?'More destinations':'Navigation menu'} onPointerDown={sheetDown} onPointerMove={sheetMove} onPointerUp={sheetUp} onPointerCancel={sheetUp} role={menu?'dialog':undefined} aria-modal={menu?'true':undefined} onKeyDown={trapTab} ref={el=>{if(el)el.inert=!menu}}>{drawerBody(true)}</nav></>;
+ // The sheet's scrim fades out with the sheet instead of vanishing; before the first open it isn't drawn at all.
+ if(menu)sheetSeen.current=true;
+ const modalDrawer=(win==='compact'||(win==='medium'&&menu))&&<><div className={'m3-scrim'+(menu?'':' is-leaving')} style={menu||sheetSeen.current?undefined:{display:'none'}} onClick={()=>setMenu(false)} aria-hidden="true"/><nav className={'m3-nav-drawer is-modal'+(win==='compact'?' sidebar is-sheet':'')+(menu?' open':'')} aria-label={win==='compact'?'More destinations':'Navigation menu'} onPointerDown={sheetDown} onPointerMove={sheetMove} onPointerUp={sheetUp} onPointerCancel={sheetUp} role={menu?'dialog':undefined} aria-modal={menu?'true':undefined} onKeyDown={trapTab} ref={el=>{if(el)el.inert=!menu}}>{drawerBody(true)}</nav></>;
  const serviceDirectory=<><div className="section-heading"><div><h2>{view==='services'?'Service directory':'Services'} <span className="count">{displayed.length}</span></h2></div><div className="directory-controls"><label className="inline-search"><Icon name="search" size={16}/><input aria-label="Filter services" placeholder="Filter services or IPs…" value={search} onChange={ev=>setSearch(ev.target.value)}/></label><MenuSelect aria-label="Service status filter" value={filter} onChange={v=>{haptic('tap');setFilter(v)}}
   options={[{value:'all',label:'All statuses'},{value:'pinned',label:'Pinned'},{value:'online',label:'Online'},{value:'offline',label:'Unreachable'},{value:'unmonitored',label:'Unmonitored'},{value:'stale',label:'Stale'}]}/></div></div>{view==='services'&&<div className="segments service-categories" role="group" aria-label="Service category">{[['all','All'],...SERVICE_GROUPS].map(([v,l])=><button key={v} className={category===v?'selected':''} aria-pressed={category===v} onClick={()=>setCategory(v)}>{l}</button>)}</div>}{displayed.length?(view==='services'?grouped(displayed):rows(displayed)):<div className="empty"><Icon name="search" size={30}/><h3>No matching services</h3><p>Try a different name or IP address.</p><button className="m3-btn m3-btn--tonal m3-state secondary-button" onClick={()=>{setSearch('');setFilter('all');setCategory('all')}}>Clear filters</button></div>}</>;
  const jump=id=>{const el=document.getElementById(id);if(!el)return;el.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});el.focus({preventScroll:true})};
@@ -756,7 +765,7 @@ function App(){
  {win==='medium'&&<nav className="m3-nav-rail sidebar" aria-label="Navigation"><IconButton icon="menu" label="Open navigation" className="m3-nav-rail__menu" touch aria-expanded={menu} onClick={()=>setMenu(!menu)}/>{railItems.map(n=>railItem(n))}</nav>}
  </>;
  const topBar=<header className={'m3-top-app-bar topbar'+(scrolled?' is-scrolled':'')}>
-  <span className="m3-top-app-bar__title" aria-hidden={!scrolled}>{view==='overview'?'Overview':navigation.find(n=>n[0]===view)?.[1]}</span>
+  <span key={view} className="m3-top-app-bar__title" aria-hidden={!scrolled}>{view==='overview'?'Overview':navigation.find(n=>n[0]===view)?.[1]}</span>
   {(win==='expanded'||win==='large')&&<div className="m3-search-bar-wrap"><button type="button" className="m3-search-bar m3-state" aria-label="Find a service" onClick={()=>{haptic('tick');setCommand(true)}}><Icon name="search" size={24}/><span className="m3-search-bar__text">Find a service</span><Chip compact tone="neutral">⌘ K</Chip></button></div>}
   <div className="m3-top-app-bar__actions">
    {(win==='compact'||win==='medium')&&<IconButton icon="search" label="Find a service" touch onClick={()=>{haptic('tick');setCommand(true)}}/>}
@@ -828,11 +837,13 @@ function App(){
 const bytes=v=>!valid(v)?'—':v>=1e12?`${num(v/1e12,2)} TB`:v>=1e9?`${num(v/1e9,1)} GB`:`${num(v/1e6,0)} MB`;
 const ago=t=>{const d=(Date.now()-Date.parse(t))/864e5;return !Number.isFinite(d)?'':d<1?'today':d<60?`${Math.floor(d)}d ago`:d<730?`${Math.floor(d/30)}mo ago`:`${Math.floor(d/365)}y ago`};
 const dlState=t=>t.progress>=1||/UP$|^uploading$/.test(t.state||'')?['Done',true]:t.error||/error|missing/i.test(t.state||'')?['Error',false]:t.stage==='debrid'?[/^meta/.test(t.state||'')?'Finding peers':'At debrid',null]:t.stage==='local'?['Downloading',null]:t.stage==='finishing'?['Finishing',null]:/^meta/.test(t.state||'')?['Fetching info',null]:/^queued|^paused|^stopped/.test(t.state||'')?['Queued',null]:['Downloading',null];
+// Last RdtClient list, kept across visits so the Media page doesn't flash a placeholder each time.
+let lastRecent=null;
 function DownloadsPanel({notify=()=>{}}){
- const [text,setText]=useState(''),[kind,setKind]=useState('torrent'),[results,setResults]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState({}),[shown,setShown]=useState(15),[recent,setRecent]=useState(null);
+ const [text,setText]=useState(''),[kind,setKind]=useState('torrent'),[results,setResults]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState({}),[shown,setShown]=useState(15),[recent,setRecent]=useState(()=>lastRecent);
  const isMagnet=/^magnet:\?/i.test(text.trim());
  const poll=useRef(null);
- useEffect(()=>{let alive=true,timer;async function get(){try{const r=await fetch('/api/downloads',{cache:'no-store'});const d=await r.json();if(alive)setRecent(r.ok?d.items:{error:d.error||'RdtClient is not answering.'})}catch{if(alive)setRecent({error:'RdtClient is not answering.'})}finally{if(alive)timer=setTimeout(get,document.hidden?30000:5000)}}
+ useEffect(()=>{let alive=true,timer;async function get(){try{const r=await fetch('/api/downloads',{cache:'no-store'});const d=await r.json();if(r.ok)lastRecent=d.items;if(alive)setRecent(r.ok?d.items:{error:d.error||'RdtClient is not answering.'})}catch{if(alive)setRecent({error:'RdtClient is not answering.'})}finally{if(alive)timer=setTimeout(get,document.hidden?30000:5000)}}
   poll.current=()=>{clearTimeout(timer);get()};get();return()=>{alive=false;clearTimeout(timer)}},[]);
  async function search(k=kind){const q=text.trim();if(q.length<2)return;setBusy(true);setError('');setShown(15);try{const r=await fetch('/api/downloads/search?'+new URLSearchParams({q,kind:k}),{cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.error);setResults({q,kind:k,list:d.results})}catch(e){setError(e.message||'Search failed.');setResults(null)}finally{setBusy(false)}}
  async function addMagnet(){setBusy(true);setError('');const d=await postAction('/api/action/download',{magnet:text.trim()}).catch(()=>({ok:false,error:'Could not reach the dashboard.'}));setBusy(false);

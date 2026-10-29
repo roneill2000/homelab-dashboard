@@ -57,7 +57,8 @@ export function withPageTransition(update,from){
   if(title&&!from)runs.push(title.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:Math.min(duration,420),easing}));
   else if(title&&ghost&&r0){const r1=title.getBoundingClientRect();
     if(r1.width&&r1.height&&r0.width&&r0.height){document.body.appendChild(ghost);
-      const dx=r0.left-r1.left,dy=r0.top-r1.top,sx=r0.width/r1.width,sy=r0.height/r1.height;
+      // One uniform scale (never separate x/y, which squashed and stretched the text), kept near 1 so a big tile doesn't balloon the title.
+      const dx=r0.left-r1.left,dy=r0.top-r1.top,k=Math.max(.6,Math.min(1.4,Math.min(r0.width/r1.width,r0.height/r1.height))),sx=k,sy=k;
       runs.push(title.animate([{transformOrigin:'0 0',transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`},{transformOrigin:'0 0',transform:'none'}],{duration,easing}));
       title.animate([{opacity:0},{opacity:1}],{duration:duration*.5,delay:duration*.08,easing:'cubic-bezier(0.2,0,0,1)',fill:'backwards'});
       ghost.animate([{transform:'none'},{transform:`translate(${-dx}px,${-dy}px) scale(${1/sx},${1/sy})`}],{duration,easing,fill:'forwards'});
