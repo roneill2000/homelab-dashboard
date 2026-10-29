@@ -139,14 +139,33 @@ def cloud_backup_check(now, path=Path('/var/lib/homelab-cloud-backup/last_succes
     return {'cloud-backup': (hours > 36, 'Cloud backup is stale', f'Last successful Google Drive backup was {int(hours)} h ago.', 4)}
 
 
+STALE_H = {'photos': 36, 'proxmox': 36, 'unraid': 30, 'configs': 36}
+
+
+def snapshots_due(cache, now, every=1800, last_success=None):
+    """Re-read the repository every 30 min, right after the Proxmox job succeeds, and every run (5 min) while a
+    source looks stale, so a fresh upload shows within minutes instead of up to half an hour."""
+    if not cache or now - cache.get('checked_at', 0) >= every:
+        return True
+    if last_success and last_success > cache['checked_at']:
+        return True
+    latest = cache.get('latest') or {}
+    return any(now - latest.get(tag, 0) > h * 3600 for tag, h in STALE_H.items())
+
+
 def refresh_snapshots(now, path=SNAPSHOTS, every=1800):
     """Cache the newest Google Drive snapshot per tag. Proxmox and Unraid each run their own job into the
     same repository, so the repository is the one place that sees both."""
     try:
-        if now - json.loads(path.read_text())['checked_at'] < every:
-            return
-    except (OSError, ValueError, KeyError):
-        pass
+        cache = json.loads(path.read_text())
+    except (OSError, ValueError):
+        cache = None
+    try:
+        last = int((path.parent / 'last_success').read_text().strip())
+    except (OSError, ValueError):
+        last = None
+    if not snapshots_due(cache, now, every, last):
+        return
     env = dict(os.environ, RESTIC_REPOSITORY='rclone:gdrive:homelab-restic',
                RESTIC_PASSWORD_FILE='/root/.config/restic/gdrive.pass')
     try:

@@ -685,7 +685,7 @@ def cloud_backup_status():
     return dict(last_success=last, running=running, progress=progress, next_run=nxt.strip() or None,
                 restore_test=restore, restore_next=rnext.strip() or None, configs_local=configs_local,
                 last_failed_start=failed, destination='Google Drive (restic, encrypted)',
-                scope='Photos, Proxmox backups, Unraid appdata + flash, router + host configs', sources=sources, sources_checked_at=checked)
+                scope='Photos, Proxmox backups, Unraid appdata, flash + Private, router + host configs', sources=sources, sources_checked_at=checked)
 
 
 def health():
@@ -812,7 +812,7 @@ def events(days=EVENT_DAYS, now=None):
     try:
         snaps = json.loads((cb / 'snapshots.json').read_text()).get('recent', {})
         for ts in snaps.get('unraid', []):
-            add(ts, 'backup', 'Unraid cloud backup (appdata + flash)', '', True, 'restic snapshots')
+            add(ts, 'backup', 'Unraid cloud backup (appdata, flash + Private)', '', True, 'restic snapshots')
     except (OSError, ValueError):
         pass
 

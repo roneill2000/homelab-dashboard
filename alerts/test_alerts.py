@@ -136,5 +136,17 @@ class CloudBackupTests(unittest.TestCase):
         self.assertTrue(a.header_text('Orange Pi 75 °C · hot').startswith('=?UTF-8?B?'))
         self.assertIn('120 words', a.why_prompt('Disk full', '97% used'))
 
+class SnapshotsDueTests(unittest.TestCase):
+    def test_refreshes_after_a_backup_or_while_stale(self):
+        from homelab_alerts import snapshots_due
+        now = 1_000_000
+        fresh = {'checked_at': now - 60, 'latest': {t: now - 3600 for t in ('photos', 'proxmox', 'unraid', 'configs')}}
+        self.assertFalse(snapshots_due(fresh, now))
+        self.assertTrue(snapshots_due(fresh, now, last_success=now - 10))
+        self.assertTrue(snapshots_due(dict(fresh, latest=dict(fresh['latest'], unraid=now - 31 * 3600)), now))
+        self.assertTrue(snapshots_due(dict(fresh, checked_at=now - 1800), now))
+        self.assertTrue(snapshots_due(None, now))
+
+
 if __name__ == '__main__':
     unittest.main()

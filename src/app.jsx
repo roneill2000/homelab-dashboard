@@ -127,7 +127,7 @@ function RecoveryReadiness({cb,activity}){
  const rows=[
   {key:'photos',label:'Photos',local:'Originals on the parity-protected array'},
   {key:'proxmox',label:'Proxmox guests',local:vz?`vzdump ${ago(vz)}`:'vzdump · unknown',localTs:vz},
-  {key:'unraid',label:'Unraid appdata + flash',local:'No local copy (cache SSD)'},
+  {key:'unraid',label:'Unraid appdata, flash + Private',local:'No local copy (cache SSD)'},
   {key:'configs',label:'Router + host configs',local:cb?.configs_local?`Saved ${ago(cb.configs_local)}`:'Not saved yet',localTs:cb?.configs_local}];
  const src=k=>(cb?.sources||[]).find(x=>x.tag===k),chk=k=>(rt?.checks||[]).find(x=>x.key===k);
  const overall=!rt?null:rt.ok===true;

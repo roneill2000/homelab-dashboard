@@ -12,7 +12,7 @@ docker run -d --name unraid-restic --hostname unraid --restart unless-stopped \
   -e RESTIC_PASSWORD_FILE=/etc/restic/password \
   -e RESTIC_TAG=unraid \
   -e BACKUP_CRON="0 4 * * *" \
-  -e BACKUP_SOURCES="/data/appdata /data/system /data/backup/backups/pihole /boot-config" \
+  -e BACKUP_SOURCES="/data/appdata /data/system /data/backup/backups/pihole /data/Private /boot-config" \
   -e RESTIC_JOB_ARGS="--exclude /data/appdata/rclone-cache --exclude /data/appdata/homelab-models --exclude /data/system/docker/docker.img --exclude /boot-config/restic" \
   -e RESTIC_FORGET_ARGS="--tag unraid --host unraid --keep-daily 7 --keep-weekly 4 --keep-monthly 12" \
   -v /mnt/user:/data:ro \
