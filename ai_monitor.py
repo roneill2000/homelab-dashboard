@@ -285,4 +285,75 @@ def start():
 
 def snapshot():
     with _lock:
-        return copy.deepcopy(_latest)
+        result = copy.deepcopy(_latest)
+        if _switch:
+            result['switch'] = dict(_switch)
+        return result
+
+
+# GPU engine switch. llama-server's models and Strata cannot share the 16 GB card, so switching unloads one engine
+# and (for Strata) loads the other. Runs in a thread: Strata takes ~2 min warm, up to ~15 min cold.
+STRATA_BASE = 'http://192.168.0.12:8088'
+SWITCH_TIMEOUT = 1200
+_switch = {}
+_switch_lock = threading.Lock()
+
+
+def strata_post(path):
+    req = urllib.request.Request(STRATA_BASE + path, data=b'{}', method='POST', headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=SWITCH_TIMEOUT) as response:
+        return response.status
+
+
+def wait_strata(loaded, timeout=SWITCH_TIMEOUT, sleep=time.sleep):
+    until = time.time() + timeout
+    while time.time() < until:
+        try:
+            if strata().get('loaded') is loaded:
+                return True
+        except Exception:
+            pass
+        sleep(5)
+    return False
+
+
+def unload_llama():
+    config = json.loads(CONFIG.read_text())
+    base_url = config['url'].replace('/v1', '')
+    for m in models(fetch(config['url'] + '/models', config['token'])):
+        if m['state'] in ('loaded', 'loading'):
+            unload(base_url, config['token'], m['id'])
+
+
+def _run_switch(target):
+    global _switch, _last_poll
+    try:
+        if target == 'strata':
+            unload_llama()
+            strata_post('/load')
+            ok = wait_strata(True)
+        else:
+            strata_post('/unload')
+            ok = wait_strata(False)
+        state, message = ('done', None) if ok else ('failed', 'The engine did not finish switching in time.')
+    except Exception:
+        state, message = 'failed', 'Could not reach the gaming PC.'
+    with _switch_lock:
+        _switch = dict(_switch, state=state, finished_at=int(time.time()), message=message)
+    with _lock:
+        _last_poll = 0
+
+
+def switch_engine(target, start=True):
+    """Start switching the GPU to 'strata' or 'llama'. Returns (accepted, state)."""
+    global _switch
+    if target not in ('strata', 'llama'):
+        return False, dict(error='Unknown engine')
+    with _switch_lock:
+        if _switch.get('state') == 'running':
+            return False, dict(_switch, error='A switch is already running')
+        _switch = dict(target=target, state='running', started_at=int(time.time()), message=None)
+        state = dict(_switch)
+    if start:
+        threading.Thread(target=_run_switch, args=(target,), daemon=True).start()
+    return True, state

@@ -163,6 +163,22 @@ def handle(handler,post=False):
         except Exception:
             answer(503,dict(ok=False,error='Could not reach the gaming PC.'))
         return True
+    if path=='/api/action/ai-engine' and post:
+        def answer(code,data):
+            raw=json.dumps(data).encode();handler.send_response(code)
+            handler.send_header('Content-Type','application/json');handler.send_header('Content-Length',str(len(raw)))
+            handler.end_headers();handler.wfile.write(raw)
+        if not qwen_proxy.same_origin(handler,'X-Dashboard-Action'):
+            answer(403,dict(ok=False,error='Use the homepage to run this action.'));return True
+        import ai_monitor
+        try:
+            length=int(handler.headers.get('Content-Length','0'))
+            body=json.loads(handler.rfile.read(length)) if 0<length<=256 else {}
+            ok,state=ai_monitor.switch_engine(body.get('engine') if isinstance(body,dict) else None)
+            answer(202 if ok else 409,dict(state,ok=ok))
+        except ValueError:
+            answer(400,dict(ok=False,error='Bad request'))
+        return True
     if path=='/api/action/wake-pc' and post:
         def answer(code,data):
             raw=json.dumps(data).encode();handler.send_response(code)

@@ -45,6 +45,35 @@ class AITests(unittest.TestCase):
   with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={}),patch.object(a,'desktop',return_value={'models':[]}),patch.object(a,'strata',side_effect=TimeoutError):
    a.collect(1000);r=a.snapshot();self.assertFalse(r['strata']['online']);self.assertTrue(r['desktop']['online'])
 
+class EngineSwitchTests(unittest.TestCase):
+ def setUp(self):a._switch={}
+ def test_switch_to_strata_unloads_llama_then_loads_strata(self):
+  calls=[]
+  with patch.object(a,'unload_llama',side_effect=lambda:calls.append('unload-llama')),patch.object(a,'strata_post',side_effect=lambda p:calls.append(p)),patch.object(a,'wait_strata',return_value=True):
+   ok,state=a.switch_engine('strata',start=False);self.assertTrue(ok);self.assertEqual(state['state'],'running')
+   a._run_switch('strata')
+  self.assertEqual(calls,['unload-llama','/load']);self.assertEqual(a.snapshot()['switch']['state'],'done')
+ def test_switch_to_llama_only_unloads_strata(self):
+  calls=[]
+  with patch.object(a,'unload_llama',side_effect=lambda:calls.append('unload-llama')),patch.object(a,'strata_post',side_effect=lambda p:calls.append(p)),patch.object(a,'wait_strata',return_value=True):
+   a.switch_engine('llama',start=False);a._run_switch('llama')
+  self.assertEqual(calls,['/unload'])
+ def test_one_switch_at_a_time_and_unknown_targets_rejected(self):
+  self.assertTrue(a.switch_engine('strata',start=False)[0])
+  ok,state=a.switch_engine('llama',start=False);self.assertFalse(ok);self.assertIn('error',state)
+  a._switch={};self.assertFalse(a.switch_engine('gpt',start=False)[0]);self.assertFalse(a.switch_engine(None,start=False)[0])
+ def test_unreachable_pc_and_timeout_are_reported_as_failed(self):
+  with patch.object(a,'strata_post',side_effect=OSError):
+   a.switch_engine('llama',start=False);a._run_switch('llama')
+  self.assertEqual(a._switch['state'],'failed');self.assertTrue(a._switch['message'])
+  with patch.object(a,'unload_llama'),patch.object(a,'strata_post'),patch.object(a,'wait_strata',return_value=False):
+   a.switch_engine('strata',start=False);a._run_switch('strata')
+  self.assertEqual(a._switch['state'],'failed')
+ def test_wait_strata_polls_until_state_matches(self):
+  seq=iter([{'loaded':False},{'loaded':False},{'loaded':True}])
+  with patch.object(a,'strata',side_effect=lambda:next(seq)):
+   self.assertTrue(a.wait_strata(True,timeout=60,sleep=lambda s:None))
+
 if __name__=='__main__':unittest.main()
 
 class SlotPollingTests(unittest.TestCase):
