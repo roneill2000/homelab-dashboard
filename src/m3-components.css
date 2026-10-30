@@ -335,4 +335,5 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
   font:var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font)}
 .badge.good{background:var(--md-custom-green-container);color:var(--md-custom-on-green-container);border:0}
 .badge.bad{background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container);border:0}
+.badge.warn{background:var(--md-custom-amber-container);color:var(--md-custom-on-amber-container);border:0}
 .service-icon{border:0;border-radius:var(--md-sys-shape-corner-medium);background:color-mix(in srgb,var(--service-color) 18%,var(--md-sys-color-surface-container-high))}

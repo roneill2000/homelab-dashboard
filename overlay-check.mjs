@@ -36,14 +36,50 @@ try{
 
  await test('Local AI: Strata is listed with the other chat models (no separate switch card) and opens in Open WebUI',async()=>{
   const p=await open(1440,900,'#/ai');const chat=p.locator('.ai-task--chat');
-  await expect(chat.getByRole('heading',{name:'swift-1.5-iq2_xs'})).toHaveCount(1,{timeout:8000});
-  // Loaded (featured) or under Other models: either way its chat link opens Open WebUI on that model.
-  await chat.locator('details.ai-others').evaluate(d=>{d.open=true}).catch(()=>{});
-  const row=chat.locator('.ai-model').filter({has:p.getByRole('heading',{name:'swift-1.5-iq2_xs'})});
+  // Loaded (featured) or under the collapsed Other models: open that list first so the row is visible either way.
+  await p.waitForTimeout(1500);await chat.locator('details.ai-others').evaluate(d=>{d.open=true}).catch(()=>{});
+  await expect(chat.getByRole('heading',{name:'Strata · Qwen3.8-Flash-Next'})).toHaveCount(1,{timeout:8000});
+  const row=chat.locator('.ai-model').filter({has:p.getByRole('heading',{name:'Strata · Qwen3.8-Flash-Next'})});
   const link=row.getByRole('link',{name:/Open chat/});
   if(await link.count())expect(await link.getAttribute('href')).toBe('http://192.168.0.16:3000/?model=swift-1.5-iq2_xs');
   await expect(p.getByRole('group',{name:'GPU engine'})).toHaveCount(0);
   await expect(chat.getByRole('link',{name:/^Strata/})).toHaveAttribute('href','https://strata.lan');await p.close()});
+
+ await test('Overview: Quick actions and Activity come before Pinned services and the Ask panel (phone and desktop)',async()=>{
+  for(const [w,h] of [[412,915],[1440,900]]){
+   const p=await open(w,h);await p.waitForTimeout(900);
+   const top=async loc=>(await loc.first().boundingBox()).y;
+   const q=await top(p.getByRole('heading',{name:'Quick actions',exact:true})),a=await top(p.getByRole('heading',{name:'Activity',exact:true})),f=await top(p.getByRole('heading',{name:/^Pinned services/})),k=await top(p.locator('.qwen-section'));
+   expect(q).toBeLessThan(a);expect(a).toBeLessThan(f);expect(f).toBeLessThan(k);await p.close()}});
+
+ await test('Overview: stale data is a neutral state (no attention hero, no stale chip) and says when the last reading was',async()=>{
+  const p=await open(412,915);await p.waitForTimeout(1200);
+  await p.evaluate(()=>{const n=Date.now.bind(Date);Date.now=()=>n()+300000});
+  await expect(p.locator('.ov-hero')).toHaveClass(/ov-hero--stale/,{timeout:6000});
+  await expect(p.locator('.ov-hero--attention')).toHaveCount(0);
+  await expect(p.locator('.issue-chip',{hasText:'Dashboard data is stale'})).toHaveCount(0);
+  await expect(p.locator('.ov-hero__title')).toHaveText(/Last reading|Waiting for data/);
+  await expect(p.locator('.notice.warning').first()).toContainText(/telemetry|Connection interrupted/);await p.close()});
+
+ await test('Local AI: the Ask header names the selected model; the previous answer keeps its own model inside the answer',async()=>{
+  const p=await open(1440,900,'#/ai');
+  await p.addInitScript(()=>{try{localStorage.setItem('qwenTarget','a310')}catch{}});
+  const now=Math.floor(Date.now()/1000);
+  await p.route('**/api/qwen',r=>r.request().method()==='GET'?r.fulfill({json:{status:'complete',model:'Strata · Qwen3.8-Flash-Next · gaming PC',id:'f',prompt:'q',answer:'An answer.',performance:{tokens_per_second:40,input_tokens:10,output_tokens:20,generation_seconds:1},total_seconds:3,context_at:now,context_note:'Readings captured',evidence:{observed_at:now,sources:{},not_selected:[],budget_omissions:[]},updated_at:now}}):r.abort());
+  await p.reload();await p.waitForTimeout(1500);
+  await expect(p.locator('.qwen-model')).toHaveText('Gemma 4 E4B · A310');
+  await expect(p.locator('.qwen-panel')).toContainText('Strata · Qwen3.8-Flash-Next · gaming PC');await p.close()});
+
+ await test('badges: the warning tone is amber, not the neutral grey',async()=>{
+  const p=await open(1440,900);
+  const bg=await p.evaluate(()=>{const mk=c=>{const e=document.createElement('span');e.className='badge '+c;document.body.appendChild(e);const v=getComputedStyle(e).backgroundColor;e.remove();return v};return [mk('warn'),mk('neutral'),mk('good')]});
+  expect(bg[0]).not.toBe(bg[1]);expect(bg[0]).not.toBe(bg[2]);await p.close()});
+
+ await test('phone: buttons and segments are 48 px touch targets',async()=>{
+  const p=await b.newPage({viewport:{width:412,height:915},isMobile:true,hasTouch:true});await p.route('**/api/action/**',r=>r.abort());
+  const small=sel=>p.$$eval(sel,els=>els.filter(e=>e.offsetParent&&getComputedStyle(e).visibility!=='hidden').map(e=>Math.round(e.getBoundingClientRect().height)).filter(h=>h<48));
+  await p.goto(base);await p.waitForTimeout(1200);expect(await small('.ov-actions .m3-btn, main .text-button')).toEqual([]);
+  await p.goto(base+'#/services');await p.waitForTimeout(800);expect(await small('.segments button')).toEqual([]);await p.close()});
 
  await test('search open across 1440 -> 448: the new bottom bar is inert; close focuses a visible trigger',async()=>{
   const p=await open(1440,900);await p.getByRole('button',{name:'Find a service'}).first().click();await expect(p.getByRole('dialog',{name:'Find a service'})).toBeVisible();

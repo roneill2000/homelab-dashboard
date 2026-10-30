@@ -412,7 +412,7 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-results>.text-button{align-self:flex-start;margin-top:4px}
 .m3-field__input:focus-visible{outline:none}
 /* Overview hero while backup status is still unknown: neutral, neither green nor attention. */
-.ov-hero.ov-hero--checking{--hero-ink:var(--md-sys-color-on-surface);--hero-fill:var(--md-sys-color-surface-container-highest);background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface)}
+.ov-hero.ov-hero--checking,.ov-hero.ov-hero--stale{--hero-ink:var(--md-sys-color-on-surface);--hero-fill:var(--md-sys-color-surface-container-highest);background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface)}
 .offsite-progress>.source-note{margin:0 0 8px}
 .offsite-progress>.m3-linear-progress{position:relative;margin:0 0 4px}
 /* UI audit fixes (29 Oct 2026) */
@@ -467,3 +467,12 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 .chart-brush{fill:color-mix(in srgb,var(--md-sys-color-primary) 18%,transparent);stroke:var(--md-sys-color-primary);stroke-width:1;vector-effect:non-scaling-stroke}
 .chart--dialog .chart-tooltip{position:static;transform:none;margin:8px 0 0;min-height:28px}
 .chart--dialog svg{-webkit-user-select:none;user-select:none}
+
+/* Phones: every button and segment is a 48 px touch target (M3), up from 40. The quick-action rows keep their layout. */
+@media(max-width:599px){
+  .m3-btn,.text-button,.secondary-button,.primary-button{min-height:48px}
+  .segments button,.storage-toolbar .segments button{min-height:48px;min-width:48px}
+  .ov-actions .quick-actions>.m3-btn,.ov-actions .quick-actions>.m3-btn:active:not(:disabled),.ov-actions .pc-power .m3-btn,.ov-actions .pc-power .m3-btn:active:not(:disabled){height:48px;min-height:48px}
+}
+/* Tablet and desktop: the pin star keeps its 36 px look but gets a 48 px hit area. */
+@media(min-width:600px){.pin-button::after{content:"";position:absolute;inset:-6px}}
