@@ -113,10 +113,11 @@ class BrokerTests(unittest.TestCase):
 
 
 class EnsureTests(unittest.TestCase):
-    def run_ensure(self, engine, strata_loaded, llama_busy, wait=True):
+    def run_ensure(self, engine, strata_loaded, llama_busy, wait=True, game=False):
         calls = []
         with patch.object(g, 'strata_loaded', side_effect=list(strata_loaded)), \
              patch.object(g, 'llama_busy', return_value=llama_busy), \
+             patch.object(g, 'game_running', return_value=game), \
              patch.object(g.ai_monitor, 'strata_post', side_effect=lambda p: calls.append(p)), \
              patch.object(g.ai_monitor, 'unload_llama', side_effect=lambda: calls.append('unload-llama')), \
              patch.object(g.ai_monitor, 'wait_strata', return_value=wait):
@@ -130,6 +131,18 @@ class EnsureTests(unittest.TestCase):
     def test_strata_request_frees_llama_then_loads_strata(self):
         self.assertEqual(self.run_ensure('strata', [False], True), ['unload-llama', '/load'])
         self.assertEqual(self.run_ensure('strata', [True], False), [])
+
+    def test_strata_is_not_loaded_while_a_game_runs(self):
+        with self.assertRaises(g.GamePaused):
+            self.run_ensure('strata', [False], False, game=True)
+        # Already loaded: nothing to load, so no refusal.
+        self.assertEqual(self.run_ensure('strata', [True], False, game=True), [])
+
+    def test_game_detection_is_a_refused_llama_port(self):
+        with patch.object(g.socket, 'create_connection', side_effect=ConnectionRefusedError):
+            self.assertTrue(g.game_running())
+        with patch.object(g.socket, 'create_connection', side_effect=TimeoutError):
+            self.assertFalse(g.game_running())  # PC asleep or unreachable is not a game
 
     def test_switch_that_never_finishes_raises(self):
         with self.assertRaises(RuntimeError):

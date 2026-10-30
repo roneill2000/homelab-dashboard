@@ -8,6 +8,7 @@ pass straight through and never switch. Responses stream (SSE) as they arrive. C
 import http.client
 import http.server
 import json
+import socket
 import socketserver
 import sys
 import threading
@@ -24,6 +25,10 @@ HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 
        'upgrade', 'host', 'content-length'}
 MAX_BODY = 64 * 1024 * 1024
 _switch_lock = threading.Lock()
+
+
+class GamePaused(RuntimeError):
+    pass
 _log_lock = threading.Lock()
 
 
@@ -40,6 +45,17 @@ def strata_loaded():
     try:
         return ai_monitor.strata().get('loaded') is True
     except Exception:
+        return False
+
+
+def game_running():
+    """game-watch.ps1 on the PC stops llama-server (:8080) while a game runs; a refused connection there means a game."""
+    try:
+        socket.create_connection((PC, 8080), timeout=3).close()
+        return False
+    except ConnectionRefusedError:
+        return True
+    except OSError:
         return False
 
 
@@ -66,6 +82,8 @@ def ensure(engine):
                 log('Strata request: unloading llama-server models')
                 ai_monitor.unload_llama()
             if not strata_loaded():
+                if game_running():
+                    raise GamePaused()
                 log('Strata request: loading Strata')
                 ai_monitor.strata_post('/load')
                 if not ai_monitor.wait_strata(True):
@@ -96,6 +114,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if needs_gpu(self.command, self.path):
             try:
                 ensure(engine)
+            except GamePaused:
+                return self.fail(503, 'A game is running on the gaming PC, so its GPU is paused. Try again after the game.')
             except Exception as exc:
                 log(f'switch failed: {exc}')
                 return self.fail(503, 'The gaming PC could not switch its GPU to this engine. Try again shortly.')
