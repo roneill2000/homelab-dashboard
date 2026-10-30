@@ -121,6 +121,30 @@ def service_status(cache=None):
     return data
 
 
+def energy(root, kind):
+    """Cumulative energy counters (microjoules) for the dashboard's power estimate. Counters only; the dashboard turns
+    deltas into watts. Unraid also reports which array disks are spinning, since HDDs have no energy counter."""
+    zones = {}
+    for z in sorted(Path('/sys/class/powercap').glob('intel-rapl:*')):
+        try:
+            zones[(z/'name').read_text().strip()] = dict(uj=int((z/'energy_uj').read_text()),
+                                                          max_uj=int((z/'max_energy_range_uj').read_text()))
+        except (OSError, ValueError): pass
+    out = dict(rapl=zones)
+    if kind == 'unraid':
+        for h in Path('/sys/class/drm').glob('card*/device/hwmon/hwmon*'):
+            try:
+                if (h/'name').read_text().strip() == 'i915':
+                    out['gpu_uj'] = int((h/'energy1_input').read_text()); break
+            except (OSError, ValueError): pass
+        try:
+            disks = ini(root/'var/local/emhttp/disks.ini')
+            out['disks'] = [dict(name=d.get('name'), rotational=d.get('rotational') == '1', spundown=d.get('spundown') == '1')
+                            for d in disks.values() if d.get('idsb') and d.get('type') in ('Parity', 'Data', 'Cache')]
+        except (OSError, ValueError, KeyError): pass
+    return out
+
+
 def main():
     p = argparse.ArgumentParser();p.add_argument('--root', default='/');p.add_argument('--kind', choices=['pve','unraid'], required=True)
     a = p.parse_args();root = Path(a.root)
@@ -130,6 +154,8 @@ def main():
         out['io_pressure'] = {f[0]: dict((k, float(v)) for k,v in (x.split('=') for x in f[1:]))
                               for f in (line.split() for line in (root/'proc/pressure/io').read_text().splitlines())}
     except (OSError, ValueError): out['io_pressure'] = None
+    try: out['energy'] = energy(root, a.kind)
+    except Exception: out['energy'] = None
     try: out['recovery'] = backup() if a.kind == 'pve' else parity(root)
     except Exception: out['recovery'] = None
     if a.kind == 'pve':

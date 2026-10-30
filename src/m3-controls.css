@@ -412,7 +412,8 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-results>.text-button{align-self:flex-start;margin-top:4px}
 .m3-field__input:focus-visible{outline:none}
 /* Overview hero while backup status is still unknown: neutral, neither green nor attention. */
-.ov-hero.ov-hero--checking,.ov-hero.ov-hero--stale{--hero-ink:var(--md-sys-color-on-surface);--hero-fill:var(--md-sys-color-surface-container-highest);background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface)}
+/* :root[data-theme] variants out-rank the light-theme .ov-hero fill (0,3,0), so unknown is neutral in both themes. */
+.ov-hero.ov-hero--checking,.ov-hero.ov-hero--stale,:root[data-theme] .ov-hero.ov-hero--checking,:root[data-theme] .ov-hero.ov-hero--stale{--hero-ink:var(--md-sys-color-on-surface);--hero-fill:var(--md-sys-color-surface-container-highest);background:var(--md-sys-color-surface-container-high);color:var(--md-sys-color-on-surface)}
 .offsite-progress>.source-note{margin:0 0 8px}
 .offsite-progress>.m3-linear-progress{position:relative;margin:0 0 4px}
 /* UI audit fixes (29 Oct 2026) */

@@ -883,3 +883,15 @@ h1{font-size:36px}
 body :is(.ov-hero .summary-grid,.summary-grid)>.summary-stat strong.text-value{overflow-wrap:normal;word-break:normal;hyphens:manual;
   font-size:clamp(16px,1.375rem,22px);line-height:1.35}
 .m3-nav-bar .m3-nav-label{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.15;font-size:clamp(10px,0.75rem,12px)}
+/* Energy & cost (30 Oct 2026). Four reading tiles, device list, 48 h chart, 30-day bars. */
+.energy-readings{grid-template-columns:repeat(4,minmax(0,1fr));margin:20px 0}
+.energy-readings strong+small{margin:6px 0 0;font-size:var(--md-sys-typescale-body-small-size)}
+@media (max-width:839px){.energy-readings{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.energy-sub{margin:20px 0 8px;font:var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height) var(--md-sys-typescale-title-small-font)}
+.energy-days{display:flex;align-items:flex-end;gap:3px;height:96px;margin:0 0 12px}
+.energy-days span{flex:1;min-width:3px;background:var(--md-chart-1);border-radius:4px 4px 1px 1px}
+.energy-devices .is-unknown{opacity:.7}
+/* Brand status may need two lines ("Backup status unknown") rather than an ellipsis. */
+.m3-brand__text strong{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+/* Compact nav labels: 12px minimum (M3 label-medium). */
+.m3-nav-bar .m3-nav-label{font-size:12px}

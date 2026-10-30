@@ -1,5 +1,6 @@
 """Read-only Glances collector with 24-hour, server-side disk history."""
 import activity_monitor
+import energy_monitor
 import gpu_monitor
 import net_monitor
 import ai_monitor
@@ -35,6 +36,7 @@ def initialize():
 
     activity_monitor.initialize(connect)
     gpu_monitor.initialize(connect)
+    energy_monitor.initialize(connect)
     net_monitor.initialize(connect)
 
 def rates(previous, current, seconds):
@@ -72,6 +74,7 @@ def collect():
         futures = {host: pool.submit(fetch, host) for host in ('192.168.0.3', '192.168.0.4')}
         ai_future=pool.submit(ai_monitor.collect)
         gpu_future=pool.submit(gpu_monitor.fetch)
+        pc_future=pool.submit(energy_monitor.fetch_pc)
         downloads = {'sab':pool.submit(activity_monitor.sab_rate), 'rdt':pool.submit(activity_monitor.rdt_rate)}
         hosts = {}
         for host, future in futures.items():
@@ -87,6 +90,10 @@ def collect():
     except Exception:gpu=None
     now = int(time.time())
     gpu_monitor.collect(connect,gpu,now)
+    try:pc_gpu=pc_future.result()
+    except Exception:pc_gpu=None
+    try:energy_monitor.collect(connect,hosts,pc_gpu,(ai_monitor.snapshot().get('desktop') or {}).get('online') is True,now)
+    except Exception as exc:print('Energy collector:',type(exc).__name__,flush=True)
     rows, latest = [], {}
     for key, name, host, device, mount, description in DISKS:
         payload = hosts[host]
@@ -193,8 +200,13 @@ def snapshot(window=3600):
         latest[key]['exhaustion'] = estimates[key]
         latest[key]['bucket_seconds'] = bucket
         latest[key]['history'] = histories.get(key, [])
-    return dict(ai=ai_monitor.snapshot(),network=net_monitor.snapshot(connect,window,bucket,aggregate_history),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
+    return dict(ai=ai_monitor.snapshot(),network=net_monitor.snapshot(connect,window,bucket,aggregate_history),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), energy=energy_snapshot(), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
                 sample_seconds=10, bucket_seconds=bucket, retention_hours=24, source='Glances cumulative disk counters')
+
+def energy_snapshot():
+    try: return energy_monitor.snapshot(connect)
+    except Exception as exc:
+        print('Energy snapshot:', type(exc).__name__, flush=True); return None
 
 _snap = {}
 _snap_lock = threading.Lock()
