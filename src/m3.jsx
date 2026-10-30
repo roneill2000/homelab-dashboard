@@ -236,7 +236,7 @@ export function MenuSelect({value,onChange,options,disabled,className='','aria-l
   const place=()=>{const r=trigger.current.getBoundingClientRect(),vh=window.innerHeight,gap=4,need=Math.min(items.length*48+24,360);
     const below=vh-r.bottom-gap-8,above=r.top-gap-8,up=below<need&&above>below;
     setPos({left:Math.max(8,Math.min(r.left,window.innerWidth-Math.max(r.width,200)-8)),width:Math.max(r.width,200),
-      top:up?undefined:r.bottom+gap,bottom:up?vh-r.top+gap:undefined,maxHeight:Math.max(160,up?above:below),up})};
+      top:up?undefined:r.bottom+gap,bottom:up?vh-r.top+gap:undefined,maxHeight:Math.max(48,up?above:below),up})}; // never taller than the room on its side (it scrolls), so it stays on screen
   const openMenu=()=>{if(disabled)return;place();setActive(Math.max(0,items.findIndex(o=>o.value===value&&!o.disabled)));setOpen(true)};
   const close=(focus=true)=>{setOpen(false);if(focus)trigger.current?.focus()};
   const choose=o=>{if(!o||o.disabled)return;onChange?.(o.value);close()};
