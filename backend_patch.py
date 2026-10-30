@@ -396,6 +396,21 @@ def patch_jellyfin_auth(source):
     return source
 
 
+def patch_strata(source):
+    """Add Strata (gaming PC :8088) to the TCP monitor so its tile shows Online/Unreachable instead of Unmonitored."""
+    tree = ast.parse(source)
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
+    target = next(n for n in ast.walk(fn) if isinstance(n, ast.Assign) and len(n.targets) == 1
+                  and isinstance(n.targets[0], ast.Name) and n.targets[0].id == 'port_targets')
+    if 'strata' in [getattr(k, 'value', None) for k in target.value.keys]:
+        return source
+    target.value.keys.append(ast.Constant('strata'))
+    target.value.values.append(expression("('192.168.0.12', 8088)"))
+    lines = source.splitlines(keepends=True)
+    lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn))+'\n']
+    return ''.join(lines)
+
+
 def patch_opencode(source):
     """Add the OpenCode web UI (LXC 114) to the TCP monitor and host inventory, like patch_memos."""
     tree = ast.parse(source)
