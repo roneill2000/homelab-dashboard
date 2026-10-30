@@ -696,3 +696,7 @@ summary.update-group__title::-webkit-details-marker{display:none}
 .m3-brand.is-attention .m3-brand__text strong{color:var(--md-sys-color-tertiary)}
 .m3-brand.is-stale .m3-brand__text strong{color:var(--md-sys-color-on-surface-variant)}
 .m3-xrail__brand.m3-brand{flex:1}
+/* Phones: a dialog covers nearly the whole screen, so a long fade shows it and the page through each other (30 Oct
+   recordings). Slide it up and reach full opacity in the first 15%; closing slides it down opaque (m3.jsx, app.jsx). */
+@media (max-width:599px){.m3-dialog{animation-name:m3-dialog-up}}
+@keyframes m3-dialog-up{from{opacity:0;transform:translate(-50%,-30%)}15%{opacity:1}}

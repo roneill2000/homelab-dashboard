@@ -291,13 +291,14 @@ export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialo
     const handleClose = () => closeRef.current?.();
     window.addEventListener('m3:close-all-overlays', handleClose);
     // Callers unmount the dialog the moment it closes; a short-lived inert copy plays the exit so closing matches opening.
-    // A predictive Back commit has already faded the dialog out (inline opacity 0): replaying the exit from full opacity
-    // flashed the dialog back in for a frame after it had gone (30 Oct phone recording).
+    // A predictive Back commit has already moved the dialog out (data-pb-closed): replaying the exit from full opacity
+    // flashed the dialog back in for a frame after it had gone (30 Oct phone recording). On phones the dialog covers
+    // nearly the screen, so it slides down opaque instead of fading through the page.
     const layer=box.current?.parentElement;
-    return()=>{if(layer&&!reducedMotion()&&layer.querySelector('.m3-dialog')?.style.opacity!=='0'){const g=layer.cloneNode(true);g.inert=true;g.style.pointerEvents='none';g.setAttribute('aria-hidden','true');document.body.appendChild(g);
+    return()=>{if(layer&&!reducedMotion()&&!layer.querySelector('.m3-dialog')?.dataset.pbClosed){const g=layer.cloneNode(true);g.inert=true;g.style.pointerEvents='none';g.setAttribute('aria-hidden','true');document.body.appendChild(g);
         const d=g.querySelector('.m3-dialog'),sc=g.querySelector('.m3-scrim'),ease='cubic-bezier(0.3,0,0.8,0.15)';
         [d,sc].forEach(el=>{if(el)el.style.animation='none'});
-        d?.animate([{opacity:1,transform:'translate(-50%,-50%)'},{opacity:0,transform:'translate(-50%,-48%) scale(.96)'}],{duration:150,easing:ease,fill:'forwards'});
+        d?.animate(window.innerWidth<600?[{transform:'translate(-50%,-50%)'},{transform:'translate(-50%,60vh)'}]:[{opacity:1,transform:'translate(-50%,-50%)'},{opacity:0,transform:'translate(-50%,-48%) scale(.96)'}],{duration:window.innerWidth<600?200:150,easing:ease,fill:'forwards'});
         const out=sc?.animate([{opacity:1},{opacity:0}],{duration:150,easing:ease,fill:'forwards'});
         (out?out.finished:Promise.resolve()).catch(()=>{}).finally(()=>g.remove())}
       unlock();others.forEach((el,i)=>{el.inert=was[i]});if(previous?.isConnected)previous.focus();window.removeEventListener('m3:close-all-overlays', handleClose);window.dispatchEvent(new CustomEvent('m3:dialog-close'))}},[]);

@@ -619,16 +619,23 @@ function App(){
      const isSheet=m.classList.contains('is-sheet');
      const isDockedSearch=m.classList.contains('m3-search-view')&&window.innerWidth>=840;
      m.style.transition='transform 0.18s cubic-bezier(0.4, 0, 1, 1), opacity 0.18s ease, border-radius 0.18s ease';
-     if(isDialog){
-      m.style.transform='translate(-50%, -46%) scale(0.9)';
-     }else if(isSheet){
-      m.style.transform='translateY(100%)';
-     }else if(isDockedSearch){
-      m.style.transform='translateX(-50%) scale(0.9)';
+     // Tells Dialog's unmount that the exit already played, so it does not replay it.
+     if(isDialog)m.dataset.pbClosed='1';
+     if(isDialog&&window.innerWidth<600){
+      // Phones: the dialog nearly fills the screen; fading it showed it and the page through each other. Slide it down opaque.
+      m.style.transform='translate(-50%, 60vh) scale(0.9)';
      }else{
-      m.style.transform='scale(0.9)';
+      if(isDialog){
+       m.style.transform='translate(-50%, -46%) scale(0.9)';
+      }else if(isSheet){
+       m.style.transform='translateY(100%)';
+      }else if(isDockedSearch){
+       m.style.transform='translateX(-50%) scale(0.9)';
+      }else{
+       m.style.transform='scale(0.9)';
+      }
+      m.style.opacity='0';
      }
-     m.style.opacity='0';
     }
     s.forEach(el=>{
      el.style.transition='opacity 0.18s ease';
@@ -645,7 +652,7 @@ function App(){
      // Keep the overlay and scrims at their faded, off-screen values until React has actually closed them. Clearing
      // them first let the WebView paint the still-open sheet at full opacity for a frame, after which its normal close
      // transition slid it down across the nav bar and gesture line (27 Oct recording).
-     const reset=el=>{el.style.transition='none';el.style.transform='';el.style.opacity='';el.style.borderRadius='';
+     const reset=el=>{delete el.dataset.pbClosed;el.style.transition='none';el.style.transform='';el.style.opacity='';el.style.borderRadius='';
       void el.offsetHeight;el.style.transition=''};
      // Sheets and the drawer stay mounted and lose .open; dialogs and search unmount. Give up after 800 ms.
      const until=performance.now()+800;

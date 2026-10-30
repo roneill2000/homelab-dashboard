@@ -19,15 +19,20 @@ try{
   await p.keyboard.press('Escape');await p.keyboard.press('Escape');await expect(dlg).toHaveCount(0);
   expect(await p.evaluate(()=>document.activeElement.getAttribute('aria-label'))).toBe('Open larger chart');await p.close()});
 
- await test('phone: predictive Back on the enlarged chart closes it once, without the exit copy flashing back in',async()=>{
+ await test('phone: the enlarged chart opens and closes (predictive Back) without showing through the page',async()=>{
   const p=await b.newPage({viewport:{width:412,height:915},isMobile:true,hasTouch:true});await p.goto(base+'#/storage');await p.waitForTimeout(800);
-  await p.locator('.chart__expand').first().click({force:true});await expect(p.getByRole('dialog')).toBeVisible();await p.waitForTimeout(400);
-  // Same events MainActivity sends for a back swipe; then watch every frame for 500 ms.
-  const peak=await p.evaluate(()=>new Promise(done=>{const fire=d=>window.dispatchEvent(new CustomEvent('predictiveback',{detail:d}));
+  // Opening: time the dialog spends half-transparent (both layouts visible at once).
+  await p.evaluate(()=>{window.__seeThrough=0;let last=performance.now();const t0=last;const tick=()=>{const now=performance.now(),d=document.querySelector('.m3-dialog');
+   if(d){const o=Number(getComputedStyle(d).opacity);if(o>.15&&o<.85)window.__seeThrough+=now-last}last=now;if(now-t0<900)requestAnimationFrame(tick)};requestAnimationFrame(tick)});
+  await p.locator('.chart__expand').first().click({force:true});await expect(p.getByRole('dialog')).toBeVisible();await p.waitForTimeout(900);
+  expect(await p.evaluate(()=>window.__seeThrough)).toBeLessThan(100);
+  // Back swipe: the same events MainActivity sends; the dialog must leave opaque and never be replayed by an exit copy.
+  const r=await p.evaluate(()=>new Promise(done=>{const fire=d=>window.dispatchEvent(new CustomEvent('predictiveback',{detail:d}));
    fire({phase:'start',progress:0,edge:0});fire({phase:'progress',progress:.6,edge:0});fire({phase:'commit'});
-   let max=0;const t0=performance.now();const tick=()=>{document.querySelectorAll('.m3-dialog-layer[aria-hidden="true"] .m3-dialog').forEach(d=>{max=Math.max(max,Number(getComputedStyle(d).opacity))});
-    if(performance.now()-t0<500)requestAnimationFrame(tick);else done(max)};requestAnimationFrame(tick)}));
-  expect(peak).toBeLessThan(.2);await expect(p.getByRole('dialog')).toHaveCount(0);await p.close()});
+   let see=0,copies=0;const t0=performance.now();const tick=()=>{document.querySelectorAll('.m3-dialog').forEach(d=>{const o=Number(getComputedStyle(d).opacity);
+     if(d.closest('[aria-hidden="true"]'))copies++;else if(o>.15&&o<.85)see++});
+    if(performance.now()-t0<500)requestAnimationFrame(tick);else done({see,copies})};requestAnimationFrame(tick)}));
+  expect(r).toEqual({see:0,copies:0});await expect(p.getByRole('dialog')).toHaveCount(0);await p.close()});
 
  await test('search open across 1440 -> 448: the new bottom bar is inert; close focuses a visible trigger',async()=>{
   const p=await open(1440,900);await p.getByRole('button',{name:'Find a service'}).first().click();await expect(p.getByRole('dialog',{name:'Find a service'})).toBeVisible();
