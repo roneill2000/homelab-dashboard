@@ -291,8 +291,10 @@ export function Dialog({headline,icon,children,actions,onClose,labelId='m3-dialo
     const handleClose = () => closeRef.current?.();
     window.addEventListener('m3:close-all-overlays', handleClose);
     // Callers unmount the dialog the moment it closes; a short-lived inert copy plays the exit so closing matches opening.
+    // A predictive Back commit has already faded the dialog out (inline opacity 0): replaying the exit from full opacity
+    // flashed the dialog back in for a frame after it had gone (30 Oct phone recording).
     const layer=box.current?.parentElement;
-    return()=>{if(layer&&!reducedMotion()){const g=layer.cloneNode(true);g.inert=true;g.style.pointerEvents='none';g.setAttribute('aria-hidden','true');document.body.appendChild(g);
+    return()=>{if(layer&&!reducedMotion()&&layer.querySelector('.m3-dialog')?.style.opacity!=='0'){const g=layer.cloneNode(true);g.inert=true;g.style.pointerEvents='none';g.setAttribute('aria-hidden','true');document.body.appendChild(g);
         const d=g.querySelector('.m3-dialog'),sc=g.querySelector('.m3-scrim'),ease='cubic-bezier(0.3,0,0.8,0.15)';
         [d,sc].forEach(el=>{if(el)el.style.animation='none'});
         d?.animate([{opacity:1,transform:'translate(-50%,-50%)'},{opacity:0,transform:'translate(-50%,-48%) scale(.96)'}],{duration:150,easing:ease,fill:'forwards'});
