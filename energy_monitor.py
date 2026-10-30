@@ -180,6 +180,7 @@ def snapshot(connect, now=None):
         rows = db.execute('SELECT hour, device, wh, measured_wh, seconds FROM energy_hourly WHERE hour>=? ORDER BY hour', (since - 3600,)).fetchall()
         first = db.execute('SELECT MIN(hour) FROM energy_hourly').fetchone()[0]
     days, hours, per_device, month = {}, {}, {}, dict(wh=0.0, seconds={})
+    yday, yday_dev, yday_secs = local_day(now - 86400), {}, {}
     for hour, dev, wh, mwh, secs in rows:
         day = local_day(hour)
         d = days.setdefault(day, dict(date=day, wh=0.0, measured_wh=0.0))
@@ -189,6 +190,8 @@ def snapshot(connect, now=None):
             if secs > 0: h['total_w'] += wh * 3600 / secs
         if hour >= now - 30 * 86400:
             per_device[dev] = per_device.get(dev, 0.0) + wh
+        if day == yday:
+            yday_dev[dev] = yday_dev.get(dev, 0.0) + wh; yday_secs[hour] = max(yday_secs.get(hour, 0), secs)
         if hour >= month_start:
             month['wh'] += wh; month['seconds'][hour] = max(month['seconds'].get(hour, 0), secs)
     today = days.get(local_day(now), dict(wh=0.0, measured_wh=0.0))
@@ -210,4 +213,6 @@ def snapshot(connect, now=None):
                 days=[dict(d, kwh=d['wh'] / 1000, cost=cost(d['wh'] / 1000)) for _, d in sorted(days.items()) if d['date'] >= local_day(now - 29 * 86400)],
                 hours=[hours[k] for k in sorted(hours)],
                 devices_30d=[dict(id=k, kwh=v / 1000, cost=cost(v / 1000)) for k, v in sorted(per_device.items(), key=lambda x: -x[1])],
+                yesterday=dict(date=yday, kwh=sum(yday_dev.values()) / 1000, cost=cost(sum(yday_dev.values()) / 1000),
+                               covered_hours=sum(yday_secs.values()) / 3600, devices={k: v / 1000 for k, v in yday_dev.items()}) if yday_dev else None,
                 history_since=first)

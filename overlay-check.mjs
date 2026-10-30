@@ -5,7 +5,7 @@ import {chromium} from 'playwright';import {expect} from '@playwright/test';
 const base=process.env.DASHBOARD_URL||'http://127.0.0.1:8799/';
 const b=await chromium.launch({channel:process.env.PW_CHANNEL,headless:true});
 let failures=0;const test=async(name,fn)=>{try{await fn();console.log('PASS',name)}catch(e){failures++;console.log('FAIL',name,String(e.message||e).split('\n')[0])}};
-const open=async(w,h,hash='')=>{const p=await b.newPage({viewport:{width:w,height:h}});await p.route('**/api/action/**',r=>r.request().method()==='POST'?r.abort():r.continue());
+const open=async(w,h,hash='',setup=null)=>{const p=await b.newPage({viewport:{width:w,height:h}});if(setup)await setup(p);await p.route('**/api/action/**',r=>r.request().method()==='POST'?r.abort():r.continue());
   await p.route('**/api/qwen',r=>r.request().method()==='POST'?r.abort():r.continue());await p.goto(base+hash);await p.waitForTimeout(900);return p};
 const interactive=async(p,sel)=>p.evaluate(s=>{const el=document.querySelector(s);return !!el&&!el.closest('[inert]')},sel);
 try{
@@ -35,7 +35,12 @@ try{
   expect(r).toEqual({see:0,copies:0});await expect(p.getByRole('dialog')).toHaveCount(0);await p.close()});
 
  await test('Local AI: Strata is listed with the other chat models (no separate switch card) and opens in Open WebUI',async()=>{
-  const p=await open(1440,900,'#/ai');const chat=p.locator('.ai-task--chat');
+  // The preview builds /api/storage on Proxmox, which cannot read the PC's model server, so pin the AI sources to a known
+  // state (PC up, a llama model loaded, Strata unloaded) instead of depending on whatever the PC is doing right now.
+  const pin=async r=>{const res=await r.fetch();const d=await res.json();const now=Date.now()/1000,ok={online:true,last_success_at:now,last_attempt_at:now,error:null};
+   d.ai={...(d.ai||{}),desktop:{...(d.ai?.desktop||{}),...ok,models:[{id:'qwen3.8-27b',state:'loaded',context_tokens:65536}]},strata:{...(d.ai?.strata||{}),...ok,loaded:false,model:'swift-1.5-iq2_xs'},webui:{...(d.ai?.webui||{}),...ok}};
+   await r.fulfill({response:res,json:d})};
+  const p=await open(1440,900,'#/ai',p=>p.route('**/api/storage*',pin));const chat=p.locator('.ai-task--chat');
   // Loaded (featured) or under the collapsed Other models: open that list first so the row is visible either way.
   await p.waitForTimeout(1500);await chat.locator('details.ai-others').evaluate(d=>{d.open=true}).catch(()=>{});
   await expect(chat.getByRole('heading',{name:'Strata · Qwen3.8-Flash-Next'})).toHaveCount(1,{timeout:8000});

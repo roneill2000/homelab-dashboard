@@ -255,7 +255,22 @@ def unraid_backup_check(now, latest):
                              f'Newest Unraid snapshot on Google Drive is {int(hours)} h old. Check the unraid-restic container.', 4)}
 
 
-def digest_text(now, t, f, latest, active, nightly=None):
+def energy_line(energy):
+    """Yesterday's homelab energy from the dashboard (estimate, see its Energy & cost section), or None."""
+    y = (energy or {}).get('yesterday') if isinstance(energy, dict) else None
+    if not isinstance(y, dict) or not isinstance(y.get('kwh'), (int, float)):
+        return None
+    line = f"Energy yesterday: {y['kwh']:.1f} kWh" + (f", ${y['cost']:.2f}" if isinstance(y.get('cost'), (int, float)) else '')
+    pc = (y.get('devices') or {}).get('pc')
+    if isinstance(pc, (int, float)):
+        line += f' (gaming PC {pc:.1f} kWh)'
+    hours = y.get('covered_hours')
+    if isinstance(hours, (int, float)) and hours < 23:
+        line += f', readings for {hours:.0f} of 24 h'
+    return line
+
+
+def digest_text(now, t, f, latest, active, nightly=None, energy=None):
     """Morning summary lines. Returns (title, body, problems) from measured data only; missing data says so."""
     lines, problems = [], []
     bk = []
@@ -309,6 +324,8 @@ def digest_text(now, t, f, latest, active, nightly=None):
                 problems.append(f"{d.get('role')} disk: " + ', '.join(f'{v} {k.replace("_", " ")}' for k, v in bad.items()))
             if d.get('running_remaining_pct') is not None:
                 lines.append(f"Self-test running on {d.get('role')} ({d['running_remaining_pct']}% left)")
+    if energy_line(energy):
+        lines.append(energy_line(energy))
     if active:
         problems += [f'Active alert: {x}' for x in active]
     if problems:
@@ -374,7 +391,7 @@ def run_digest(now):
             return None
     t, f, s = safe('/api/telemetry'), safe('/api/fleet'), safe('/api/storage?window=900')
     refresh_snapshots(now, every=0)
-    title, body, problems = digest_text(now, t, f, read_latest(), active_alerts(), ((s or {}).get('activity') or {}).get('nightly'))
+    title, body, problems = digest_text(now, t, f, read_latest(), active_alerts(), ((s or {}).get('activity') or {}).get('nightly'), (s or {}).get('energy'))
     answer, model = ask_qwen('This is my homelab morning summary, from measured data:\n' + body +
                              '\nIn at most two short sentences: is anything unusual or worth doing today? '
                              'If nothing stands out, say so. Do not repeat the numbers.', wait=480)
@@ -424,6 +441,72 @@ def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_
             out['llama-down'] = (not playing, 'llama-server is not running',
                                  'The gaming PC is awake, no game is running, and llama-server (:8080) does not answer. On the PC: Start-Service llm-router.', 3)
     return out
+
+
+CADDY = '192.168.0.20'
+CA_KEY = Path('/var/lib/homelab-alerts/caddy-ca-key.txt')  # Caddy root key id first seen; a change means devices must re-trust
+LEAF_MIN_H = 3  # Caddy's 12 h local certs renew with ~4 h left, so under 3 h means renewal is stuck
+
+
+def lan_names():
+    try:
+        text = subprocess.run(['pct', 'exec', '115', '--', 'cat', '/etc/caddy/Caddyfile'], capture_output=True, text=True, timeout=15).stdout
+    except Exception:
+        return []
+    text = re.sub(r'#.*', '', text)  # names in comments are not sites
+    return sorted(set(re.findall(r'\b([a-z0-9-]+(?:\.[a-z0-9-]+)*\.lan)\b', text)))
+
+
+def served_chain(name):
+    """[(not_after_epoch, authority_key_id)] for the certificates Caddy serves for `name`, leaf first; [] if none."""
+    import calendar
+    try:
+        raw = subprocess.run(['openssl', 's_client', '-connect', f'{CADDY}:443', '-servername', name, '-showcerts'],
+                             input='', capture_output=True, text=True, timeout=8).stdout
+    except Exception:
+        return []
+    out = []
+    for pem in re.findall(r'-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----', raw, re.S):
+        info = subprocess.run(['openssl', 'x509', '-noout', '-enddate', '-ext', 'authorityKeyIdentifier'], input=pem,
+                              capture_output=True, text=True, timeout=5).stdout
+        end = re.search(r'notAfter=(.+)', info)
+        aki = re.search(r'([0-9A-F]{2}(?::[0-9A-F]{2}){8,})', info)
+        if end:
+            out.append((calendar.timegm(time.strptime(end.group(1).strip(), '%b %d %H:%M:%S %Y %Z')), aki.group(1) if aki else None))
+    return out
+
+
+def cert_checks(now, names=None, chain=served_chain, key_file=CA_KEY):
+    """HTTPS on the *.lan names behind Caddy: one grouped check for the site certificates, one for its local CA."""
+    from concurrent.futures import ThreadPoolExecutor
+    names = lan_names() if names is None else names
+    if not names:
+        return {}
+    with ThreadPoolExecutor(8) as pool:
+        chains = dict(zip(names, pool.map(chain, names)))
+    if not any(chains.values()):  # nothing answered at all: Caddy or the network, not certificates
+        return {'lan-certs': (True, 'HTTPS on *.lan is down', f'Caddy ({CADDY}, LXC 115) served no certificate for any of {len(names)} names.', 4)}
+    leaf, ca, keys = [], [], set()
+    for name, ch in chains.items():
+        if not ch:
+            leaf.append(f'{name}: no certificate'); continue
+        hours = (ch[0][0] - now) / 3600
+        if hours < LEAF_MIN_H:
+            leaf.append(f'{name}: ' + (f'expires in {hours:.1f} h' if hours > 0 else 'expired'))
+        if len(ch) > 1:
+            if (ch[1][0] - now) / 86400 < 1:
+                ca.append(f'intermediate for {name} expires in {(ch[1][0] - now) / 3600:.0f} h')
+            if ch[1][1]:
+                keys.add(ch[1][1])
+    known = key_file.read_text().strip() if key_file.exists() else None
+    if keys and known is None:
+        key_file.parent.mkdir(parents=True, exist_ok=True); key_file.write_text(sorted(keys)[0])
+    elif keys and known not in keys:
+        ca.append('Caddy has a new root CA, so devices that trusted the old one will show certificate warnings until it is trusted again '
+                  '(then delete ' + str(key_file) + ' to accept it)')
+    detail = 'Caddy (LXC 115) is not renewing these: ' + '; '.join(leaf[:8]) + (f' (+{len(leaf) - 8} more)' if len(leaf) > 8 else '')
+    return {'lan-certs': (bool(leaf), 'HTTPS certificates are not renewing', detail, 3),
+            'lan-ca': (bool(ca), 'Caddy certificate authority problem', '; '.join(ca), 3)}
 
 
 def hold_for_maintenance(sends, state, snoozed):
@@ -564,6 +647,10 @@ def main(argv):
     current.update(nightly_check(((s or {}).get('activity') or {}).get('nightly')))
     try:
         current.update(ai_engine_checks())
+    except Exception:
+        pass
+    try:
+        current.update(cert_checks(now))
     except Exception:
         pass
     sends, state = transitions(prev, current)

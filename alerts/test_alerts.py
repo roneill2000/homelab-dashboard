@@ -177,5 +177,42 @@ class SnoozeAndEngineTests(unittest.TestCase):
         self.assertNotIn('llama-down', down(game=lambda: None))
 
 
+class EnergyDigestTests(unittest.TestCase):
+    def test_energy_line(self):
+        y = {'kwh': 3.14, 'cost': 1.129, 'covered_hours': 24, 'devices': {'pc': 1.21, 'router': 0.29}}
+        self.assertEqual(a.energy_line({'yesterday': y}), 'Energy yesterday: 3.1 kWh, $1.13 (gaming PC 1.2 kWh)')
+        self.assertEqual(a.energy_line({'yesterday': dict(y, cost=None, covered_hours=12.2, devices={})}), 'Energy yesterday: 3.1 kWh, readings for 12 of 24 h')
+        for bad in (None, {}, {'yesterday': None}, {'yesterday': {'kwh': None}}, []):
+            self.assertIsNone(a.energy_line(bad))
+
+
+class CertTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.dir = tempfile.TemporaryDirectory(); self.key = Path(self.dir.name) / 'ca.txt'
+    def tearDown(self):
+        self.dir.cleanup()
+    def run_checks(self, chains, now=1000):
+        return a.cert_checks(now, names=list(chains), chain=chains.get, key_file=self.key)
+
+    def test_healthy_then_stuck_renewal_is_one_grouped_alert(self):
+        good = [(1000 + 8 * 3600, 'LEAF'), (1000 + 5 * 86400, 'ROOT1')]
+        c = self.run_checks({'a.lan': good, 'b.lan': good})
+        self.assertFalse(c['lan-certs'][0]); self.assertFalse(c['lan-ca'][0]); self.assertEqual(self.key.read_text(), 'ROOT1')
+        c = self.run_checks({'a.lan': [(1000 + 3600, 'LEAF'), good[1]], 'b.lan': [], 'c.lan': good})
+        self.assertTrue(c['lan-certs'][0]); self.assertIn('a.lan: expires in 1.0 h', c['lan-certs'][2]); self.assertIn('b.lan: no certificate', c['lan-certs'][2])
+
+    def test_caddy_down_and_root_change(self):
+        self.assertEqual(self.run_checks({'a.lan': [], 'b.lan': []})['lan-certs'][1], 'HTTPS on *.lan is down')
+        self.key.write_text('ROOT1')
+        c = self.run_checks({'a.lan': [(1000 + 8 * 3600, 'L'), (1000 + 5 * 86400, 'ROOT2')]})
+        self.assertTrue(c['lan-ca'][0]); self.assertIn('new root CA', c['lan-ca'][2])
+        c = self.run_checks({'a.lan': [(1000 + 8 * 3600, 'L'), (1000 + 3600, 'ROOT1')]})
+        self.assertTrue(c['lan-ca'][0]); self.assertIn('intermediate', c['lan-ca'][2])
+
+    def test_no_names_means_no_check(self):
+        self.assertEqual(a.cert_checks(1000, names=[], key_file=self.key), {})
+
+
 if __name__ == '__main__':
     unittest.main()
