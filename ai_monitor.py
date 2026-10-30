@@ -29,6 +29,8 @@ _stuck = None        # {'key': (model, task id), 'decoded': n, 'since': t} while
 _watchdog = {}       # last watchdog action, reported in the snapshot
 # Gaming PC GPU readings (pc/gpu_metrics.py on the PC, NVML, cached 2 s there). Read only while someone is watching.
 PC_GPU_URL = 'http://192.168.0.12:9835/gpu'
+# Strata (Swift 1.5 / Qwen3.8-Flash-Next) on the gaming PC. /health is cheap and does not count as model activity.
+STRATA_URL = 'http://192.168.0.12:8088/health'
 _pc_gpu = {'latest': None, 'history': [], 'error': None, 'last_try': 0}
 GPU_KEYS = ('power_w', 'power_limit_w', 'temperature_c', 'utilization_pct', 'memory_util_pct', 'vram_used_mib',
             'vram_total_mib', 'fan_pct', 'clock_mhz')
@@ -129,6 +131,14 @@ def webui():
     if result.get('name') != 'Open WebUI' or result.get('status') is not True:
         raise ValueError('Unexpected WebUI response')
     return dict(version=str(result.get('version', ''))[:40])
+
+
+def strata():
+    result = fetch(STRATA_URL)
+    if result.get('service') != 'strata':
+        raise ValueError('Unexpected Strata response')
+    return dict(model=str(result.get('model') or '')[:80], loaded=result.get('loaded') is True,
+                context_tokens=positive(result.get('max_context')), images=result.get('images') is True)
 
 
 def desktop():
@@ -242,8 +252,8 @@ def collect(now=None, min_interval=1.0):
         _last_poll = now
         prior = copy.deepcopy(_latest)
     result = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {k: pool.submit(fn) for k, fn in [('webui', webui), ('desktop', desktop)]}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {k: pool.submit(fn) for k, fn in [('webui', webui), ('desktop', desktop), ('strata', strata)]}
         for key, future in futures.items():
             old = prior.get(key, {})
             try:

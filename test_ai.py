@@ -18,21 +18,32 @@ class AITests(unittest.TestCase):
  def test_duplicate_ids_are_not_counted_twice(self):
   self.assertEqual(len(a.models({'data':[{'id':'a'},{'id':'a'}]})),1)
  def test_failure_keeps_last_inventory_but_marks_unavailable(self):
-  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={'version':'test'}),patch.object(a,'desktop',return_value={'models':[{'id':'a','state':'loaded'}]}):
+  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'strata',return_value={'model':'m','loaded':True}),patch.object(a,'webui',return_value={'version':'test'}),patch.object(a,'desktop',return_value={'models':[{'id':'a','state':'loaded'}]}):
    a.collect(1000);self.assertTrue(a.snapshot()['desktop']['online'])
    with patch.object(a,'desktop',side_effect=TimeoutError):a.collect(1031)
    result=a.snapshot()['desktop'];self.assertFalse(result['online']);self.assertEqual(result['last_success_at'],1000);self.assertEqual(result['models'][0]['id'],'a')
    self.assertTrue(a.snapshot()['webui']['online'])
    a.collect(1062);self.assertTrue(a.snapshot()['desktop']['online']);self.assertIsNone(a.snapshot()['desktop']['error']);self.assertEqual(a.snapshot()['desktop']['last_success_at'],1062)
  def test_cold_start_while_pc_is_offline(self):
-  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={'version':'test'}),patch.object(a,'desktop',side_effect=TimeoutError):
+  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'strata',return_value={'model':'m','loaded':True}),patch.object(a,'webui',return_value={'version':'test'}),patch.object(a,'desktop',side_effect=TimeoutError):
    a.collect(1000)
    result=a.snapshot();self.assertTrue(result['webui']['online']);self.assertFalse(result['desktop']['online']);self.assertNotIn('models',result['desktop']);self.assertNotIn('last_success_at',result['desktop'])
  def test_poll_is_cached_and_snapshot_cannot_mutate_state(self):
-  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={}) as web,patch.object(a,'desktop',return_value={'models':[{'id':'a'}]}) as desk:
+  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'strata',return_value={'model':'m','loaded':True}),patch.object(a,'webui',return_value={}) as web,patch.object(a,'desktop',return_value={'models':[{'id':'a'}]}) as desk:
    a.collect(1000,min_interval=30);a.collect(1010,min_interval=30);self.assertEqual(desk.call_count,1)
    result=a.snapshot();result['desktop']['models'][0]['id']='changed'
    self.assertEqual(a.snapshot()['desktop']['models'][0]['id'],'a')
+
+ def test_strata_health_is_parsed_and_foreign_services_rejected(self):
+  with patch.object(a,'fetch',return_value={'service':'strata','model':'swift-1.5-iq3_s','loaded':True,'max_context':32768,'images':True,'api_key':False}):
+   self.assertEqual(a.strata(),{'model':'swift-1.5-iq3_s','loaded':True,'context_tokens':32768,'images':True})
+  with patch.object(a,'fetch',return_value={'service':'strata','loaded':'yes','max_context':-1}):
+   r=a.strata();self.assertFalse(r['loaded']);self.assertIsNone(r['context_tokens']);self.assertEqual(r['model'],'')
+  with patch.object(a,'fetch',return_value={'status':'ok'}):
+   with self.assertRaises(ValueError):a.strata()
+ def test_strata_offline_does_not_affect_desktop(self):
+  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={}),patch.object(a,'desktop',return_value={'models':[]}),patch.object(a,'strata',side_effect=TimeoutError):
+   a.collect(1000);r=a.snapshot();self.assertFalse(r['strata']['online']);self.assertTrue(r['desktop']['online'])
 
 if __name__=='__main__':unittest.main()
 
