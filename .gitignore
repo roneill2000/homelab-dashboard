@@ -10,3 +10,4 @@ diagrams/raw/
 
 # Security audits and other notes that must not be public (repo is public on GitHub)
 private/
+HANDOFF-PRIVATE.md
