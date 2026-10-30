@@ -697,7 +697,9 @@ function App(){
      // Keep the overlay and scrims at their faded, off-screen values until React has actually closed them. Clearing
      // them first let the WebView paint the still-open sheet at full opacity for a frame, after which its normal close
      // transition slid it down across the nav bar and gesture line (27 Oct recording).
-     const reset=el=>{delete el.dataset.pbClosed;el.style.transition='none';el.style.transform='';el.style.opacity='';el.style.borderRadius='';
+     // A dialog that has already unmounted keeps its data-pb-closed mark: React may run Dialog's cleanup (which reads it to
+     // skip the exit replay) after this, and clearing it first replayed the exit on the phone (30 Oct 16:08 recording).
+     const reset=el=>{if(!el.isConnected)return;delete el.dataset.pbClosed;el.style.transition='none';el.style.transform='';el.style.opacity='';el.style.borderRadius='';
       void el.offsetHeight;el.style.transition=''};
      // Sheets and the drawer stay mounted and lose .open; dialogs and search unmount. Give up after 800 ms.
      const until=performance.now()+800;

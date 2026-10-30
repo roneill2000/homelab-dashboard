@@ -27,12 +27,13 @@ try{
   await p.locator('.chart__expand').first().click({force:true});await expect(p.getByRole('dialog')).toBeVisible();await p.waitForTimeout(900);
   expect(await p.evaluate(()=>window.__seeThrough)).toBeLessThan(100);
   // Back swipe: the same events MainActivity sends; the dialog must leave opaque and never be replayed by an exit copy.
-  const r=await p.evaluate(()=>new Promise(done=>{const fire=d=>window.dispatchEvent(new CustomEvent('predictiveback',{detail:d}));
+  const r=await p.evaluate(()=>new Promise(done=>{const fire=d=>window.dispatchEvent(new CustomEvent('predictiveback',{detail:d}));const dlg=document.querySelector('.m3-dialog');
    fire({phase:'start',progress:0,edge:0});fire({phase:'progress',progress:.6,edge:0});fire({phase:'commit'});
    let see=0,copies=0;const t0=performance.now();const tick=()=>{document.querySelectorAll('.m3-dialog').forEach(d=>{const o=Number(getComputedStyle(d).opacity);
      if(d.closest('[aria-hidden="true"]'))copies++;else if(o>.15&&o<.85)see++});
-    if(performance.now()-t0<500)requestAnimationFrame(tick);else done({see,copies})};requestAnimationFrame(tick)}));
-  expect(r).toEqual({see:0,copies:0});await expect(p.getByRole('dialog')).toHaveCount(0);await p.close()});
+    if(performance.now()-t0<500)requestAnimationFrame(tick);else done({see,copies,keptMark:!dlg.isConnected&&dlg.dataset.pbClosed==='1'})};requestAnimationFrame(tick)}));
+  // keptMark: the unmounted dialog still says the exit already played, whatever order React runs its cleanup in.
+  expect(r).toEqual({see:0,copies:0,keptMark:true});await expect(p.getByRole('dialog')).toHaveCount(0);await p.close()});
 
  await test('Local AI: Strata is listed with the other chat models (no separate switch card) and opens in Open WebUI',async()=>{
   // The preview builds /api/storage on Proxmox, which cannot read the PC's model server, so pin the AI sources to a known
