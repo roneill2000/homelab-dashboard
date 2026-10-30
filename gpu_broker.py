@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 
+import ai_history
 import ai_monitor
 
 PC = '192.168.0.12'
@@ -69,25 +70,39 @@ def llama_busy():
 
 
 def ensure(engine):
-    """Give the GPU to `engine` ('llama' or 'strata'); serialised so concurrent requests cannot interleave a switch."""
+    """Give the GPU to `engine` ('llama' or 'strata'); serialised so concurrent requests cannot interleave a switch.
+    Returns what it had to do ('unload-strata', 'load-strata', 'swap-to-strata') or None."""
+    did = []
     with _switch_lock:
         if engine == 'llama':
             if strata_loaded():
                 log('llama request: unloading Strata')
+                did.append('unload-strata')
                 ai_monitor.strata_post('/unload')
                 if not ai_monitor.wait_strata(False, timeout=120):
                     raise RuntimeError('Strata did not unload')
         else:
             if llama_busy():
                 log('Strata request: unloading llama-server models')
+                did.append('unload-llama')
                 ai_monitor.unload_llama()
             if not strata_loaded():
                 if game_running():
                     raise GamePaused()
                 log('Strata request: loading Strata')
+                did.append('load-strata')
                 ai_monitor.strata_post('/load')
                 if not ai_monitor.wait_strata(True):
                     raise RuntimeError('Strata did not load')
+    return '+'.join(did) or None
+
+
+def remember(row):
+    """One history row per generation request (Local AI page). Never lets a history problem touch the request."""
+    try:
+        ai_history.record(row)
+    except Exception as exc:
+        log(f'history not recorded: {exc.__class__.__name__}')
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -111,14 +126,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if length > MAX_BODY:
             return self.fail(413, 'Request too large')
         body = self.rfile.read(length) if length else None
-        if needs_gpu(self.command, self.path):
+        generate = needs_gpu(self.command, self.path)
+        t0 = time.time()
+        row = dict(ts=t0, engine=engine, model=ai_history.model_of(body) if generate and body else None, ok=0, status=None)
+        if generate:
             try:
-                ensure(engine)
+                row['swap'] = ensure(engine)
             except GamePaused:
+                remember(dict(row, status=503, swap='game', wall_s=time.time() - t0))
                 return self.fail(503, 'A game is running on the gaming PC, so its GPU is paused. Try again after the game.')
             except Exception as exc:
                 log(f'switch failed: {exc}')
+                remember(dict(row, status=503, swap='failed', wall_s=time.time() - t0))
                 return self.fail(503, 'The gaming PC could not switch its GPU to this engine. Try again shortly.')
+            row['swap_s'] = time.time() - t0 if row['swap'] else None
+        t1, tail, first = time.time(), b'', None
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP}
         conn = http.client.HTTPConnection(host, port, timeout=ai_monitor.SWITCH_TIMEOUT)
         started = False
@@ -131,12 +153,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if k.lower() not in HOP or (k.lower() == 'content-length' and not upstream.chunked):
                     self.send_header(k, v)
             self.end_headers()
+            row['status'] = upstream.status
             while True:
                 chunk = upstream.read1(65536)
                 if not chunk:
                     break
+                if generate:
+                    first = first or time.time()
+                    tail = (tail + chunk)[-ai_history.TAIL:]
                 self.wfile.write(chunk)
                 self.wfile.flush()
+            row['ok'] = int(200 <= upstream.status < 300)
         except (ConnectionError, OSError) as exc:
             if not started:
                 try:
@@ -146,6 +173,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             log(f'{self.command} {self.path} ({engine}): {exc.__class__.__name__}')
         finally:
             conn.close()
+            if generate:
+                remember(dict(row, ttfb_s=first - t1 if first else None, wall_s=time.time() - t0, **(ai_history.timings(tail) if row['ok'] else {})))
 
     do_GET = do_POST = do_PUT = do_DELETE = do_OPTIONS = forward
 
@@ -160,6 +189,7 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 def main():
+    ai_history.initialize()
     servers = [Server(('0.0.0.0', port), engine, (PC, port)) for port, engine in PORTS.items()]
     for s in servers[1:]:
         threading.Thread(target=s.serve_forever, daemon=True).start()

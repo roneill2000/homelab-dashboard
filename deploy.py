@@ -73,6 +73,8 @@ compile(payload['qwen_proxy.py'], 'qwen_proxy.py', 'exec')
 compile(payload['update_proxy.py'], 'update_proxy.py', 'exec')
 compile(payload['gpu_monitor.py'], 'gpu_monitor.py', 'exec')
 compile(payload['energy_monitor.py'], 'energy_monitor.py', 'exec')
+compile(payload['maintenance.py'], 'maintenance.py', 'exec')
+compile(payload['ai_history.py'], 'ai_history.py', 'exec')
 compile(payload['net_monitor.py'], 'net_monitor.py', 'exec')
 compile(payload['ai_monitor.py'], 'ai_monitor.py', 'exec')
 compile(payload['gpu_broker.py'], 'gpu_broker.py', 'exec')
@@ -81,7 +83,7 @@ assert '/*__INITIAL_TELEMETRY_SLOT__*/' in payload['index.html']
 backup = pathlib.Path('/opt/homelab-dashboard/backups') / datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
 backup.mkdir(parents=True, mode=0o700)
 os.chmod(backup.parent, 0o700)
-targets = {'/usr/local/bin/ai_monitor.py': payload['ai_monitor.py'], '/usr/local/bin/gpu_broker.py': payload['gpu_broker.py'], '/usr/local/bin/download_proxy.py': payload['download_proxy.py'], '/usr/local/bin/gpu_monitor.py': payload['gpu_monitor.py'], '/usr/local/bin/energy_monitor.py': payload['energy_monitor.py'], '/usr/local/bin/net_monitor.py': payload['net_monitor.py'], '/usr/local/bin/qwen_proxy.py': payload['qwen_proxy.py'], '/usr/local/bin/update_proxy.py': payload['update_proxy.py'], '/usr/local/bin/log_monitor.py': payload['log_monitor.py'], '/usr/local/bin/activity_monitor.py': payload['activity_monitor.py'], str(backend): updated, '/usr/local/bin/storage_monitor.py': payload['storage_monitor.py'], '/opt/homelab-dashboard/index.html': payload['index.html'], '/opt/homelab-dashboard/catalog.json': payload['catalog.json']}
+targets = {'/usr/local/bin/ai_monitor.py': payload['ai_monitor.py'], '/usr/local/bin/gpu_broker.py': payload['gpu_broker.py'], '/usr/local/bin/download_proxy.py': payload['download_proxy.py'], '/usr/local/bin/gpu_monitor.py': payload['gpu_monitor.py'], '/usr/local/bin/energy_monitor.py': payload['energy_monitor.py'], '/usr/local/bin/maintenance.py': payload['maintenance.py'], '/usr/local/bin/ai_history.py': payload['ai_history.py'], '/usr/local/bin/net_monitor.py': payload['net_monitor.py'], '/usr/local/bin/qwen_proxy.py': payload['qwen_proxy.py'], '/usr/local/bin/update_proxy.py': payload['update_proxy.py'], '/usr/local/bin/log_monitor.py': payload['log_monitor.py'], '/usr/local/bin/activity_monitor.py': payload['activity_monitor.py'], str(backend): updated, '/usr/local/bin/storage_monitor.py': payload['storage_monitor.py'], '/opt/homelab-dashboard/index.html': payload['index.html'], '/opt/homelab-dashboard/catalog.json': payload['catalog.json']}
 fonts_dir = pathlib.Path('/opt/homelab-dashboard/fonts')
 fonts_dir.mkdir(parents=True, exist_ok=True)
 for fname, b64 in payload.get('fonts', {}).items():
@@ -130,7 +132,7 @@ if __name__ == '__main__':
         p.name: base64.b64encode(p.read_bytes()).decode('ascii')
         for p in (ROOT / 'fonts').glob('*.woff2')
     }
-    data = {name:(ROOT/name).read_text(encoding='utf-8') for name in ('index.html','catalog.json','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','energy_monitor.py','net_monitor.py','ai_monitor.py','gpu_broker.py','download_proxy.py')}
+    data = {name:(ROOT/name).read_text(encoding='utf-8') for name in ('index.html','catalog.json','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','energy_monitor.py','maintenance.py','ai_history.py','net_monitor.py','ai_monitor.py','gpu_broker.py','download_proxy.py')}
     data['fonts'] = fonts_payload
     script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
     subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)

@@ -896,3 +896,12 @@ body :is(.ov-hero .summary-grid,.summary-grid)>.summary-stat strong.text-value{o
 .m3-brand__text strong{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 /* Compact nav labels: 12px minimum (M3 label-medium). */
 .m3-nav-bar .m3-nav-label{font-size:12px}
+/* Alert snooze active: the quick action carries the state (tertiary = needs remembering, not an error). */
+.quick-actions .is-snoozed{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container)}
+/* Local AI request history tables (30 Oct 2026). */
+.ai-history .table-scroll{overflow-x:auto;margin:0 0 8px}
+.ai-hist{width:100%;border-collapse:collapse;font-size:var(--md-sys-typescale-body-medium-size);font-variant-numeric:tabular-nums;min-width:640px}
+.ai-hist th,.ai-hist td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--md-sys-color-outline-variant);white-space:nowrap}
+.ai-hist thead th{font-weight:500;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-label-medium-size)}
+.ai-hist tbody th{font-weight:500}
+.ai-hist tr.is-failed td{color:var(--md-sys-color-on-surface-variant)}

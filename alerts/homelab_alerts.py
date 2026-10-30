@@ -24,7 +24,7 @@ from pathlib import Path
 HOME = 'http://192.168.0.2'
 WATCHDOG = Path('/usr/local/bin/homelab-health-watchdog.sh')
 STATE = Path('/var/lib/homelab-alerts/state.json')
-INTENTIONALLY_STOPPED = {'zurg', 'Transcoding-GPU-Benchmark'}
+INTENTIONALLY_STOPPED = {'Transcoding-GPU-Benchmark'}
 CONSECUTIVE = 2
 SNAPSHOTS = Path('/var/lib/homelab-cloud-backup/snapshots.json')
 SOURCES = {'photos': ('Photos', 36), 'proxmox': ('Proxmox', 36), 'unraid': ('Unraid', 30), 'configs': ('Configs', 36)}  # tag: (label, stale after h)
@@ -35,6 +35,8 @@ RESTORE_TEST = Path('/var/lib/homelab-cloud-backup/restore-test.json')
 NIGHTLY_HISTORY = Path('/var/lib/homelab-alerts/nightly-history.json')  # local_date -> final status of the 03:00 review
 WHY_URL = 'http://192.168.0.3:8997/why'
 QWEN_URL = HOME + '/api/qwen'
+PC = '192.168.0.12'
+GAME_FLAG = r'C:\llm\service\paused-for-game.txt'  # written by game-watch.ps1 while it stops llama-server for a game
 
 
 def fetch(path, timeout=60):
@@ -381,6 +383,63 @@ def run_digest(now):
     send('info', title, body, 2 if not problems else 3, markdown=False)
 
 
+def http_ok(url, timeout=4):
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def pc_awake():
+    return subprocess.run(['ping', '-c', '1', '-W', '2', PC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def paused_for_game():
+    """True/False from the PC's game-watch flag, None when the PC can't be asked (then nothing is concluded)."""
+    try:
+        out = subprocess.run(['/usr/local/bin/pcps'], input=f"if (Test-Path '{GAME_FLAG}') {{ 'GAME=yes' }} else {{ 'GAME=no' }}",
+                             capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return None
+    return True if 'GAME=yes' in out else False if 'GAME=no' in out else None
+
+
+def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_for_game):
+    """The PC's two AI engines, only while the PC is awake (asleep is normal, and keeps the last state).
+    Strata's server stays up during games (game-watch only unloads its model); llama-server is stopped on purpose
+    during games, so it only counts as down when no game is running."""
+    if not awake():
+        return {}
+    out = {}
+    up = strata_ok() if strata_ok else http_ok(f'http://{PC}:8088/health')
+    out['strata-down'] = (not up, 'Strata is not running',
+                          'The gaming PC is awake but Strata (:8088) does not answer. On the PC: Start-ScheduledTask Strata.', 3)
+    up = llama_ok() if llama_ok else http_ok(f'http://{PC}:8080/health')
+    if up:
+        out['llama-down'] = (False, 'llama-server is not running', '', 3)
+    else:
+        playing = game()
+        if playing is not None:
+            out['llama-down'] = (not playing, 'llama-server is not running',
+                                 'The gaming PC is awake, no game is running, and llama-server (:8080) does not answer. On the PC: Start-Service llm-router.', 3)
+    return out
+
+
+def hold_for_maintenance(sends, state, snoozed):
+    """While alerts are snoozed, new problems are not sent and stay un-alerted, so anything still bad when the snooze
+    ends alerts on the next run. Recoveries of earlier alerts still go out."""
+    if not snoozed:
+        return sends
+    kept = []
+    for send in sends:
+        if send[1] == 'down':
+            state[send[0]]['alerted'] = False
+        else:
+            kept.append(send)
+    return kept
+
+
 def transitions(prev, current):
     """Yield (key, kind, title, detail, priority) to send, and the new state."""
     sends, state = [], {}
@@ -503,7 +562,13 @@ def main(argv):
     current.update(config_backup_check(now))
     current.update(restore_test_check(now))
     current.update(nightly_check(((s or {}).get('activity') or {}).get('nightly')))
+    try:
+        current.update(ai_engine_checks())
+    except Exception:
+        pass
     sends, state = transitions(prev, current)
+    snooze = safe('/api/maintenance')  # dashboard unreachable: not snoozed (alerts fail open)
+    sends = hold_for_maintenance(sends, state, bool(isinstance(snooze, dict) and snooze.get('active') is True))
     for key, kind, title, detail, prio in sends:
         try:
             if kind == 'down':

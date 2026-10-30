@@ -17,10 +17,10 @@ class AlertTests(unittest.TestCase):
 
     def test_checks_skip_intentional_and_flag_real_problems(self):
         f = {'guests': [{'vmid': 102, 'name': 'utilities', 'failed_units': [], 'mounts': [{'path': '/mnt/UNRAID', 'state': 'stale'}]}],
-             'containers': [{'name': 'zurg', 'state': 'exited'}, {'name': 'Jellyfin', 'state': 'exited'}],
+             'containers': [{'name': 'Transcoding-GPU-Benchmark', 'state': 'exited'}, {'name': 'Jellyfin', 'state': 'exited'}],
              'updates': {'failed': [{'name': 'kasm', 'detail': 'apt exited 100', 'rollback': 'pct rollback 103 x'}]}}
         c = a.checks(None, None, f, 0)
-        self.assertNotIn('docker:zurg', c); self.assertTrue(c['docker:Jellyfin'][0])
+        self.assertNotIn('docker:Transcoding-GPU-Benchmark', c); self.assertTrue(c['docker:Jellyfin'][0])
         self.assertTrue(c['mount:utilities:/mnt/UNRAID'][0]); self.assertIn('pct rollback', c['updates-failed'][2])
 
     def test_duplicates_of_other_senders_are_not_checked(self):
@@ -146,6 +146,35 @@ class SnapshotsDueTests(unittest.TestCase):
         self.assertTrue(snapshots_due(dict(fresh, latest=dict(fresh['latest'], unraid=now - 31 * 3600)), now))
         self.assertTrue(snapshots_due(dict(fresh, checked_at=now - 1800), now))
         self.assertTrue(snapshots_due(None, now))
+
+
+class SnoozeAndEngineTests(unittest.TestCase):
+    def test_snooze_holds_new_alerts_until_it_ends(self):
+        cur = {'x': (True, 'T', 'd', 4), 'y': (False, 'Y', 'd', 3)}
+        prev = {'y': {'count': 3, 'alerted': True}}
+        _, st = a.transitions(prev, cur)
+        sends, st = a.transitions(st, cur)
+        self.assertEqual(sorted(x[1] for x in sends), ['down'])
+        kept = a.hold_for_maintenance(sends, st, True)
+        self.assertEqual(kept, []); self.assertFalse(st['x']['alerted'])
+        sends, st = a.transitions(st, cur)  # snooze over, still bad: alerts on the next run
+        self.assertEqual([x[:2] for x in a.hold_for_maintenance(sends, st, False)], [('x', 'down')])
+
+    def test_snooze_still_sends_recoveries_and_quiet_recovery_sends_nothing(self):
+        st = {'x': {'count': 3, 'alerted': True}, 'z': {'count': 5, 'alerted': False}}
+        sends, st = a.transitions(st, {'x': (False, 'T', 'd', 4), 'z': (False, 'Z', 'd', 4)})
+        self.assertEqual([x[:2] for x in a.hold_for_maintenance(sends, st, True)], [('x', 'up')])
+
+    def test_engines_only_checked_while_pc_awake(self):
+        self.assertEqual(a.ai_engine_checks(awake=lambda: False), {})
+        c = a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: False, llama_ok=lambda: True, game=lambda: False)
+        self.assertTrue(c['strata-down'][0]); self.assertFalse(c['llama-down'][0])
+
+    def test_llama_down_only_when_no_game_and_unknown_is_skipped(self):
+        down = lambda **k: a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: True, llama_ok=lambda: False, **k)
+        self.assertTrue(down(game=lambda: False)['llama-down'][0])
+        self.assertFalse(down(game=lambda: True)['llama-down'][0])
+        self.assertNotIn('llama-down', down(game=lambda: None))
 
 
 if __name__ == '__main__':

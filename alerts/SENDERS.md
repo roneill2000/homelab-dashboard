@@ -13,7 +13,7 @@ All post to the same private ntfy.sh topic. Before adding an alert, check this l
 | Uptime Kuma | Orange Pi, notification "Ntfy Alert" (default) on all 7 monitors | Proxmox ping, Proxmox UI, Proxmox SMB 445, Unraid ping, Unraid UI, Unraid SMB 445, DuckDNS DNS |
 | ddns-update | Orange Pi `/usr/local/bin/ddns-update.sh`, cron every 5 min | Public IP changed, DuckDNS update failed |
 | NetAlertX | LXC 102 `/opt/netalertx/data/config/app.conf` (`NTFY_RUN='on_notification'`, `NTFPRCS_INCLUDED_SECTIONS=['new_devices']`) | A device it has never seen joins 192.168.0.0/24. Turned on 21 Oct 2026; the 55 existing devices were marked known and connect/disconnect alerts are off. |
-| homelab-alerts | Proxmox `/usr/local/bin/homelab-alerts`, timer every 5 min | Only gaps: stale/missing shares in LXCs, failed systemd units in LXCs, stopped Unraid Docker apps (except zurg and the GPU benchmark), failed update runs, speed tests older than 12 h, Google Drive backup older than 36 h (Proxmox job), Unraid snapshot on Google Drive older than 30 h, config backup (router / Proxmox host / Orange Pi) older than 36 h, Unraid SMART self-test failed or overdue, Homepage data stale, Orange Pi failed units, Uptime Kuma or nebula-sync stopped, Pi SD card ≥85%, Pi ≥75 °C |
+| homelab-alerts | Proxmox `/usr/local/bin/homelab-alerts`, timer every 5 min | Only gaps: stale/missing shares in LXCs, failed systemd units in LXCs, stopped Unraid Docker apps (except the GPU benchmark), Strata or llama-server down while the gaming PC is awake (llama-server only when no game is running), failed update runs, speed tests older than 12 h, Google Drive backup older than 36 h (Proxmox job), Unraid snapshot on Google Drive older than 30 h, config backup (router / Proxmox host / Orange Pi) older than 36 h, Unraid SMART self-test failed or overdue, Homepage data stale, Orange Pi failed units, Uptime Kuma or nebula-sync stopped, Pi SD card ≥85%, Pi ≥75 °C |
 
 Configured but **off**: Speedtest Tracker ntfy (`ntfy_enabled=false`).
 Not ntfy: Proxmox cron pings healthchecks.io every 15 min (dead-man alert from that service).
@@ -37,3 +37,16 @@ Failure alerts carry the button; recoveries and info don't. homelab-why accepts 
 | Proxmox notifications | matcher `ntfy-fail-matcher` (severity error) → webhook `NtfyFail`, title only; other severities stay on `Ntfy` |
 
 Not covered: Uptime Kuma and Scrutiny (no custom action support in their ntfy senders).
+
+## Alert snooze (30 Oct 2026)
+
+Quick actions → **Snooze alerts** (30 min, 2 h, 4 h) on the dashboard. State: LXC 104 `/var/lib/homelab-dashboard/maintenance.json`, read by senders at `GET http://192.168.0.2/api/maintenance` (fails open: no answer = not snoozed).
+
+| Sender | During a snooze |
+| --- | --- |
+| homelab-alerts | New problems are held and alert on the first run after the snooze if still bad; recoveries still send |
+| homelab-health-watchdog | Same (newly failed services are not recorded until the snooze ends) |
+| Unraid notifications | Normal and warning notices are dropped (still in Unraid's own list); critical alerts still send |
+| Everything else (Uptime Kuma, Scrutiny, Proxmox notifications, NetAlertX, ddns-update) | Unaffected |
+
+Backups of the patched scripts: `homelab-health-watchdog.sh.bak-20261030-snooze` (Proxmox), `ntfy.sh.bak-20261030-snooze` (Unraid agents).

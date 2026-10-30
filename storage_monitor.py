@@ -1,5 +1,6 @@
 """Read-only Glances collector with 24-hour, server-side disk history."""
 import activity_monitor
+import ai_history
 import energy_monitor
 import gpu_monitor
 import net_monitor
@@ -37,6 +38,7 @@ def initialize():
     activity_monitor.initialize(connect)
     gpu_monitor.initialize(connect)
     energy_monitor.initialize(connect)
+    ai_history.initialize(connect)
     net_monitor.initialize(connect)
 
 def rates(previous, current, seconds):
@@ -200,8 +202,13 @@ def snapshot(window=3600):
         latest[key]['exhaustion'] = estimates[key]
         latest[key]['bucket_seconds'] = bucket
         latest[key]['history'] = histories.get(key, [])
-    return dict(ai=ai_monitor.snapshot(),network=net_monitor.snapshot(connect,window,bucket,aggregate_history),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), energy=energy_snapshot(), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
+    return dict(ai=ai_monitor.snapshot(),network=net_monitor.snapshot(connect,window,bucket,aggregate_history),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), energy=energy_snapshot(), ai_history=history_snapshot(), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
                 sample_seconds=10, bucket_seconds=bucket, retention_hours=24, source='Glances cumulative disk counters')
+
+def history_snapshot():
+    try: return ai_history.snapshot(connect)
+    except Exception as exc:
+        print('AI history snapshot:', type(exc).__name__, flush=True); return None
 
 def energy_snapshot():
     try: return energy_monitor.snapshot(connect)

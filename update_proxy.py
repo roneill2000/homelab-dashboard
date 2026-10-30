@@ -148,6 +148,8 @@ def handle(handler,post=False):
     path=urllib.parse.urlparse(handler.path).path
     import download_proxy
     if download_proxy.handle(handler,post):return True
+    import maintenance
+    if maintenance.handle(handler,post):return True
     if path=='/api/action/sleep-pc' and post:
         def answer(code,data):
             raw=json.dumps(data).encode();handler.send_response(code)
