@@ -57,7 +57,7 @@ export function withPageTransition(update,from,origin){
   const startScale=window.innerWidth>=840?.78:.86;
   // Wide screens also start the page shifted toward the clicked item's height (lower items rise in from below, upper
   // ones drop in from above), since the rail sits beside the content and scale alone moves it little.
-  const lift=window.innerWidth>=840?Math.max(-100,Math.min(100,(origin.y-window.innerHeight/2)*.5)):0;
+  const lift=origin&&window.innerWidth>=840?Math.max(-100,Math.min(100,(origin.y-window.innerHeight/2)*.5)):0;
   const grow=el=>{const r=el.getBoundingClientRect();return [{opacity:0,transformOrigin:`${origin.x-r.left}px ${origin.y-r.top}px`,transform:`translateY(${lift}px) scale(${startScale})`},{opacity:1,transformOrigin:`${origin.x-r.left}px ${origin.y-r.top}px`,transform:'none'}]};
   const runs=parts.map(c=>c.animate(origin?grow(c):rise,{duration,easing}));
   // Nav switches: the old title leaves with the old page and the new one rises in (a fading copy of the old word read
