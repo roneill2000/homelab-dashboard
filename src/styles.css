@@ -710,7 +710,6 @@ h1{font-size:36px}
 .ai-model h3{font-size:20px;overflow-wrap:anywhere;min-width:0}
 
 
-.ai-engine{margin:12px 0 4px}.ai-engine .source-note{margin-top:8px}
 .ai-local-model{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-top:24px;padding:24px}
 .ai-local-model p{font-size:15px;color:var(--md-sys-color-on-surface-variant);margin-top:8px}
 .ai-empty{padding:24px;margin:24px 0}

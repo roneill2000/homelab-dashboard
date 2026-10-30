@@ -34,16 +34,16 @@ try{
     if(performance.now()-t0<500)requestAnimationFrame(tick);else done({see,copies})};requestAnimationFrame(tick)}));
   expect(r).toEqual({see:0,copies:0});await expect(p.getByRole('dialog')).toHaveCount(0);await p.close()});
 
- await test('Local AI: the GPU engine switch sends one guarded request for the other engine and shows progress',async()=>{
-  const p=await open(1440,900,'#/ai');const sent=[];
-  // Intercepted here (registered after open()'s abort, so it wins): nothing reaches the real PC.
-  await p.route('**/api/action/ai-engine',r=>{sent.push({body:r.request().postDataJSON(),guard:r.request().headers()['x-dashboard-action']});
-   r.fulfill({status:202,contentType:'application/json',body:JSON.stringify({ok:true,state:'running',target:sent.at(-1).body.engine})})});
-  const group=p.getByRole('group',{name:'GPU engine'});await expect(group).toBeVisible({timeout:8000});
-  const other=group.locator('button[aria-pressed="false"]');const target=(await other.textContent()).includes('Strata')?'strata':'llama';
-  await other.click();await expect.poll(()=>sent.length).toBe(1);
-  expect(sent[0]).toEqual({body:{engine:target},guard:'1'});
-  await expect(p.locator('.ai-engine [role=status]')).toContainText(target==='strata'?'Loading Strata':'Unloading Strata');await p.close()});
+ await test('Local AI: Strata is listed with the other chat models (no separate switch card) and opens in Open WebUI',async()=>{
+  const p=await open(1440,900,'#/ai');const chat=p.locator('.ai-task--chat');
+  await expect(chat.getByRole('heading',{name:'swift-1.5-iq2_xs'})).toHaveCount(1,{timeout:8000});
+  // Loaded (featured) or under Other models: either way its chat link opens Open WebUI on that model.
+  await chat.locator('details.ai-others').evaluate(d=>{d.open=true}).catch(()=>{});
+  const row=chat.locator('.ai-model').filter({has:p.getByRole('heading',{name:'swift-1.5-iq2_xs'})});
+  const link=row.getByRole('link',{name:/Open chat/});
+  if(await link.count())expect(await link.getAttribute('href')).toBe('http://192.168.0.16:3000/?model=swift-1.5-iq2_xs');
+  await expect(p.getByRole('group',{name:'GPU engine'})).toHaveCount(0);
+  await expect(chat.getByRole('link',{name:/^Strata/})).toHaveAttribute('href','https://strata.lan');await p.close()});
 
  await test('search open across 1440 -> 448: the new bottom bar is inert; close focuses a visible trigger',async()=>{
   const p=await open(1440,900);await p.getByRole('button',{name:'Find a service'}).first().click();await expect(p.getByRole('dialog',{name:'Find a service'})).toBeVisible();
