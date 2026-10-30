@@ -112,6 +112,28 @@ class QwenTests(unittest.TestCase):
         tok.assert_called_once_with('gemma-4-26b-a4b');self.assertEqual(ask.call_args.args[2],'gemma-4-26b-a4b')
         self.assertEqual(broker.state()['model'],'Gemma 4 26B MoE · gaming PC')
 
+    def test_strata_answers_through_the_broker_without_a_router_token(self):
+        broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='strata')
+        lock=SimpleNamespace(close=unittest.mock.Mock())
+        response={'choices':[{'finish_reason':'stop','message':{'content':'ok'}}],'usage':{'prompt_tokens':5}}
+        with patch.object(q,'pc_token') as tok,patch.object(q,'ask_pc',return_value=response) as ask,\
+             patch.object(q.r,'fetch',side_effect=[storage(),{}]),patch.object(q.r,'stop_model') as stop:
+            broker.work(lock)
+        state=broker.state();tok.assert_not_called();stop.assert_not_called()
+        self.assertEqual((state['status'],state['model'],state['context_limit']),('complete',q.STRATA_LABEL,32768))
+        self.assertEqual(ask.call_args.args[:4],(None,ask.call_args.args[1],q.STRATA_MODEL,q.STRATA_API))
+        self.assertTrue(q.STRATA_API.startswith('http://192.168.0.2:'))
+        self.assertTrue(q.PC_API.startswith('http://192.168.0.2:'))
+
+    def test_strata_failure_is_reported_not_silently_answered_elsewhere(self):
+        broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='strata')
+        lock=SimpleNamespace(close=unittest.mock.Mock())
+        with patch.object(q.Broker,'answer_on_pc',side_effect=OSError('asleep')),patch.object(q.r,'stop_model') as stop:
+            broker.work(lock)
+        self.assertEqual(broker.state()['status'],'failed');self.assertIn('Strata did not finish',broker.state()['error'])
+        stop.assert_not_called()
+        self.assertTrue(q.TARGET_RE.match('strata'))
+
     def test_retired_12b_choice_is_answered_on_e4b(self):
         broker=q.Broker()
         with patch.object(broker,'work'),patch.object(q.r,'ROOT',Path(tempfile.mkdtemp())):

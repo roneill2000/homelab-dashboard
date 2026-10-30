@@ -23,7 +23,12 @@ BIND = ('192.168.0.4', 11438)
 ACTIVE = {'queued', 'loading', 'generating'}
 # Gaming PC llama.cpp router: Ask Qwen uses its 27B when the PC is on (8/10 vs 4-6/10 for the A310 4B in
 # evals/ask-qwen-2026-10-22) and falls back to the A310 when it is off, asleep or fails mid-answer.
-PC_API = 'http://192.168.0.12:8080'
+# Through the GPU broker on LXC 104 (gpu_broker.py), which unloads Strata first when needed; status reads pass straight through.
+PC_API = 'http://192.168.0.2:8080'
+# Strata (Swift 1.5 / Qwen3.8-Flash-Next) on the same card, also via the broker, which loads it and unloads llama-server.
+STRATA_API = 'http://192.168.0.2:8088'
+STRATA_MODEL = 'swift-1.5-iq2_xs'
+STRATA_LABEL = 'Strata · Qwen3.8-Flash-Next · gaming PC'
 PC_MODEL = 'qwen3.8-27b'
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Qwen3.8-27B · gaming PC'
@@ -31,8 +36,8 @@ A310_LABEL = 'Gemma 4 E4B · A310'
 PC_NAMES = {'qwen3.8-27b': 'Qwen3.8-27B', 'qwen3.8-27b-uncensored': 'Qwen3.8-27B Uncensored', 'gemma-4-26b-a4b': 'Gemma 4 26B MoE', 'qwen3.6-35b-moe': 'Qwen3.6 35B MoE'}
 # Model choices: 'a310' (Gemma 4 E4B; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
 # 'auto' (27B if the PC is on),
-# 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves.
-TARGET_RE = re.compile(r'^(a310|a310-12b|auto|pc|pc:[a-z0-9][a-z0-9.\-]{0,63})$')
+# 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves, or 'strata'.
+TARGET_RE = re.compile(r'^(a310|a310-12b|auto|strata|pc|pc:[a-z0-9][a-z0-9.\-]{0,63})$')
 
 
 def pc_label(model):
@@ -104,10 +109,11 @@ def pc_token(model=PC_MODEL):
         return None
 
 
-def ask_pc(token, body, model=PC_MODEL):
-    req=urllib.request.Request(PC_API+'/v1/chat/completions',data=json.dumps(dict(body,model=model,max_tokens=6000)).encode(),
-                               headers={'Content-Type':'application/json','Authorization':'Bearer '+token})
-    with urllib.request.urlopen(req,timeout=300) as resp:return json.load(resp)
+def ask_pc(token, body, model=PC_MODEL, api=PC_API, timeout=300):
+    headers={'Content-Type':'application/json'}
+    if token:headers['Authorization']='Bearer '+token
+    req=urllib.request.Request(api+'/v1/chat/completions',data=json.dumps(dict(body,model=model,max_tokens=6000)).encode(),headers=headers)
+    with urllib.request.urlopen(req,timeout=timeout) as resp:return json.load(resp)
 
 
 def usable(response):
@@ -155,7 +161,7 @@ class Broker:
                 lock.close()
                 return 409, dict(status='busy',model=A310_LABEL,error='The nightly review is using Qwen. Try again when it finishes.')
             self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),target=target,
-                            model=pc_label(target[3:] or PC_MODEL) if target.startswith('pc') else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
+                            model=STRATA_LABEL if target=='strata' else pc_label(target[3:] or PC_MODEL) if target.startswith('pc') else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
                             context_note='Question-selected host, storage, services, network, AI and log observations. No chat history or internet search.')
             accepted = dict(self.job)
             worker=threading.Thread(target=self.work,args=(lock,),name='qwen-question',daemon=False)
@@ -180,18 +186,19 @@ class Broker:
         now=time.time()
         return prompt,qwen_context.build(prompt,storage,telemetry,snapshot,now,context(storage,now),services,fleet)
 
-    def answer_on_pc(self, token, model=PC_MODEL):
-        self.update(status='loading',model=pc_label(model),load_started_at=int(time.time()))
+    def answer_on_pc(self, token, model=PC_MODEL, strata=False):
+        self.update(status='loading',model=STRATA_LABEL if strata else pc_label(model),load_started_at=int(time.time()))
         prompt,evidence=self.observations(r.fetch('http://192.168.0.2/api/storage',timeout=20))
         while len(json.dumps(evidence).encode())>24576:
             if not qwen_context.reduce_evidence(evidence):
                 raise ValueError('This question is too long with its observations. Please ask about one system at a time.')
         note,omitted=context_note(evidence)
         self.update(status='generating',context_at=evidence['observed_at'],generation_started_at=int(time.time()),
-                    context_note=note,context_sources=list(evidence['sources']),context_omissions=omitted,context_limit=49152,
+                    context_note=note,context_sources=list(evidence['sources']),context_omissions=omitted,context_limit=32768 if strata else 49152,
                     evidence=evidence)
         started=time.monotonic()
-        response=ask_pc(token,body_for(prompt,evidence),model)
+        # Strata may need loading by the broker first (~2 min warm, longer after a reboot).
+        response=ask_pc(None,body_for(prompt,evidence),STRATA_MODEL,STRATA_API,1500) if strata else ask_pc(token,body_for(prompt,evidence),model)
         answer=usable(response)
         self.update(input_tokens=(response.get('usage') or {}).get('prompt_tokens'))
         return dict(status='complete',answer=scrub(answer),performance=performance(response,time.monotonic()-started))
@@ -200,6 +207,11 @@ class Broker:
         owned=False;result={};work_started=time.monotonic()
         try:
             target=self.state().get('target','a310')
+            if target=='strata':
+                try:
+                    result=self.answer_on_pc(None,strata=True);return
+                except Exception:
+                    raise ValueError('Strata did not finish an answer. The gaming PC may be off or asleep; try again, or ask the A310.')
             pc_model=target[3:] if target.startswith('pc:') else PC_MODEL
             token=pc_token(pc_model) if target=='auto' or target.startswith('pc') else None
             if target.startswith('pc') and not token:
