@@ -80,8 +80,19 @@ def context(storage, now):
                 backup_running=backup.get('running') if 0<=now-stamp<=180 else 'unknown')
 
 
-def body_for(prompt, evidence, model=None):
-    return dict(model=model or r.MODEL, temperature=0.6, top_p=0.95, top_k=20, seed=42,
+# Per model family, measured 30 Oct 2026 (/mnt/share/model-validation, Ask A/B on the 10 eval questions): Google's
+# values for Gemma (A310 and PC), Qwen's thinking-mode values for Qwen, greedy for Strata's 2-bit Swift quant.
+SAMPLING = {'gemma': dict(temperature=1.0, top_p=0.95, top_k=64), 'qwen': dict(temperature=1.0, top_p=0.95, top_k=20),
+            'strata': dict(temperature=0)}
+
+
+def family(model):
+    return 'gemma' if 'gemma' in (model or '').lower() else 'qwen'
+
+
+def body_for(prompt, evidence, model=None, kind=None):
+    model = model or r.MODEL
+    return dict(model=model, **SAMPLING[kind or family(model)], seed=42,
                 max_tokens=1400, stream=False, chat_template_kwargs={'enable_thinking':True},
                 messages=[dict(role='system',content=SYSTEM),
                           dict(role='user',content='Observations: '+json.dumps(evidence,separators=(',',':'))+'\nQuestion: '+prompt)])
@@ -198,7 +209,7 @@ class Broker:
                     evidence=evidence)
         started=time.monotonic()
         # Strata may need loading by the broker first (~2 min warm, longer after a reboot).
-        response=ask_pc(None,body_for(prompt,evidence),STRATA_MODEL,STRATA_API,1500) if strata else ask_pc(token,body_for(prompt,evidence),model)
+        response=ask_pc(None,body_for(prompt,evidence,STRATA_MODEL,'strata'),STRATA_MODEL,STRATA_API,1500) if strata else ask_pc(token,body_for(prompt,evidence,model),model)
         answer=usable(response)
         self.update(input_tokens=(response.get('usage') or {}).get('prompt_tokens'))
         return dict(status='complete',answer=scrub(answer),performance=performance(response,time.monotonic()-started))

@@ -101,7 +101,8 @@ def request_body(group, profile='quick'):
                   "For link-down events, the cause is unknown: a cable fault, disconnected peer, "
                   "administrative change, and driver or software issue cannot be distinguished here.")
     evidence={key:group[key] for key in ('host','message') if key in group}
-    return dict(model=PROFILES[profile]['model'],temperature=0.6,top_p=0.95,top_k=20,seed=42,max_tokens=PROFILES[profile]['max_tokens'],stream=False,
+    return dict(model=PROFILES[profile]['model'],temperature=1.0,top_p=0.95,top_k=64,seed=42,  # Google's Gemma 4 values (A/B 30 Oct 2026)
+                max_tokens=PROFILES[profile]['max_tokens'],stream=False,
                 chat_template_kwargs={'enable_thinking':True},
                 messages=[dict(role='system',content=instructions),
                           dict(role='user',content=json.dumps(evidence))])

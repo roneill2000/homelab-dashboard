@@ -134,6 +134,11 @@ class QwenTests(unittest.TestCase):
         stop.assert_not_called()
         self.assertTrue(q.TARGET_RE.match('strata'))
 
+    def test_sampling_follows_the_model_family(self):
+        self.assertEqual(q.body_for('x',{},'gemma-4-E4B-it-Q4_K_M')['top_k'],64)
+        self.assertEqual(q.body_for('x',{},'qwen3.8-27b')['top_k'],20)
+        b=q.body_for('x',{},q.STRATA_MODEL,'strata');self.assertEqual(b['temperature'],0);self.assertNotIn('top_k',b)
+
     def test_retired_12b_choice_is_answered_on_e4b(self):
         broker=q.Broker()
         with patch.object(broker,'work'),patch.object(q.r,'ROOT',Path(tempfile.mkdtemp())):
