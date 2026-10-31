@@ -153,6 +153,21 @@ class QwenTests(unittest.TestCase):
         self.assertEqual(command[command.index('--reasoning-budget')+1],'256')
         self.assertEqual(q.r.container_command()[q.r.container_command().index('--reasoning-budget')+1],'768')  # nightly keeps 768
 
+    def test_homelab_switch_adds_the_system_prompt_and_fresh_observations(self):
+        broker=q.Broker();broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000,homelab=True)
+        lock=SimpleNamespace(close=unittest.mock.Mock())
+        response={'choices':[{'finish_reason':'stop','message':{'content':'Measured cache space is available.'}}]}
+        values=[storage(),{'data':[{'id':q.r.MODEL}]},storage(),{},{'prompt':'template'},{'tokens':[1]},response]
+        with patch.object(q.time,'time',return_value=1000),patch.object(q.r,'fetch',side_effect=values) as fetch,patch.object(q.r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(q.r,'stop_model'),patch.object(q.subprocess,'run'):
+            broker.work(lock)
+            state=broker.state()
+        self.assertEqual((state['status'],state.get('error'),state.get('context_at')),('complete',None,1000));self.assertIn('sources',state['evidence'])
+        sent=[c.args[1] for c in fetch.call_args_list if c.args[0]==q.r.API+'/v1/chat/completions'][0]
+        self.assertEqual(sent['messages'][0]['role'],'system');self.assertIn('Observations:',sent['messages'][1]['content'])
+        with tempfile.TemporaryDirectory() as folder,patch.object(q.r,'ROOT',Path(folder)),patch.object(q.threading,'Thread') as thread:
+            self.assertTrue(q.Broker().submit('hi','a310',True)[1]['homelab']);thread.call_args.kwargs['args'][0].close()
+            self.assertFalse(q.Broker().submit('hi','a310')[1]['homelab']);thread.call_args.kwargs['args'][0].close()
+
     def test_success_sends_only_the_question_then_cleans_up(self):
         state,fetch=self.exercise()
         self.assertEqual(state['status'],'complete')
