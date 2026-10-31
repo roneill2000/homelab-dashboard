@@ -239,9 +239,9 @@ function PcPowerControl({pc,ask,notify,compact=false}){
  // same-origin action guard still applies). Ref, not a dependency: the clock re-renders App every second.
  const wakeRef=useRef();wakeRef.current=()=>{if(online){notify('The gaming PC is already on.');return}wake()};
  useEffect(()=>{const f=()=>wakeRef.current();window.__homelabWake=f;return()=>{if(window.__homelabWake===f)window.__homelabWake=null}},[]);
- async function wake(){setSending(true);try{const d=await postAction('/api/action/wake-pc');notify(d.ok?'Wake signal sent. From sleep, the models are back in about 30 s.':'The wake signal could not be sent.')}catch{notify('The wake signal could not be sent.')}finally{setSending(false)}}
+ async function wake(){setSending(true);try{const d=await postAction('/api/action/wake-pc');notify(d.ok?(d.already?'The PC is already on.':'Wake signal sent. From sleep, the models are back in about 30 s.'):'The wake signal could not be sent.')}catch{notify('The wake signal could not be sent.')}finally{setSending(false)}}
  function sleep(force){return async()=>{try{const d=await postAction('/api/action/sleep-pc',{force});
-  if(d.ok){ask(null);notify('The PC shows a 60-second warning, then sleeps.')}
+  if(d.ok){ask(null);notify(d.already?(d.action==='already asleep'?'The PC is already asleep.':'The PC is already going to sleep.'):'The PC shows a 60-second warning, then sleeps.')}
   else if(d.busy)ask({type:'pc',icon:'moon',title:`The GPU is busy (${d.gpu}%)`,text:'A game or model may be running. Put the PC to sleep anyway?',confirmLabel:'Sleep anyway',run:sleep(true)});
   else{ask(null);notify(d.error||'The PC did not accept the request.')}}catch{ask(null);notify('Could not reach the gaming PC.')}}}
  const askSleep=()=>ask({type:'pc',icon:'moon',title:'Put the gaming PC to sleep?',text:'It shows a 60-second warning on screen first. Wake PC brings it back.',confirmLabel:'Sleep PC',run:sleep(false)});

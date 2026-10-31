@@ -7,6 +7,11 @@ function Out($o) { $o | ConvertTo-Json -Compress; exit }
 if ($cmd -eq 'check') { Out @{ ok = $true; action = 'check'; gpu = $gpu } }
 if ($cmd -notin @('sleep', 'force')) { Out @{ ok = $false; error = 'Unsupported command.' } }
 if ($cmd -eq 'sleep' -and $gpu -ge 30) { Out @{ ok = $false; busy = $true; gpu = $gpu; error = "GPU busy ($gpu%)" } }
+# Idempotent: a second request during the 60 s countdown joins it instead of starting another (which would
+# survive the sleep and put the PC straight back to sleep after the next wake).
+$pending = 'C:\llm\sleep.pending'
+if ((Test-Path $pending) -and ((Get-Date) - (Get-Item $pending).LastWriteTime).TotalSeconds -lt 75) { Out @{ ok = $true; already = $true; action = 'already sleeping'; gpu = $gpu } }
+Set-Content -Path $pending -Value (Get-Date -Format o)
 Remove-Item 'C:\llm\sleep.cancel' -ErrorAction SilentlyContinue
 & msg.exe * /TIME:60 "Homelab: this PC will sleep in 60 seconds (requested from the dashboard). To cancel, run C:\llm\cancel-sleep.cmd" 2>$null
 # Start the countdown outside this SSH session; Windows OpenSSH ends the session's child processes on disconnect.

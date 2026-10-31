@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import patch_widget_dns, patch_widget_cloud, patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -398,7 +398,7 @@ class WidgetTests(unittest.TestCase):
         sm = types.ModuleType('storage_monitor')
         sm.snapshot = lambda w: {'activity': {'recovery': {'backup': {'latest': {'status': backup}}}}}
         ns = {'BaseHTTPRequestHandler': object}
-        exec(compile(patch_widget(self.SRC), 'widget', 'exec'), ns)
+        exec(compile(patch_widget_dns(patch_widget(self.SRC)), 'widget', 'exec'), ns)
         ns['TELEMETRY'].update(telemetry)
         with patch.dict(sys.modules, {'ai_monitor': ai, 'storage_monitor': sm}), patch('builtins.open', mock_open(read_data=json.dumps(ids))):
             return ns['_dashboard_widget_summary'](now=now)
@@ -430,6 +430,16 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual((s['downloads']['state'], s['downloads']['speed'], s['downloads']['queue']), ('active', '42.1 MB/s', 3))
         self.assertEqual(s['problems'], ['1 service down', 'DNS blocking paused', 'Drive health warning', '2 log errors', 'Backup job failed'])
         self.assertEqual(s['status'], 'attention')
+
+    def test_dns_state_for_the_quick_settings_tile(self):
+        on = self.summary(self.base(pihole={'status': 'protected', 'blocking': True, 'timer': None}), ['router'])
+        self.assertEqual(on['dns'], {'status': 'protected', 'blocking': True, 'seconds_left': None})
+        paused = self.summary(self.base(pihole={'status': 'paused', 'blocking': False, 'timer': 241.6}), ['router'])
+        self.assertEqual(paused['dns'], {'status': 'paused', 'blocking': False, 'seconds_left': 241})
+        stale = self.summary(self.base(updated_at=900, pihole={'status': 'paused', 'blocking': False, 'timer': 60}), ['router'])
+        self.assertEqual(stale['dns'], {'status': 'unknown', 'blocking': None, 'seconds_left': None})  # old data never shows as On
+        src = patch_widget_dns(patch_widget(self.SRC))
+        self.assertEqual(patch_widget_dns(src), src)  # idempotent
 
     def test_stale_readings_are_a_problem_never_zeros(self):
         s = self.summary(self.base(updated_at=900), ['router', 'pve'])

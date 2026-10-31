@@ -125,6 +125,16 @@ def events(wait=True):
 PC_MAC='34:5a:60:01:a1:9a'  # gaming PC, Realtek 5GbE (Wake on Magic Packet + Shutdown WoL enabled)
 
 
+def pc_awake(timeout=1.5):
+    """True when the gaming PC answers on its SSH port (a refusal still means it's up); False when asleep or off."""
+    try:
+        socket.create_connection(('192.168.0.12',22),timeout=timeout).close();return True
+    except ConnectionRefusedError:
+        return True
+    except OSError:
+        return False
+
+
 def sleep_pc(force=False):
     """Ask the gaming PC to sleep via its forced-command key (60 s warning on screen; refuses if the GPU is busy unless forced)."""
     args=['ssh','-i','/etc/homelab-dashboard/pc_sleep_ed25519','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
@@ -160,6 +170,8 @@ def handle(handler,post=False):
         try:
             length=int(handler.headers.get('Content-Length','0'))
             body=json.loads(handler.rfile.read(length)) if 0<length<=256 else {}
+            # Idempotent: asleep already is success, not "could not reach" (Ryan, 30 Oct 2026).
+            if not pc_awake():answer(200,dict(ok=True,already=True,action='already asleep'));return True
             result=sleep_pc(force=bool(isinstance(body,dict) and body.get('force') is True))
             answer(200 if result.get('ok') else 409,result)
         except Exception:
@@ -188,6 +200,8 @@ def handle(handler,post=False):
             handler.end_headers();handler.wfile.write(raw)
         if not qwen_proxy.same_origin(handler,'X-Dashboard-Action'):
             answer(403,dict(ok=False,error='Use the homepage to run this action.'));return True
+        # Idempotent: an awake PC is reported as such instead of being sent another wake signal.
+        if pc_awake():answer(200,dict(ok=True,already=True));return True
         try:wake_pc();answer(200,dict(ok=True))
         except OSError:answer(503,dict(ok=False,error='Could not send the wake signal.'))
         return True

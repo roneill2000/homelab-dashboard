@@ -995,3 +995,25 @@ def patch_widget_cloud(source):
     source = source.replace(anchor, WIDGET_CLOUD + anchor) + '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+WIDGET_DNS = r'''    # DNS blocking as the Quick Settings tile shows it: on, paused (with Pi-hole's own seconds left) or unknown.
+    _ph = t.get('pihole') if isinstance(t.get('pihole'), dict) else {}
+    _blocking = _ph.get('blocking') if fresh and isinstance(_ph.get('blocking'), bool) else None
+    _timer = _ph.get('timer') if isinstance(_ph.get('timer'), (int, float)) and not isinstance(_ph.get('timer'), bool) and _ph.get('timer') > 0 else None
+    widget_dns = {'status': (_ph.get('status') or 'unknown') if fresh else 'unknown', 'blocking': _blocking,
+                  'seconds_left': int(_timer) if _blocking is False and _timer else None}
+'''
+
+
+def patch_widget_dns(source):
+    """Add the live DNS blocking state to /api/widget, so the Android DNS tile shows On or Paused (and time left)."""
+    marker = '# HOMELAB_WIDGET_DNS_V1'
+    if marker in source:
+        return source
+    anchor = "    return {'status': 'attention' if problems else 'all_up',"
+    if source.count(anchor) != 1:
+        raise ValueError('widget summary shape changed; DNS state not added')
+    source = source.replace(anchor, WIDGET_DNS + "    return {'dns': widget_dns, 'status': 'attention' if problems else 'all_up',") + '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

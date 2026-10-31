@@ -96,6 +96,13 @@ class WakeTests(unittest.TestCase):
         with patch.object(proxy, 'wake_pc') as w:
             self.assertTrue(proxy.handle(h, post=True))
         self.assertEqual(codes, [403]); w.assert_not_called()
+        for awake, sends in ((True, False), (False, True)):  # an awake PC is not sent another wake signal
+            codes.clear(); out = io.BytesIO()
+            h = SimpleNamespace(path='/api/action/wake-pc', headers={'Host': '192.168.0.2', 'X-Dashboard-Action': '1'}, wfile=out,
+                                send_response=codes.append, send_header=lambda *a: None, end_headers=lambda: None)
+            with patch.object(proxy, 'wake_pc') as w, patch.object(proxy, 'pc_awake', return_value=awake):
+                proxy.handle(h, post=True)
+            self.assertEqual((codes, w.called, json.loads(out.getvalue()).get('already', False)), ([200], sends, awake))
 
 
 class SleepTests(unittest.TestCase):
@@ -103,9 +110,16 @@ class SleepTests(unittest.TestCase):
         codes = []
         h = SimpleNamespace(path='/api/action/sleep-pc', headers={'Content-Length': str(len(body)), **headers}, rfile=io.BytesIO(body),
                             wfile=io.BytesIO(), send_response=codes.append, send_header=lambda *a: None, end_headers=lambda: None)
-        with patch.object(proxy, 'sleep_pc', return_value={'ok': True}) as s:
+        with patch.object(proxy, 'sleep_pc', return_value={'ok': True}) as s, patch.object(proxy, 'pc_awake', return_value=self.awake):
             self.assertTrue(proxy.handle(h, post=True))
         return codes, s
+
+    awake = True
+
+    def test_already_asleep_is_success_without_contacting_the_pc(self):
+        self.awake = False
+        codes, s = self.post({'Host': '192.168.0.2', 'X-Dashboard-Action': '1'})
+        self.assertEqual(codes, [200]); s.assert_not_called()
 
     def test_guard_and_force_flag(self):
         codes, s = self.post({'Host': '192.168.0.2'}); self.assertEqual(codes, [403]); s.assert_not_called()
