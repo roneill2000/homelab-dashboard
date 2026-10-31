@@ -133,6 +133,10 @@ class BrokerTests(unittest.TestCase):
         h = {'Host': '192.168.0.2:8088', 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': '2'}
         self.assertIsNone(g.refuse('POST', '/v1/chat/completions', h))
         self.assertIsNone(g.refuse('GET', '/health', {'Host': 'localhost:8080'}))  # status reads need no JSON
+        page = {'Host': 'strata.lan', 'Origin': 'https://strata.lan', 'Content-Type': 'application/json'}
+        self.assertIsNone(g.refuse('POST', '/v1/chat/completions', page))  # Strata's chat page via Caddy
+        self.assertEqual(g.refuse('POST', '/v1/chat/completions', dict(page, Origin='https://evil.example'))[0], 403)
+        self.assertEqual(g.refuse('POST', '/v1/chat/completions', dict(page, Host='192.168.0.2:8088'))[0], 403)
 
 
 class EnsureTests(unittest.TestCase):

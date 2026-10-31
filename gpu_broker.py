@@ -29,6 +29,9 @@ _switch_lock = threading.Lock()
 # Browsers attach Origin to cross-site requests; the broker's clients (OpenCode, Open WebUI, the Qwen broker) are
 # servers and send none. Host must name this machine, which stops DNS rebinding (a foreign name resolving here).
 HOSTS = {'192.168.0.2', '127.0.0.1', 'localhost'}
+# Strata's own chat page, served through Caddy (strata.lan -> here, so opening it also frees the GPU of llama models).
+# Its page may call back to itself, so its own origin is the one browser origin accepted.
+PAGES = {'strata.lan'}
 
 
 class GamePaused(RuntimeError):
@@ -104,9 +107,11 @@ def remember(row):
 def refuse(method, path, headers):
     """(code, message) for a request the broker must not forward, else None. A web page on any LAN device could
     otherwise send a simple cross-site POST here and force a GPU swap (code review, 30 Oct 2026)."""
-    if headers.get('Host', '').rsplit(':', 1)[0].strip('[]').lower() not in HOSTS:
+    host = headers.get('Host', '').rsplit(':', 1)[0].strip('[]').lower()
+    if host not in HOSTS | PAGES:
         return 421, 'Unknown host name'
-    if headers.get('Origin') is not None:
+    origin = headers.get('Origin')
+    if origin is not None and not (host in PAGES and origin.lower() in ('https://' + host, 'http://' + host)):
         return 403, 'Browser requests from other sites are not accepted'
     length = headers.get('Content-Length')
     if length is not None and not (length.isascii() and length.isdigit()):
