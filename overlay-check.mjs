@@ -61,7 +61,8 @@ try{
  await test('Overview: stale data is a neutral state (no attention hero, no stale chip) and says when the last reading was',async()=>{
   const p=await open(412,915);await p.waitForTimeout(1200);
   await p.evaluate(()=>{const n=Date.now.bind(Date);Date.now=()=>n()+300000});
-  await expect(p.locator('.ov-hero')).toHaveClass(/ov-hero--stale/,{timeout:6000});
+  // The app clock ticks every 15 s (a 1 s tick re-rendered the whole app; code review 30 Oct), so allow one tick.
+  await expect(p.locator('.ov-hero')).toHaveClass(/ov-hero--stale/,{timeout:17000});
   await expect(p.locator('.ov-hero--attention')).toHaveCount(0);
   await expect(p.locator('.issue-chip',{hasText:'Dashboard data is stale'})).toHaveCount(0);
   await expect(p.locator('.ov-hero__title')).toHaveText(/Last reading|Waiting for data/);
