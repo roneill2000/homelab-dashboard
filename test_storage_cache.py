@@ -30,6 +30,11 @@ class StorageCacheTests(unittest.TestCase):
     def test_window_is_clamped(self):
         with patch.object(sm, 'snapshot', side_effect=lambda w: {'w': w}):
             self.assertEqual(json.loads(sm.cached_snapshot(5))['w'], 900)
+            self.assertEqual(json.loads(sm.cached_snapshot(3601))['w'], 21600)  # snapped to a fixed window
+            self.assertEqual(json.loads(sm.cached_snapshot(10 ** 9))['w'], 86400)
+            for w in range(900, 5000, 7):
+                sm.cached_snapshot(w)
+        self.assertLessEqual(set(sm._wanted), set(sm.WINDOWS))  # arbitrary windows can't pile up rebuilds
 
 
 if __name__ == '__main__':

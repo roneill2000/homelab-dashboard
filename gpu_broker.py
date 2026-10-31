@@ -26,6 +26,9 @@ HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 
        'upgrade', 'host', 'content-length'}
 MAX_BODY = 64 * 1024 * 1024
 _switch_lock = threading.Lock()
+# Browsers attach Origin to cross-site requests; the broker's clients (OpenCode, Open WebUI, the Qwen broker) are
+# servers and send none. Host must name this machine, which stops DNS rebinding (a foreign name resolving here).
+HOSTS = {'192.168.0.2', '127.0.0.1', 'localhost'}
 
 
 class GamePaused(RuntimeError):
@@ -50,14 +53,7 @@ def strata_loaded():
 
 
 def game_running():
-    """game-watch.ps1 on the PC stops llama-server (:8080) while a game runs; a refused connection there means a game."""
-    try:
-        socket.create_connection((PC, 8080), timeout=3).close()
-        return False
-    except ConnectionRefusedError:
-        return True
-    except OSError:
-        return False
+    return ai_monitor.game_running()
 
 
 def llama_busy():
@@ -73,7 +69,7 @@ def ensure(engine):
     """Give the GPU to `engine` ('llama' or 'strata'); serialised so concurrent requests cannot interleave a switch.
     Returns what it had to do ('unload-strata', 'load-strata', 'swap-to-strata') or None."""
     did = []
-    with _switch_lock:
+    with _switch_lock, ai_monitor.gpu_switch():
         if engine == 'llama':
             if strata_loaded():
                 log('llama request: unloading Strata')
@@ -105,9 +101,25 @@ def remember(row):
         log(f'history not recorded: {exc.__class__.__name__}')
 
 
+def refuse(method, path, headers):
+    """(code, message) for a request the broker must not forward, else None. A web page on any LAN device could
+    otherwise send a simple cross-site POST here and force a GPU swap (code review, 30 Oct 2026)."""
+    if headers.get('Host', '').rsplit(':', 1)[0].strip('[]').lower() not in HOSTS:
+        return 421, 'Unknown host name'
+    if headers.get('Origin') is not None:
+        return 403, 'Browser requests from other sites are not accepted'
+    length = headers.get('Content-Length')
+    if length is not None and not (length.isascii() and length.isdigit()):
+        return 400, 'Bad Content-Length'
+    if needs_gpu(method, path) and headers.get('Content-Type', '').split(';')[0].strip().lower() != 'application/json':
+        return 415, 'Generation requests must be JSON'
+    return None
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     # HTTP/1.0 responses end when the connection closes, so streamed (SSE) bodies need no re-chunking.
     protocol_version = 'HTTP/1.0'
+    timeout = 120  # a client that stops sending its request is dropped instead of holding a thread
 
     def log_message(self, *args):
         pass
@@ -122,6 +134,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def forward(self):
         engine, (host, port) = self.server.engine, self.server.upstream
+        problem = refuse(self.command, self.path, self.headers)
+        if problem:
+            return self.fail(*problem)
         length = int(self.headers.get('Content-Length') or 0)
         if length > MAX_BODY:
             return self.fail(413, 'Request too large')

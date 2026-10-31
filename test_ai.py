@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 import ai_monitor as a
@@ -46,7 +47,26 @@ class AITests(unittest.TestCase):
    a.collect(1000);r=a.snapshot();self.assertFalse(r['strata']['online']);self.assertTrue(r['desktop']['online'])
 
 class EngineSwitchTests(unittest.TestCase):
- def setUp(self):a._switch={}
+ def setUp(self):
+  a._switch={}
+  import tempfile;d=tempfile.TemporaryDirectory();self.addCleanup(d.cleanup)
+  for name,value in (('GPU_LOCK',Path(d.name)/'gpu.lock'),('game_running',lambda:False)):
+   p=patch.object(a,name,value);p.start();self.addCleanup(p.stop)
+ def test_strata_is_not_loaded_while_a_game_runs(self):
+  calls=[]
+  with patch.object(a,'game_running',return_value=True),patch.object(a,'unload_llama',side_effect=lambda:calls.append('unload-llama')),patch.object(a,'strata_post',side_effect=lambda p:calls.append(p)):
+   a.switch_engine('strata',start=False);a._run_switch('strata')
+  self.assertEqual(calls,[]);self.assertEqual(a._switch['state'],'failed');self.assertIn('game',a._switch['message'])
+ def test_switches_hold_the_lock_shared_with_the_broker(self):
+  import fcntl
+  seen=[]
+  def probe(p):
+   with open(a.GPU_LOCK,'a') as f:
+    try:fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB);seen.append('free')
+    except BlockingIOError:seen.append('held')
+  with patch.object(a,'strata_post',side_effect=probe),patch.object(a,'wait_strata',return_value=True):
+   a.switch_engine('llama',start=False);a._run_switch('llama')
+  self.assertEqual(seen,['held'])
  def test_switch_to_strata_unloads_llama_then_loads_strata(self):
   calls=[]
   with patch.object(a,'unload_llama',side_effect=lambda:calls.append('unload-llama')),patch.object(a,'strata_post',side_effect=lambda p:calls.append(p)),patch.object(a,'wait_strata',return_value=True):

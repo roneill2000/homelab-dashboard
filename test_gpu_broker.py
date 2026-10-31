@@ -112,7 +112,35 @@ class BrokerTests(unittest.TestCase):
             self.assertFalse(g.needs_gpu(method, path), (method, path))
 
 
+    def test_cross_site_and_malformed_requests_never_reach_the_pc(self):
+        body = b'{"model": "m"}'
+        cases = [({'Content-Type': 'application/json', 'Origin': 'http://evil.example'}, 403),
+                 ({'Content-Type': 'text/plain'}, 415),  # a "simple" cross-site form/fetch POST
+                 ({'Content-Type': 'application/json', 'Host': 'evil.example:8080'}, 421)]  # DNS rebinding
+        with patch.object(g, 'ensure') as ensure:
+            for headers, code in cases:
+                c = self.conn()
+                c.request('POST', '/v1/chat/completions', body=body, headers=headers)
+                self.assertEqual(c.getresponse().status, code, headers)
+            c = self.conn()
+            c.putrequest('POST', '/v1/chat/completions')
+            c.putheader('Content-Type', 'application/json'); c.putheader('Content-Length', '-1'); c.endheaders()
+            self.assertEqual(c.getresponse().status, 400)
+        ensure.assert_not_called()
+        self.assertEqual(FakePC.seen, [])
+
+    def test_server_clients_pass_the_guard(self):
+        h = {'Host': '192.168.0.2:8088', 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': '2'}
+        self.assertIsNone(g.refuse('POST', '/v1/chat/completions', h))
+        self.assertIsNone(g.refuse('GET', '/health', {'Host': 'localhost:8080'}))  # status reads need no JSON
+
+
 class EnsureTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        p = patch.object(g.ai_monitor, 'GPU_LOCK', __import__('pathlib').Path(d.name) / 'gpu.lock'); p.start(); self.addCleanup(p.stop)
+
     def run_ensure(self, engine, strata_loaded, llama_busy, wait=True, game=False):
         calls = []
         with patch.object(g, 'strata_loaded', side_effect=list(strata_loaded)), \
@@ -139,9 +167,9 @@ class EnsureTests(unittest.TestCase):
         self.assertEqual(self.run_ensure('strata', [True], False, game=True), [])
 
     def test_game_detection_is_a_refused_llama_port(self):
-        with patch.object(g.socket, 'create_connection', side_effect=ConnectionRefusedError):
+        with patch.object(g.ai_monitor.socket, 'create_connection', side_effect=ConnectionRefusedError):
             self.assertTrue(g.game_running())
-        with patch.object(g.socket, 'create_connection', side_effect=TimeoutError):
+        with patch.object(g.ai_monitor.socket, 'create_connection', side_effect=TimeoutError):
             self.assertFalse(g.game_running())  # PC asleep or unreachable is not a game
 
     def test_switch_that_never_finishes_raises(self):

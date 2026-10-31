@@ -1,9 +1,12 @@
 """Read-only local AI service and llama.cpp router inventory; no model loading."""
 import concurrent.futures
+import contextlib
 import copy
+import fcntl
 import json
 from pathlib import Path
 import threading
+import socket
 import time
 import urllib.request
 
@@ -297,6 +300,27 @@ STRATA_BASE = 'http://192.168.0.12:8088'
 SWITCH_TIMEOUT = 1200
 _switch = {}
 _switch_lock = threading.Lock()
+# The dashboard (this module) and gpu_broker.py run as separate processes and both switch engines; this file lock keeps
+# their load/unload sequences from interleaving (30 Oct 2026).
+GPU_LOCK = Path('/run/homelab-gpu-switch.lock')
+
+
+@contextlib.contextmanager
+def gpu_switch(path=None):
+    with open(path or GPU_LOCK, 'a') as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+
+def game_running():
+    """game-watch.ps1 on the PC stops llama-server (:8080) while a game runs; a refused connection there means a game."""
+    try:
+        socket.create_connection(('192.168.0.12', 8080), timeout=3).close()
+        return False
+    except ConnectionRefusedError:
+        return True
+    except OSError:
+        return False
 
 
 def strata_post(path):
@@ -328,14 +352,17 @@ def unload_llama():
 def _run_switch(target):
     global _switch, _last_poll
     try:
-        if target == 'strata':
-            unload_llama()
-            strata_post('/load')
-            ok = wait_strata(True)
-        else:
-            strata_post('/unload')
-            ok = wait_strata(False)
-        state, message = ('done', None) if ok else ('failed', 'The engine did not finish switching in time.')
+        with gpu_switch():
+            if target == 'strata' and game_running():
+                ok, message = None, 'A game is running on the gaming PC, so Strata was not loaded.'
+            elif target == 'strata':
+                unload_llama()
+                strata_post('/load')
+                ok = wait_strata(True)
+            else:
+                strata_post('/unload')
+                ok = wait_strata(False)
+        state, message = ('done', None) if ok else ('failed', message if ok is None else 'The engine did not finish switching in time.')
     except Exception:
         state, message = 'failed', 'Could not reach the gaming PC.'
     with _switch_lock:

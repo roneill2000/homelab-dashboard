@@ -220,10 +220,13 @@ _snap_lock = threading.Lock()
 _wanted = {3600: 0.0}
 
 
+WINDOWS = (900, 3600, 21600, 86400)  # the history ranges the app offers (it uses 1 h and 24 h)
+
+
 def cached_snapshot(window=3600, max_age=12):
     """The /api/storage answer from memory. The collector loop rebuilds the default 1-hour view (and any window asked for
     in the last 10 minutes) right after each 10 s sample, so opening the app or site never waits on the database."""
-    window = min(86400, max(900, int(window)))
+    window = next((w for w in WINDOWS if w >= int(window)), WINDOWS[-1])  # a fixed set, so requests can't fan out
     now = time.time()
     with _snap_lock:
         _wanted[window] = now
@@ -240,6 +243,8 @@ def _warm():
     now = time.time()
     with _snap_lock:
         windows = [w for w, t in _wanted.items() if w == 3600 or now - t < 600]
+        for w in [w for w in _wanted if w not in windows]:
+            del _wanted[w]
         for w in [w for w in _snap if w not in windows]:
             del _snap[w]
     for w in windows:
