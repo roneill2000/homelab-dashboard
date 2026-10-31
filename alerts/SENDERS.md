@@ -59,4 +59,10 @@ homelab-alerts, the Proxmox watchdog and the Unraid ntfy agent set:
 - A **Snooze 2 h** button on problem alerts (`http` action to `POST /api/action/maintenance` with `X-Dashboard-Action: 1`), next to Ask Qwen why. Like Ask Qwen why, it works only from the phone on home Wi-Fi or WireGuard.
 - `X-Sequence-ID` from the alert key (homelab-alerts, watchdog): the recovery replaces the problem's notification instead of adding a second one.
 
-Uptime Kuma, Scrutiny and NetAlertX use their built-in ntfy integrations and stay plain. The Android app's own 15-minute problem check is off by default since v1.6 (pref `app_alerts`).
+The other three also open the app (30 Oct), each still sending every event once:
+
+- **Uptime Kuma** (Orange Pi): its only notification is now a webhook to `kuma-ntfy-relay` on the same Pi (`alerts/kuma_ntfy_relay.py`, installed at `/usr/local/bin/kuma-ntfy-relay.py`, unit `kuma-ntfy-relay.service`, topic in `/etc/kuma-ntfy-relay/topic`, listens on the Docker bridge `172.17.0.1:8998`). The relay adds Click (Hosts; shares open Storage, DuckDNS opens Network), a per-monitor `X-Sequence-ID`, and Ask Qwen why plus Snooze 2 h on downs. It stays on the Pi so a Proxmox outage still alerts. It honours the snooze with the last known end time (works while Proxmox reboots): downs are held and sent when the snooze ends unless they recovered meanwhile. Kuma DB backup `kuma.db.bak-20261030-relay`.
+- **Scrutiny** (Unraid): the shoutrrr URL in `appdata/scrutiny/config/scrutiny.yaml` has `?click=homelab://view/storage&title=…&tags=floppy_disk` (backup `.bak-20261030-click`). Drive failures ignore the snooze, like critical Unraid alerts.
+- **NetAlertX** (LXC 102): `NTFY_CUSTOM_HEADERS=['Click: homelab://view/network']` (backup `app.conf.bak-20261030-click`); its own Open Dashboard button stays.
+
+The Android app's own 15-minute problem check is off by default since v1.6 (pref `app_alerts`). Backups: the relay files are in the Orange Pi config backup; Scrutiny and the Unraid agent are in unraid-restic (appdata, flash); NetAlertX in the LXC 102 vzdump.
