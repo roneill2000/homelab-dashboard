@@ -126,6 +126,18 @@ try{
   expect(await p.evaluate(()=>document.activeElement.textContent)).toContain('Storage');
   await p.keyboard.press('Escape');await p.waitForTimeout(500);expect(await p.evaluate(()=>document.activeElement.textContent)).toContain('More');await p.close()});
 
+ await test('phone: after picking a page from More, Android Back sees no open overlay and goes back',async()=>{
+  // The same check MainActivity.handleOnBackPressed runs before deciding whether Back closes an overlay or navigates.
+  const nativeSeesOverlay=()=>{const modals=document.querySelectorAll('.m3-search-view, .m3-dialog, .m3-nav-drawer.is-modal.open, .m3-xrail.is-modal, .m3-scrim');
+   const open=[...modals].some(m=>getComputedStyle(m).display!=='none'&&m.getClientRects().length>0);return (typeof window.__hasOpenOverlay==='function'&&window.__hasOpenOverlay())||open};
+  const p=await b.newPage({viewport:{width:412,height:915},isMobile:true,hasTouch:true});await p.goto(base+'#/overview');await p.waitForTimeout(800);
+  await p.getByRole('button',{name:'More'}).click();await p.waitForTimeout(500);
+  await p.locator('.m3-nav-drawer.is-sheet.open').getByText('Network & DNS',{exact:true}).click();await p.waitForTimeout(700);
+  expect(await p.evaluate(()=>location.hash)).toBe('#/network');
+  expect(await p.evaluate(nativeSeesOverlay)).toBe(false);
+  await p.evaluate(()=>history.back());await p.waitForTimeout(600);
+  expect(await p.evaluate(()=>location.hash)).toBe('#/overview');await p.close()});
+
  const drag=async(p,x,y0,y1,steps=8)=>{const c=await p.context().newCDPSession(p);await c.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y:y0}]});
   for(let i=1;i<=steps;i++){await c.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y0+(y1-y0)*i/steps}]});await p.waitForTimeout(16)}
   return async()=>{await c.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await c.detach()}};
