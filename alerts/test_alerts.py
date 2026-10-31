@@ -1,4 +1,5 @@
 import json, sys, unittest
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import homelab_alerts as a
@@ -184,6 +185,29 @@ class EnergyDigestTests(unittest.TestCase):
         self.assertEqual(a.energy_line({'yesterday': dict(y, cost=None, covered_hours=12.2, devices={})}), 'Energy yesterday: 3.1 kWh, readings for 12 of 24 h')
         for bad in (None, {}, {'yesterday': None}, {'yesterday': {'kwh': None}}, []):
             self.assertIsNone(a.energy_line(bad))
+
+
+class NtfyHeaderTests(unittest.TestCase):
+    def sent(self, *args, **kw):
+        with patch.object(a, 'topic', return_value='t'), patch.object(a.urllib.request, 'urlopen') as op:
+            a.send(*args, **kw)
+        return op.call_args.args[0]
+
+    def test_problem_opens_its_page_has_why_and_snooze_and_a_stable_id(self):
+        r = self.sent('down', 'Drive warning', 'sdb', 4, key='smart-test:sdb')
+        h = {k.lower(): v for k, v in r.header_items()}
+        self.assertEqual(h['click'], 'homelab://view/storage')
+        self.assertEqual(h['x-sequence-id'], 'smart-test-sdb')
+        self.assertIn('Ask Qwen why', h['actions']); self.assertIn('Snooze 2 h', h['actions'])
+        self.assertIn("headers.X-Dashboard-Action=1", h['actions']); self.assertIn("body='{\"minutes\":120}'", h['actions'])
+        up = {k.lower(): v for k, v in self.sent('up', 'Drive warning', 'ok', 2, key='smart-test:sdb').header_items()}
+        self.assertEqual(up['x-sequence-id'], 'smart-test-sdb'); self.assertNotIn('actions', up)  # recovery replaces it
+
+    def test_pages_and_digest_without_key(self):
+        self.assertEqual([a.page_for(k) for k in ('strata-down', 'units:memos', 'cloud-unraid', 'homepage-stale', None)],
+                         ['ai', 'hosts', 'infra', 'overview', 'overview'])
+        h = {k.lower(): v for k, v in self.sent('info', 'Morning', 'x', 2).header_items()}
+        self.assertNotIn('click', h); self.assertNotIn('x-sequence-id', h)
 
 
 class CertTests(unittest.TestCase):

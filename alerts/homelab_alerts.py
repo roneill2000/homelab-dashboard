@@ -558,14 +558,34 @@ def header_text(text):
         return '=?UTF-8?B?' + base64.b64encode(text.encode()).decode() + '?='
 
 
+# Dashboard page an alert opens in the Android app (tapping the ntfy notification follows homelab://view/<page>).
+PAGES = (('cloud-', 'infra'), ('config-backup', 'infra'), ('restore-', 'infra'), ('smart-', 'storage'),
+         ('lan-', 'network'), ('speedtest-', 'network'), ('llama-', 'ai'), ('strata-', 'ai'), ('updates-', 'updates'),
+         ('docker:', 'hosts'), ('units:', 'hosts'), ('mount:', 'hosts'), ('pi-', 'hosts'))
+SNOOZE = ('http, Snooze 2 h, http://192.168.0.2/api/action/maintenance, method=POST, headers.X-Dashboard-Action=1, '
+          'headers.Content-Type=application/json, body=\'{"minutes":120}\', clear=true')
+
+
+def page_for(key):
+    return next((page for prefix, page in PAGES if key and key.startswith(prefix)), 'overview')
+
+
+def sequence_id(key):
+    """ntfy sequence ID for an alert key: the recovery replaces the problem's notification instead of adding another."""
+    return re.sub(r'[^A-Za-z0-9_-]', '-', key)[:64]
+
+
 def send(kind, title, detail, prio, key=None, markdown=False, tags=None):
     head = ('RECOVERED: ' if kind == 'up' else '') + title
     tags = tags or {'up': 'white_check_mark', 'info': 'house'}.get(kind, 'warning')
     headers = {'Title': header_text(head), 'Priority': str(prio), 'Tags': tags}
     if markdown:
         headers['Markdown'] = 'yes'
-    if kind == 'down' and key:  # phone (on LAN or WireGuard) calls homelab-why, which pushes the answer back
-        headers['Actions'] = f'http, Ask Qwen why, {WHY_URL}?key={urllib.parse.quote(key)}, method=POST, clear=true'
+    if key:
+        headers['Click'] = 'homelab://view/' + page_for(key)
+        headers['X-Sequence-ID'] = sequence_id(key)
+    if kind == 'down' and key:  # buttons work from the phone on LAN or WireGuard; homelab-why pushes its answer back
+        headers['Actions'] = f'http, Ask Qwen why, {WHY_URL}?key={urllib.parse.quote(key)}, method=POST, clear=true; ' + SNOOZE
     req = urllib.request.Request('https://ntfy.sh/' + topic(), data=detail.encode(), method='POST', headers=headers)
     urllib.request.urlopen(req, timeout=15).read()
 

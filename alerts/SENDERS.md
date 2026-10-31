@@ -50,3 +50,13 @@ Quick actions → **Snooze alerts** (30 min, 2 h, 4 h) on the dashboard. State: 
 | Everything else (Uptime Kuma, Scrutiny, Proxmox notifications, NetAlertX, ddns-update) | Unaffected |
 
 Backups of the patched scripts: `homelab-health-watchdog.sh.bak-20261030-snooze` (Proxmox), `ntfy.sh.bak-20261030-snooze` (Unraid agents).
+
+## Tap to open, Snooze button, one notification per problem (30 Oct 2026)
+
+homelab-alerts, the Proxmox watchdog and the Unraid ntfy agent set:
+
+- `Click: homelab://view/<page>`: tapping the notification opens the Android app (v1.6+) on the matching page (homelab-alerts maps keys to pages in `PAGES`; the watchdog opens Services; Unraid opens Storage).
+- A **Snooze 2 h** button on problem alerts (`http` action to `POST /api/action/maintenance` with `X-Dashboard-Action: 1`), next to Ask Qwen why. Like Ask Qwen why, it works only from the phone on home Wi-Fi or WireGuard.
+- `X-Sequence-ID` from the alert key (homelab-alerts, watchdog): the recovery replaces the problem's notification instead of adding a second one.
+
+Uptime Kuma, Scrutiny and NetAlertX use their built-in ntfy integrations and stay plain. The Android app's own 15-minute problem check is off by default since v1.6 (pref `app_alerts`).
