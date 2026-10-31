@@ -1,5 +1,5 @@
 [Unit]
-Description=Ask Qwen why: answers the ntfy alert button (port 8997)
+Description=Ask AI: answers the ntfy alert button (port 8997)
 After=network-online.target
 
 [Service]

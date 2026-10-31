@@ -7,7 +7,7 @@ bad on two consecutive runs before alerting, except failed update runs, which al
 The ntfy topic is read from the existing watchdog so it lives in one place.
 
 Also: `--digest` (homelab-digest.timer, 07:00) sends one morning summary with a short Ask Qwen note, and
-`--serve-why` (homelab-why.service, :8997) answers the "Ask Qwen why" button on alerts by asking Ask Qwen about
+`--serve-why` (homelab-why.service, :8997) answers the "Ask AI" button on alerts by asking Ask Qwen about
 that alert and pushing the answer back to ntfy.
 """
 import json
@@ -585,7 +585,7 @@ def send(kind, title, detail, prio, key=None, markdown=False, tags=None):
         headers['Click'] = 'homelab://view/' + page_for(key)
         headers['X-Sequence-ID'] = sequence_id(key)
     if kind == 'down' and key:  # buttons work from the phone on LAN or WireGuard; homelab-why pushes its answer back
-        headers['Actions'] = f'http, Ask Qwen why, {WHY_URL}?key={urllib.parse.quote(key)}, method=POST, clear=true; ' + SNOOZE
+        headers['Actions'] = f'http, Ask AI, {WHY_URL}?key={urllib.parse.quote(key)}, method=POST, clear=true; ' + SNOOZE
     req = urllib.request.Request('https://ntfy.sh/' + topic(), data=detail.encode(), method='POST', headers=headers)
     urllib.request.urlopen(req, timeout=15).read()
 
@@ -643,8 +643,8 @@ def main(argv):
         serve_why()
         return 0
     if '--test' in argv:
-        detail = 'homelab-alerts is installed and can reach your ntfy topic. Tap "Ask Qwen why" to test the button (needs LAN or WireGuard).'
-        remember('test', 'Homelab alerts test', 'A test alert sent by hand to check ntfy delivery and the Ask Qwen why button.', time.time())
+        detail = 'homelab-alerts is installed and can reach your ntfy topic. Tap "Ask AI" to test the button (needs LAN or WireGuard).'
+        remember('test', 'Homelab alerts test', 'A test alert sent by hand to check ntfy delivery and the Ask AI button.', time.time())
         send('down', 'Homelab alerts test', detail, 2, key='test')
         return 0
     now = time.time()

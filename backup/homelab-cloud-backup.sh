@@ -33,8 +33,8 @@ backup_tagged() {  # backup_tagged <tag> <restic args...>: keeps $STATE/progress
 notify() {  # topic lives only in the watchdog script
   local topic; topic=$(grep -oP '^TOPIC="\K[^"]+' /usr/local/bin/homelab-health-watchdog.sh) || return 0
   local why=()
-  if [ "$2" -ge 4 ]; then  # failures get the "Ask Qwen why" button; homelab-why reads title + log tail from details.json
-    TITLE="$1" MSG="$4" LOGTAIL="$(tail -15 "$STATE/run.log" 2>/dev/null)" python3 - <<'PY' && why=(-H "Actions: http, Ask Qwen why, http://192.168.0.3:8997/why?key=cloud-backup, method=POST, clear=true")
+  if [ "$2" -ge 4 ]; then  # failures get the "Ask AI" button; homelab-why reads title + log tail from details.json
+    TITLE="$1" MSG="$4" LOGTAIL="$(tail -15 "$STATE/run.log" 2>/dev/null)" python3 - <<'PY' && why=(-H "Actions: http, Ask AI, http://192.168.0.3:8997/why?key=cloud-backup, method=POST, clear=true")
 import json, os, time
 from pathlib import Path
 p = Path('/var/lib/homelab-alerts/details.json')

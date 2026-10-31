@@ -19,10 +19,10 @@ Configured but **off**: Speedtest Tracker ntfy (`ntfy_enabled=false`).
 Not ntfy: Proxmox cron pings healthchecks.io every 15 min (dead-man alert from that service).
 
 | homelab-digest | Proxmox `homelab-alerts --digest`, `homelab-digest.timer` 07:00 | One morning summary: backups (photos, Proxmox, Unraid, configs), storage, logs, internet, pending updates, SMART problems, active alerts, plus a two-sentence Ask Qwen note. Priority 2 when all good, 3 when something needs attention. Replaces the old "Backups OK" message. |
-| homelab-why | Proxmox `homelab-why.service` on :8997 | Answers the **Ask Qwen why** button on homelab-alerts notifications: asks Ask Qwen about that alert and posts "Why: <alert>". Only fires when you tap the button (phone on LAN or WireGuard). |
+| homelab-why | Proxmox `homelab-why.service` on :8997 | Answers the **Ask AI** button on homelab-alerts notifications: asks Ask Qwen about that alert and posts "Why: <alert>". Only fires when you tap the button (phone on LAN or WireGuard). |
 | homelab-weekly-update | Proxmox homelab-weekly-update.timer, Sat 07:30 | One summary after the weekly update run, or one "skipped" message. Failures also raise the existing updates-failed alert. |
 
-## Ask Qwen why button (failures only, 23 Oct 2026)
+## Ask AI button (failures only, 23 Oct 2026)
 
 Failure alerts carry the button; recoveries and info don't. homelab-why accepts `?key=` (homelab-alerts, cloud backup) or `?title=&detail=` (senders on other hosts).
 
@@ -56,12 +56,12 @@ Backups of the patched scripts: `homelab-health-watchdog.sh.bak-20261030-snooze`
 homelab-alerts, the Proxmox watchdog and the Unraid ntfy agent set:
 
 - `Click: homelab://view/<page>`: tapping the notification opens the Android app (v1.6+) on the matching page (homelab-alerts maps keys to pages in `PAGES`; the watchdog opens Services; Unraid opens Storage).
-- A **Snooze 2 h** button on problem alerts (`http` action to `POST /api/action/maintenance` with `X-Dashboard-Action: 1`), next to Ask Qwen why. Like Ask Qwen why, it works only from the phone on home Wi-Fi or WireGuard.
+- A **Snooze 2 h** button on problem alerts (`http` action to `POST /api/action/maintenance` with `X-Dashboard-Action: 1`), next to Ask AI. Like Ask AI, it works only from the phone on home Wi-Fi or WireGuard.
 - `X-Sequence-ID` from the alert key (homelab-alerts, watchdog): the recovery replaces the problem's notification instead of adding a second one.
 
 The other three also open the app (30 Oct), each still sending every event once:
 
-- **Uptime Kuma** (Orange Pi): its only notification is now a webhook to `kuma-ntfy-relay` on the same Pi (`alerts/kuma_ntfy_relay.py`, installed at `/usr/local/bin/kuma-ntfy-relay.py`, unit `kuma-ntfy-relay.service`, topic in `/etc/kuma-ntfy-relay/topic`, listens on the Docker bridge `172.17.0.1:8998`). The relay adds Click (Hosts; shares open Storage, DuckDNS opens Network), a per-monitor `X-Sequence-ID`, and Ask Qwen why plus Snooze 2 h on downs. It stays on the Pi so a Proxmox outage still alerts. It honours the snooze with the last known end time (works while Proxmox reboots): downs are held and sent when the snooze ends unless they recovered meanwhile. Kuma DB backup `kuma.db.bak-20261030-relay`.
+- **Uptime Kuma** (Orange Pi): its only notification is now a webhook to `kuma-ntfy-relay` on the same Pi (`alerts/kuma_ntfy_relay.py`, installed at `/usr/local/bin/kuma-ntfy-relay.py`, unit `kuma-ntfy-relay.service`, topic in `/etc/kuma-ntfy-relay/topic`, listens on the Docker bridge `172.17.0.1:8998`). The relay adds Click (Hosts; shares open Storage, DuckDNS opens Network), a per-monitor `X-Sequence-ID`, and Ask AI plus Snooze 2 h on downs. It stays on the Pi so a Proxmox outage still alerts. It honours the snooze with the last known end time (works while Proxmox reboots): downs are held and sent when the snooze ends unless they recovered meanwhile. Kuma DB backup `kuma.db.bak-20261030-relay`.
 - **Scrutiny** (Unraid): the shoutrrr URL in `appdata/scrutiny/config/scrutiny.yaml` has `?click=homelab://view/storage&title=…&tags=floppy_disk` (backup `.bak-20261030-click`). Drive failures ignore the snooze, like critical Unraid alerts.
 - **NetAlertX** (LXC 102): `NTFY_CUSTOM_HEADERS=['Click: homelab://view/network']` (backup `app.conf.bak-20261030-click`); its own Open Dashboard button stays.
 

@@ -20,7 +20,7 @@ class KumaRelayTests(unittest.TestCase):
         self.assertEqual(k.handle(beat(0), now=100, send=self.send), 'sent')
         h, body = self.sent[0]
         self.assertEqual((h['Click'], h['X-Sequence-ID'], h['Priority'], body), ('homelab://view/hosts', 'kuma-1', '5', 'timeout'))
-        self.assertIn('Ask Qwen why', h['Actions']); self.assertIn('Snooze 2 h', h['Actions'])
+        self.assertIn('Ask AI', h['Actions']); self.assertIn('Snooze 2 h', h['Actions'])
         k.handle(beat(1), now=200, send=self.send)
         up = self.sent[1][0]
         self.assertEqual(up['X-Sequence-ID'], 'kuma-1'); self.assertNotIn('Actions', up); self.assertTrue(up['Title'].startswith('RECOVERED'))

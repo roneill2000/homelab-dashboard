@@ -6,7 +6,7 @@ and this relay posts each event to ntfy once, like the other senders (alerts/SEN
 
 - Click: homelab://view/<page> (the Android app opens on that page),
 - X-Sequence-ID per monitor (the recovery replaces the down notification),
-- Ask Qwen why and Snooze 2 h buttons on down alerts.
+- Ask AI and Snooze 2 h buttons on down alerts.
 
 It runs on the Orange Pi, next to Kuma, so "Proxmox is down" still gets out when Proxmox (and the dashboard) are down.
 Snooze: the dashboard's snooze end time is cached here, so it holds through a Proxmox reboot; a down that arrives while
@@ -66,7 +66,7 @@ def build(payload):
                'Click': 'homelab://view/' + page_for(name), 'X-Sequence-ID': sid}
     if down:
         why = WHY + '?' + urllib.parse.urlencode({'title': f'{name} is down (Uptime Kuma)', 'detail': msg[:600]})
-        headers['Actions'] = f'http, Ask Qwen why, {why}, method=POST, clear=true; ' + SNOOZE
+        headers['Actions'] = f'http, Ask AI, {why}, method=POST, clear=true; ' + SNOOZE
     body = msg or (f'{name} is not responding.' if down else f'{name} is back up.')
     return sid, down, headers, body
 

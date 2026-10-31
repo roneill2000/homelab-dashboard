@@ -198,7 +198,7 @@ class NtfyHeaderTests(unittest.TestCase):
         h = {k.lower(): v for k, v in r.header_items()}
         self.assertEqual(h['click'], 'homelab://view/storage')
         self.assertEqual(h['x-sequence-id'], 'smart-test-sdb')
-        self.assertIn('Ask Qwen why', h['actions']); self.assertIn('Snooze 2 h', h['actions'])
+        self.assertIn('Ask AI', h['actions']); self.assertIn('Snooze 2 h', h['actions'])
         self.assertIn("headers.X-Dashboard-Action=1", h['actions']); self.assertIn("body='{\"minutes\":120}'", h['actions'])
         up = {k.lower(): v for k, v in self.sent('up', 'Drive warning', 'ok', 2, key='smart-test:sdb').header_items()}
         self.assertEqual(up['x-sequence-id'], 'smart-test-sdb'); self.assertNotIn('actions', up)  # recovery replaces it
