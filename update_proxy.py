@@ -135,11 +135,12 @@ def pc_awake(timeout=1.5):
         return False
 
 
-def sleep_pc(force=False):
-    """Ask the gaming PC to sleep via its forced-command key (60 s warning on screen; refuses if the GPU is busy unless forced)."""
+def sleep_pc(force=False,command=None):
+    """Ask the gaming PC to sleep via its forced-command key (60 s warning on screen; refuses if the GPU is busy unless forced).
+    command='cancel' instead cancels a sleep countdown in progress."""
     args=['ssh','-i','/etc/homelab-dashboard/pc_sleep_ed25519','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
           '-o','UserKnownHostsFile=/etc/homelab-dashboard/pc_known_hosts','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=6',
-          'roneill@192.168.0.12','force' if force else 'sleep']
+          'roneill@192.168.0.12',command or ('force' if force else 'sleep')]
     r=subprocess.run(args,capture_output=True,text=True,timeout=25)
     return json.loads(r.stdout.strip().splitlines()[-1])
 
@@ -201,7 +202,11 @@ def handle(handler,post=False):
         if not qwen_proxy.same_origin(handler,'X-Dashboard-Action'):
             answer(403,dict(ok=False,error='Use the homepage to run this action.'));return True
         # Idempotent: an awake PC is reported as such instead of being sent another wake signal.
-        if pc_awake():answer(200,dict(ok=True,already=True));return True
+        if pc_awake():
+            # Awake: no wake signal, but a sleep countdown in progress is cancelled (Wake means "keep it on").
+            try:cancelled=sleep_pc(command='cancel').get('cancelled') is True
+            except Exception:cancelled=False
+            answer(200,dict(ok=True,already=True,cancelled_sleep=cancelled));return True
         try:wake_pc();answer(200,dict(ok=True))
         except OSError:answer(503,dict(ok=False,error='Could not send the wake signal.'))
         return True

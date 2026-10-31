@@ -126,6 +126,16 @@ try{
   expect(await p.evaluate(()=>document.activeElement.textContent)).toContain('Storage');
   await p.keyboard.press('Escape');await p.waitForTimeout(500);expect(await p.evaluate(()=>document.activeElement.textContent)).toContain('More');await p.close()});
 
+ await test('theme follows the system until chosen; choosing the system theme follows it again',async()=>{
+  const p=await b.newPage({viewport:{width:412,height:915},colorScheme:'dark'});await p.goto(base+'#/overview');await p.waitForTimeout(800);
+  const bg=()=>p.evaluate(()=>getComputedStyle(document.body).backgroundColor);
+  const dark=await bg();await p.emulateMedia({colorScheme:'light'});await p.waitForTimeout(400);const light=await bg();
+  expect(light).not.toBe(dark);  // the phone switched to light mode: so did the app
+  await p.locator('.theme-toggle').first().click();await p.waitForTimeout(300);expect(await bg()).toBe(dark);  // explicit dark
+  await p.emulateMedia({colorScheme:'dark'});await p.emulateMedia({colorScheme:'light'});await p.waitForTimeout(300);expect(await bg()).toBe(dark);  // a choice sticks
+  await p.locator('.theme-toggle').first().click();await p.waitForTimeout(300);
+  expect(await p.evaluate(()=>localStorage.getItem('homelab.theme.v3'))).toBe('"system"');await p.close()});
+
  await test('phone: after picking a page from More, Android Back sees no open overlay and goes back',async()=>{
   // The same check MainActivity.handleOnBackPressed runs before deciding whether Back closes an overlay or navigates.
   const nativeSeesOverlay=()=>{const modals=document.querySelectorAll('.m3-search-view, .m3-dialog, .m3-nav-drawer.is-modal.open, .m3-xrail.is-modal, .m3-scrim');

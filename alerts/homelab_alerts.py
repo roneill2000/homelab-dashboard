@@ -364,9 +364,27 @@ def ask_qwen(prompt, wait=420):
 
 
 def active_alerts(state=None, details=None):
-    state = state if state is not None else (json.loads(STATE.read_text()) if STATE.exists() else {})
+    state = state if state is not None else read_state()
     details = details if details is not None else read_details()
     return [details.get(k, {}).get('title', k) for k, v in state.items() if v.get('alerted')]
+
+
+def read_state():
+    """Last run's alert state. A missing or corrupt file (e.g. a run killed mid-write) starts fresh rather than
+    crashing every later run, which used to silence all alerts."""
+    try:
+        d = json.loads(STATE.read_text())
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_json(path, data):
+    """Atomic write: a reader never sees half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(json.dumps(data))
+    tmp.replace(path)
 
 
 def read_details():
@@ -380,7 +398,7 @@ def remember(key, title, detail, now):
     d = read_details()
     d[key] = {'title': title, 'detail': detail, 'at': int(now)}
     DETAILS.parent.mkdir(parents=True, exist_ok=True)
-    DETAILS.write_text(json.dumps(d))
+    write_json(DETAILS, d)
 
 
 def run_digest(now):
@@ -611,6 +629,10 @@ def serve_why(port=8997):
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
+            # The ntfy app's button sends no Origin; a web page always does. Refusing those stops any site open on a
+            # LAN device from starting AI jobs and pushing its own text to the ntfy topic (audit, 30 Oct 2026).
+            if self.headers.get('Origin') is not None:
+                return self.reply(403, 'Forbidden.')
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             key = (q.get('key') or [''])[0]
             info = read_details().get(key)
@@ -656,7 +678,7 @@ def main(argv):
     t, s, f = safe('/api/telemetry'), safe('/api/storage?window=900'), safe('/api/fleet')
     if t is None:  # Homepage unreachable: Uptime Kuma already watches it; record only
         pass
-    prev = json.loads(STATE.read_text()) if STATE.exists() else {}
+    prev = read_state()
     current = checks(t, s, f, now)
     current.update(cloud_backup_check(now))
     refresh_snapshots(now)
@@ -685,7 +707,7 @@ def main(argv):
         except Exception:
             state[key]['alerted'] = not state[key]['alerted']  # retry next run
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(state))
+    write_json(STATE, state)
     if '--dry-run' in argv:
         print(json.dumps({k: v[0] for k, v in checks(t, s, f, now).items()}, indent=1))
     return 0

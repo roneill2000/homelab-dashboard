@@ -12,6 +12,10 @@ def beat(status, name='Proxmox', mid=1, msg='timeout'):
 
 class KumaRelayTests(unittest.TestCase):
     def setUp(self):
+        import tempfile
+        from unittest.mock import patch
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        p = patch.object(k, 'HELD_FILE', Path(d.name) / 'held.json'); p.start(); self.addCleanup(p.stop)
         k.held.clear(); k.snooze_until = 0.0
         self.sent = []
         self.send = lambda h, b: self.sent.append((h, b)) or True
@@ -41,6 +45,14 @@ class KumaRelayTests(unittest.TestCase):
         self.assertEqual(k.flush_held(now=1001, send=self.send), 1)  # Unraid is still down: alert now, once
         self.assertEqual([h['X-Sequence-ID'] for h, _ in self.sent], ['kuma-3'])
         self.assertEqual(k.flush_held(now=1100, send=self.send), 0)
+
+    def test_failed_send_is_retried_and_held_alerts_survive_a_restart(self):
+        self.assertEqual(k.handle(beat(0, 'Unraid', 3), now=100, send=lambda h, b: False), 'failed')
+        k.held.clear(); k.load_held()                       # relay restarted
+        self.assertIn('kuma-3', k.held)
+        self.assertEqual(k.flush_held(now=200, send=lambda h, b: False), 0); self.assertIn('kuma-3', k.held)  # still failing: kept
+        self.assertEqual(k.flush_held(now=300, send=self.send), 1); self.assertEqual(k.held, {})
+        k.held.clear(); k.load_held(); self.assertEqual(k.held, {})
 
     def test_unreachable_dashboard_keeps_the_last_known_snooze(self):
         k.snooze_until = 5000

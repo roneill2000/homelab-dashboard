@@ -187,6 +187,17 @@ class EnergyDigestTests(unittest.TestCase):
             self.assertIsNone(a.energy_line(bad))
 
 
+class StateFileTests(unittest.TestCase):
+    def test_corrupt_or_missing_state_starts_fresh_and_writes_are_atomic(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d, patch.object(a, 'STATE', Path(d) / 'state.json'):
+            self.assertEqual(a.read_state(), {})                       # missing
+            a.STATE.write_text('{"x": {"alerted": tr')                 # killed mid-write
+            self.assertEqual(a.read_state(), {})
+            a.write_json(a.STATE, {'k': 1})
+            self.assertEqual(a.read_state(), {'k': 1}); self.assertEqual(sorted(x.name for x in Path(d).iterdir()), ['state.json'])
+
+
 class NtfyHeaderTests(unittest.TestCase):
     def sent(self, *args, **kw):
         with patch.object(a, 'topic', return_value='t'), patch.object(a.urllib.request, 'urlopen') as op:

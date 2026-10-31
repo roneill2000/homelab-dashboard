@@ -17,7 +17,7 @@ for (const [w, h, mobile] of WIDTHS) for (const theme of ['dark', 'light']) {
   const page = await browser.newPage({ viewport: { width: w, height: h }, isMobile: mobile, hasTouch: mobile });
   page.on('pageerror', e => { errors++; console.log('JS ERROR', w, theme, e.message.slice(0, 200)); });
   await page.route('**/api/action/**', r => r.request().method() === 'POST' ? r.abort() : r.continue());
-  await page.addInitScript(t => localStorage.setItem('homelab.theme.v2', JSON.stringify(t)), theme);
+  await page.addInitScript(t => localStorage.setItem('homelab.theme.v3', JSON.stringify(t)), theme);
   await page.goto(URL); await page.waitForTimeout(1500);
   for (const view of VIEWS) {
     if (only.length && !only.includes(slug(view))) continue;

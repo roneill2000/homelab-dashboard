@@ -1,16 +1,23 @@
-# Forced command for Homepage's PC-sleep key. SSH_ORIGINAL_COMMAND: check | sleep | force
+# Forced command for Homepage's PC-sleep key. SSH_ORIGINAL_COMMAND: check | sleep | force | cancel
 $ErrorActionPreference = 'Stop'
 $cmd = "$env:SSH_ORIGINAL_COMMAND".Trim()
 $gpu = -1
 try { $gpu = [int]((& nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits) | Select-Object -First 1) } catch {}
 function Out($o) { $o | ConvertTo-Json -Compress; exit }
 if ($cmd -eq 'check') { Out @{ ok = $true; action = 'check'; gpu = $gpu } }
-if ($cmd -notin @('sleep', 'force')) { Out @{ ok = $false; error = 'Unsupported command.' } }
+$pending = 'C:\llm\sleep.pending'
+$countdown = (Test-Path $pending) -and ((Get-Date) - (Get-Item $pending).LastWriteTime).TotalSeconds -lt 75
+# Wake on an awake PC cancels a sleep countdown in progress (it used to report "already on", then the PC slept).
+if ($cmd -eq 'cancel') {
+  if ($countdown) { Set-Content 'C:\llm\sleep.cancel' '1'; Remove-Item $pending -ErrorAction SilentlyContinue }
+  Out @{ ok = $true; action = 'cancel'; cancelled = [bool]$countdown }
+}
+if ($cmd -notin @('sleep', 'force', 'cancel')) { Out @{ ok = $false; error = 'Unsupported command.' } }
 if ($cmd -eq 'sleep' -and $gpu -ge 30) { Out @{ ok = $false; busy = $true; gpu = $gpu; error = "GPU busy ($gpu%)" } }
 # Idempotent: a second request during the 60 s countdown joins it instead of starting another (which would
 # survive the sleep and put the PC straight back to sleep after the next wake).
-$pending = 'C:\llm\sleep.pending'
-if ((Test-Path $pending) -and ((Get-Date) - (Get-Item $pending).LastWriteTime).TotalSeconds -lt 75) { Out @{ ok = $true; already = $true; action = 'already sleeping'; gpu = $gpu } }
+# A cancelled countdown is not joined: a new request starts its own (the cancelled one exits without sleeping).
+if ($countdown -and -not (Test-Path 'C:\llm\sleep.cancel')) { Out @{ ok = $true; already = $true; action = 'already sleeping'; gpu = $gpu } }
 Set-Content -Path $pending -Value (Get-Date -Format o)
 Remove-Item 'C:\llm\sleep.cancel' -ErrorAction SilentlyContinue
 & msg.exe * /TIME:60 "Homelab: this PC will sleep in 60 seconds (requested from the dashboard). To cancel, run C:\llm\cancel-sleep.cmd" 2>$null

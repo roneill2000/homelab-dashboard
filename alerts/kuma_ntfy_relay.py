@@ -25,6 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 TOPIC_FILE = Path('/etc/kuma-ntfy-relay/topic')
+HELD_FILE = Path('/var/lib/kuma-ntfy-relay/held.json')  # held and unsent downs survive a relay restart
 LISTEN = ('172.17.0.1', 8998)
 MAINTENANCE = 'http://192.168.0.2/api/maintenance'
 WHY = 'http://192.168.0.3:8997/why'
@@ -35,7 +36,25 @@ PAGES = ((r'share|smb', 'storage'), (r'duckdns|dns', 'network'))
 
 lock = threading.Lock()
 snooze_until = 0.0  # last known end of the dashboard snooze (kept when the dashboard is unreachable)
-held = {}           # sequence id -> ntfy request held during a snooze
+held = {}           # sequence id -> ntfy request held during a snooze, or whose send failed (retried each minute)
+
+
+def save_held():
+    try:
+        HELD_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = HELD_FILE.with_name(HELD_FILE.name + '.tmp')
+        tmp.write_text(json.dumps(held))
+        tmp.replace(HELD_FILE)
+    except OSError:
+        pass
+
+
+def load_held():
+    try:
+        d = json.loads(HELD_FILE.read_text())
+        held.update({k: tuple(v) for k, v in d.items()} if isinstance(d, dict) else {})
+    except (OSError, ValueError):
+        pass
 
 
 def page_for(name):
@@ -104,22 +123,38 @@ def handle(payload, now=None, send=publish):
         snoozed = now < snooze_until
         if down and snoozed:
             held[sid] = (headers, body)
+            save_held()
             return 'held'
         if not down and held.pop(sid, None):
+            save_held()
             return 'dropped'  # it was never shown, so its recovery isn't either
-    return 'sent' if send(headers, body) else 'failed'
+    if send(headers, body):
+        return 'sent'
+    if down:  # Kuma won't resend, so keep it and retry with the held ones
+        with lock:
+            held[sid] = (headers, body)
+            save_held()
+    return 'failed'
 
 
 def flush_held(now=None, send=publish):
-    """Send downs held by a snooze that has ended (no recovery arrived meanwhile)."""
+    """Send downs held by a snooze that has ended, or whose first send failed (no recovery arrived meanwhile).
+    Ones that fail again stay held for the next minute."""
     now = time.time() if now is None else now
     with lock:
         if now < snooze_until or not held:
             return 0
-        due, _ = list(held.values()), held.clear()
-    for headers, body in due:
-        send(headers, body)
-    return len(due)
+        due = list(held.items())
+    sent = 0
+    for sid, (headers, body) in due:
+        if send(headers, body):
+            sent += 1
+            with lock:
+                if held.get(sid) == (headers, body):
+                    held.pop(sid)
+    with lock:
+        save_held()
+    return sent
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -151,6 +186,7 @@ def loop():
 
 
 def main():
+    load_held()
     refresh_snooze()
     threading.Thread(target=loop, daemon=True).start()
     ThreadingHTTPServer(LISTEN, Handler).serve_forever()

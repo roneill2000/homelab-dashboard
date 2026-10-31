@@ -36,7 +36,7 @@ for (const [w, h] of [[412, 915], [1000, 800], [1440, 900]]) for (const theme of
     if (!fixtures[k]) { const resp = await r.fetch(); fixtures[k] = { status: resp.status(), body: await resp.text(), type: resp.headers()['content-type'] || 'application/json' }; }
     r.fulfill({ status: fixtures[k].status, body: fixtures[k].body, contentType: fixtures[k].type });
   });
-  await page.addInitScript(t => localStorage.setItem('homelab.theme.v2', JSON.stringify(t)), theme);
+  await page.addInitScript(t => localStorage.setItem('homelab.theme.v3', JSON.stringify(t)), theme);
   for (const v of VIEWS) {
     await page.goto('http://127.0.0.1:8799/#/' + v); await page.clock.runFor(3000); await page.waitForTimeout(300);
     // Interactive states: force :hover / :active / :focus-visible on the first few of each control type.

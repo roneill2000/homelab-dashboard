@@ -100,9 +100,11 @@ class WakeTests(unittest.TestCase):
             codes.clear(); out = io.BytesIO()
             h = SimpleNamespace(path='/api/action/wake-pc', headers={'Host': '192.168.0.2', 'X-Dashboard-Action': '1'}, wfile=out,
                                 send_response=codes.append, send_header=lambda *a: None, end_headers=lambda: None)
-            with patch.object(proxy, 'wake_pc') as w, patch.object(proxy, 'pc_awake', return_value=awake):
+            with patch.object(proxy, 'wake_pc') as w, patch.object(proxy, 'pc_awake', return_value=awake), patch.object(proxy, 'sleep_pc', return_value={'ok': True, 'cancelled': True}) as sl:
                 proxy.handle(h, post=True)
             self.assertEqual((codes, w.called, json.loads(out.getvalue()).get('already', False)), ([200], sends, awake))
+            if awake:  # Wake on an awake PC cancels a pending sleep countdown
+                sl.assert_called_once_with(command='cancel'); self.assertIs(json.loads(out.getvalue())['cancelled_sleep'], True)
 
 
 class SleepTests(unittest.TestCase):
