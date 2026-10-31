@@ -56,6 +56,10 @@ SYSTEM = ('Answer the user directly. You may explain general topics using your l
           +qwen_context.CAPABILITIES)
 
 INPUT_BUDGET=4550
+# Ask sends only the question (Ryan, 30 Oct 2026): no system prompt and no homelab observations, so it answers whatever
+# is asked. SYSTEM and the observation builders remain for evals; the nightly review (runner.py) has its own prompts.
+PLAIN_NOTE='Only your question was sent: no system prompt, homelab data, chat history or web search.'
+STRATA_NOTE='Only your question was sent, with no system prompt or homelab data. Strata may search the web to answer.'
 
 
 def context(storage, now):
@@ -90,12 +94,13 @@ def family(model):
     return 'gemma' if 'gemma' in (model or '').lower() else 'qwen'
 
 
-def body_for(prompt, evidence, model=None, kind=None):
+def body_for(prompt, evidence=None, model=None, kind=None):
     model = model or r.MODEL
+    messages=[dict(role='user',content=prompt)] if evidence is None else \
+             [dict(role='system',content=SYSTEM),
+              dict(role='user',content='Observations: '+json.dumps(evidence,separators=(',',':'))+'\nQuestion: '+prompt)]
     return dict(model=model, **SAMPLING[kind or family(model)], seed=42,
-                max_tokens=1400, stream=False, chat_template_kwargs={'enable_thinking':True},
-                messages=[dict(role='system',content=SYSTEM),
-                          dict(role='user',content='Observations: '+json.dumps(evidence,separators=(',',':'))+'\nQuestion: '+prompt)])
+                max_tokens=1400, stream=False, chat_template_kwargs={'enable_thinking':True}, messages=messages)
 
 
 def performance(response, elapsed):
@@ -173,7 +178,7 @@ class Broker:
                 return 409, dict(status='busy',model=A310_LABEL,error='The nightly review is using Qwen. Try again when it finishes.')
             self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),target=target,
                             model=STRATA_LABEL if target=='strata' else pc_label(target[3:] or PC_MODEL) if target.startswith('pc') else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
-                            context_note='Question-selected host, storage, services, network, AI and log observations. No chat history or internet search.')
+                            context_note=PLAIN_NOTE)
             accepted = dict(self.job)
             worker=threading.Thread(target=self.work,args=(lock,),name='qwen-question',daemon=False)
             try:worker.start()
@@ -199,17 +204,12 @@ class Broker:
 
     def answer_on_pc(self, token, model=PC_MODEL, strata=False):
         self.update(status='loading',model=STRATA_LABEL if strata else pc_label(model),load_started_at=int(time.time()))
-        prompt,evidence=self.observations(r.fetch('http://192.168.0.2/api/storage',timeout=20))
-        while len(json.dumps(evidence).encode())>24576:
-            if not qwen_context.reduce_evidence(evidence):
-                raise ValueError('This question is too long with its observations. Please ask about one system at a time.')
-        note,omitted=context_note(evidence)
-        self.update(status='generating',context_at=evidence['observed_at'],generation_started_at=int(time.time()),
-                    context_note=note,context_sources=list(evidence['sources']),context_omissions=omitted,context_limit=32768 if strata else 49152,
-                    evidence=evidence)
+        prompt=self.state()['prompt']
+        self.update(status='generating',generation_started_at=int(time.time()),context_note=STRATA_NOTE if strata else PLAIN_NOTE,context_limit=32768 if strata else 49152)
         started=time.monotonic()
-        # Strata may need loading by the broker first (~2 min warm, longer after a reboot).
-        response=ask_pc(None,body_for(prompt,evidence,STRATA_MODEL,'strata'),STRATA_MODEL,STRATA_API,1500) if strata else ask_pc(token,body_for(prompt,evidence,model),model)
+        # Strata may need loading by the broker first (~2 min warm, longer after a reboot). strata_mcp gives it the web
+        # search and page-fetch tools from its launch config (DuckDuckGo); it runs the tool calls itself.
+        response=ask_pc(None,dict(body_for(prompt,None,STRATA_MODEL,'strata'),strata_mcp=True),STRATA_MODEL,STRATA_API,1500) if strata else ask_pc(token,body_for(prompt,None,model),model)
         answer=usable(response)
         self.update(input_tokens=(response.get('usage') or {}).get('prompt_tokens'))
         return dict(status='complete',answer=scrub(answer),performance=performance(response,time.monotonic()-started))
@@ -266,18 +266,14 @@ class Broker:
                 raise ValueError('A backup started while the model loaded. Try again after the backup.')
             if r.shutil.disk_usage('/mnt/cache').free<1024**3:
                 raise ValueError('Cache free space fell below 1 GiB. Try again after space is available.')
-            prompt,evidence=self.observations(storage)
-            while True:
-                body=body_for(prompt,evidence,r.PROFILES[profile]['model'])
-                template=r.fetch(r.API+'/apply-template',{'messages':body['messages'],'chat_template_kwargs':body['chat_template_kwargs']},timeout=10)['prompt']
-                count=len(r.fetch(r.API+'/tokenize',{'content':template,'add_special':True},timeout=10)['tokens'])
-                if count<=INPUT_BUDGET and len(json.dumps(evidence).encode())<=24576:break
-                if not qwen_context.reduce_evidence(evidence):
-                    raise ValueError('This question is too long with its observations. Please ask about one system at a time.')
-            note,omitted=context_note(evidence);names=list(evidence['sources'])
-            self.update(status='generating',context_at=evidence['observed_at'],generation_started_at=int(time.time()),
-                        context_note=note,context_sources=names,context_omissions=omitted,input_tokens=count,context_limit=6144,
-                        evidence=evidence)
+            prompt=self.state()['prompt']
+            body=body_for(prompt,None,r.PROFILES[profile]['model'])
+            template=r.fetch(r.API+'/apply-template',{'messages':body['messages'],'chat_template_kwargs':body['chat_template_kwargs']},timeout=10)['prompt']
+            count=len(r.fetch(r.API+'/tokenize',{'content':template,'add_special':True},timeout=10)['tokens'])
+            if count>INPUT_BUDGET:
+                raise ValueError('This question is too long for the A310. Shorten it, or ask the gaming PC.')
+            self.update(status='generating',generation_started_at=int(time.time()),
+                        context_note=PLAIN_NOTE,input_tokens=count,context_limit=6144)
             generation_started=time.monotonic()
             response=r.fetch(r.API+'/v1/chat/completions',body,timeout=180)
             answer=usable(response)

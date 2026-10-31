@@ -54,7 +54,7 @@ class QwenTests(unittest.TestCase):
         if not broker.job.get('prompt'):broker.job=dict(status='queued',prompt='How is cache?',updated_at=1000)
         lock=SimpleNamespace(close=unittest.mock.Mock())
         response={'choices':[{'finish_reason':'stop','message':{'content':'Measured cache space is available.'}}]}
-        values=[storage(),{'data':[{'id':q.r.MODEL}]},storage(),{}, {'prompt':'template'},
+        values=[storage(),{'data':[{'id':q.r.MODEL}]},storage(), {'prompt':'template'},
                 {'tokens':list(range(tokens))}]
         if tokens<=q.INPUT_BUDGET:values.append(response)
         cleanup=[None,RuntimeError('cleanup')] if cleanup_error else [None,None]
@@ -75,6 +75,7 @@ class QwenTests(unittest.TestCase):
         state=broker.state()
         self.assertEqual((state['status'],state['model'],state['input_tokens']),('complete',q.PC_LABEL,900))
         self.assertEqual(ask.call_args.args[0],'k');stop.assert_not_called();run.assert_not_called();lock.close.assert_called_once()
+        self.assertEqual(ask.call_args.args[1]['messages'],[{'role':'user','content':'How is cache?'}])
 
     def test_choice_a310_never_asks_the_pc_and_pc_choice_fails_when_off(self):
         with patch.object(q,'pc_token',return_value='k') as tok:
@@ -123,6 +124,8 @@ class QwenTests(unittest.TestCase):
         self.assertEqual((state['status'],state['model'],state['context_limit']),('complete',q.STRATA_LABEL,32768))
         self.assertEqual(ask.call_args.args[:4],(None,ask.call_args.args[1],q.STRATA_MODEL,q.STRATA_API))
         self.assertTrue(q.STRATA_API.startswith('http://192.168.0.2:'))
+        self.assertIs(ask.call_args.args[1]['strata_mcp'],True)  # Strata may search the web
+        self.assertEqual(state['context_note'],q.STRATA_NOTE)
         self.assertTrue(q.PC_API.startswith('http://192.168.0.2:'))
 
     def test_strata_failure_is_reported_not_silently_answered_elsewhere(self):
@@ -150,12 +153,12 @@ class QwenTests(unittest.TestCase):
         self.assertEqual(command[command.index('--reasoning-budget')+1],'256')
         self.assertEqual(q.r.container_command()[q.r.container_command().index('--reasoning-budget')+1],'768')  # nightly keeps 768
 
-    def test_success_refetches_context_then_cleans_up(self):
+    def test_success_sends_only_the_question_then_cleans_up(self):
         state,fetch=self.exercise()
         self.assertEqual(state['status'],'complete')
-        self.assertEqual(state['context_at'],1000)
-        self.assertEqual(state['evidence']['observed_at'],1000)
-        self.assertIn('sources',state['evidence'])
+        self.assertNotIn('evidence',state);self.assertEqual(state['context_note'],q.PLAIN_NOTE)
+        sent=[c.args[1] for c in fetch.call_args_list if c.args[0]==q.r.API+'/v1/chat/completions'][0]
+        self.assertEqual(sent['messages'],[{'role':'user','content':'How is cache?'}])  # no system prompt, no homelab data
         calls=[c.args[0] for c in fetch.call_args_list]
         self.assertEqual(calls.count('http://192.168.0.2/api/storage'),2)
         self.assertEqual(calls[-1],q.r.API+'/v1/chat/completions')
