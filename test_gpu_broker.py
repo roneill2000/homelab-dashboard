@@ -139,6 +139,19 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(g.refuse('POST', '/v1/chat/completions', dict(page, Host='192.168.0.2:8088'))[0], 403)
 
 
+    def test_strata_pages_load_button_frees_the_gpu_first(self):
+        strata = serve(g.Server(('127.0.0.1', 0), 'strata', ('127.0.0.1', self.pc.server_address[1])))
+        try:
+            with patch.object(g, 'ensure') as ensure, patch.object(g, 'remember') as remember:
+                c = http.client.HTTPConnection('127.0.0.1', strata.server_address[1], timeout=10)
+                c.request('POST', '/load', body=b'{}', headers={'Content-Type': 'application/json'})
+                r = c.getresponse(); FakePC.release.set(); r.read()
+            ensure.assert_called_once_with('strata')
+            remember.assert_not_called()  # a load is not a request in the history
+        finally:
+            strata.shutdown(); strata.server_close()
+
+
 class EnsureTests(unittest.TestCase):
     def setUp(self):
         import tempfile

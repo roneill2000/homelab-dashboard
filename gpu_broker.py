@@ -147,17 +147,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.fail(413, 'Request too large')
         body = self.rfile.read(length) if length else None
         generate = needs_gpu(self.command, self.path)
+        # Strata's chat page has its own Load button; it must free the GPU of llama models first, like a request.
+        load = engine == 'strata' and self.command == 'POST' and self.path.split('?', 1)[0].rstrip('/') == '/load'
         t0 = time.time()
         row = dict(ts=t0, engine=engine, model=ai_history.model_of(body) if generate and body else None, ok=0, status=None)
-        if generate:
+        if generate or load:
             try:
                 row['swap'] = ensure(engine)
             except GamePaused:
-                remember(dict(row, status=503, swap='game', wall_s=time.time() - t0))
+                if generate:
+                    remember(dict(row, status=503, swap='game', wall_s=time.time() - t0))
                 return self.fail(503, 'A game is running on the gaming PC, so its GPU is paused. Try again after the game.')
             except Exception as exc:
                 log(f'switch failed: {exc}')
-                remember(dict(row, status=503, swap='failed', wall_s=time.time() - t0))
+                if generate:
+                    remember(dict(row, status=503, swap='failed', wall_s=time.time() - t0))
                 return self.fail(503, 'The gaming PC could not switch its GPU to this engine. Try again shortly.')
             row['swap_s'] = time.time() - t0 if row['swap'] else None
         t1, tail, first = time.time(), b'', None
