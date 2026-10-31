@@ -661,6 +661,7 @@ h1{font-size:36px}
 .qwen-help>span{white-space:nowrap}
 .qwen-help{align-items:flex-start;flex-wrap:wrap}
 .qwen-help p{flex:1 1 240px;margin:0}
+.qwen-help>span{margin-left:auto}
 /* M3 filter chip: outlined off, secondary container with a check on */
 .qwen-homelab{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 16px;border-radius:var(--md-sys-shape-corner-small,8px);border:1px solid var(--md-sys-color-outline-variant);background:transparent;color:var(--md-sys-color-on-surface-variant);font:inherit;font-size:14px;font-weight:500;cursor:pointer;flex:none}
 .qwen-homelab[aria-pressed=true]{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border-color:transparent;padding-left:8px}
