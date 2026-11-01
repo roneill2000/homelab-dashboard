@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_widget_dns, patch_widget_cloud, patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import patch_widget_strata, patch_widget_dns, patch_widget_cloud, patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -388,17 +388,17 @@ class WidgetTests(unittest.TestCase):
            '        if self.path.startswith("/api/telemetry"):\n'
            '            pass\n')
 
-    def summary(self, telemetry, ids, desktop=None, gpu=None, backup='OK', now=1000):
+    def summary(self, telemetry, ids, desktop=None, gpu=None, backup='OK', now=1000, strata=None):
         import json, sys, types
         from unittest.mock import mock_open
         ai = types.ModuleType('ai_monitor')
-        ai.snapshot = lambda: {'desktop': desktop or {'online': False}}
+        ai.snapshot = lambda: {'desktop': desktop or {'online': False}, 'strata': strata or {'online': False}}
         ai._pc_gpu = {'latest': gpu}
         ai.pc_gpu_poll = lambda t: None
         sm = types.ModuleType('storage_monitor')
         sm.snapshot = lambda w: {'activity': {'recovery': {'backup': {'latest': {'status': backup}}}}}
         ns = {'BaseHTTPRequestHandler': object}
-        exec(compile(patch_widget_dns(patch_widget(self.SRC)), 'widget', 'exec'), ns)
+        exec(compile(patch_widget_strata(patch_widget_dns(patch_widget(self.SRC))), 'widget', 'exec'), ns)
         ns['TELEMETRY'].update(telemetry)
         with patch.dict(sys.modules, {'ai_monitor': ai, 'storage_monitor': sm}), patch('builtins.open', mock_open(read_data=json.dumps(ids))):
             return ns['_dashboard_widget_summary'](now=now)
@@ -450,6 +450,23 @@ class WidgetTests(unittest.TestCase):
         old_gpu = {'power_w': 100, 'observed_at': 800}
         s = self.summary(self.base(), ['router'], desktop={'online': True, 'last_success_at': 995, 'models': []}, gpu=old_gpu)
         self.assertEqual((s['pc']['state'], s['pc']['gpu']), ('idle', None))
+
+    def test_loaded_strata_counts_as_the_pc_model(self):
+        desk = {'online': True, 'last_success_at': 995, 'models': [{'id': 'qwen', 'state': 'unloaded'}], 'is_active': False}
+        st = {'online': True, 'last_success_at': 995, 'loaded': True, 'model': 'swift-1.5-iq2_xs'}
+        s = self.summary(self.base(), ['router'], desktop=desk, strata=st)
+        self.assertEqual((s['pc']['state'], s['pc']['model'], s['headline']), ('model_loaded', 'swift-1.5-iq2_xs', 'Model loaded'))
+        # Unloaded, stale or unreachable Strata leaves the PC idle; a PC that is off stays off.
+        for bad in ({**st, 'loaded': False}, {**st, 'last_success_at': 900}, {**st, 'online': False}):
+            self.assertEqual(self.summary(self.base(), ['router'], desktop=desk, strata=bad)['pc']['state'], 'idle')
+        self.assertEqual(self.summary(self.base(), ['router'], strata=st)['pc']['state'], 'off')
+        # A loaded llama model wins (never both), and the patch is idempotent and refuses drift.
+        both = {**desk, 'models': [{'id': 'qwen', 'state': 'loaded'}]}
+        self.assertEqual(self.summary(self.base(), ['router'], desktop=both, strata=st)['pc']['model'], 'qwen')
+        src = patch_widget_strata(patch_widget(self.SRC))
+        self.assertEqual(patch_widget_strata(src), src)
+        with self.assertRaises(ValueError):
+            patch_widget_strata('class DashboardHandler: pass\n')
 
     def test_upgrades_v1_in_place_idempotent_and_refuses_drift(self):
         v1 = self.SRC.replace('class DashboardHandler', '# HOMELAB_WIDGET_V1\ndef _dashboard_widget_summary(now=None):\n    return {}\n\nclass DashboardHandler')

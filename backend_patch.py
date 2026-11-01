@@ -1017,3 +1017,28 @@ def patch_widget_dns(source):
     source = source.replace(anchor, WIDGET_DNS + "    return {'dns': widget_dns, 'status': 'attention' if problems else 'all_up',") + '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+WIDGET_STRATA = r"""    # Strata is the other GPU engine: llama-server's model list never shows it, so with no llama model loaded a
+    # loaded Strata (fresh /health read from ai_monitor) is the PC's model. Engines are one-at-a-time.
+    try:
+        import ai_monitor as _aim
+        _st = obj(_aim.snapshot().get('strata'))
+        if pc['state'] == 'idle' and fresh_src(_st) and _st.get('loaded') is True:
+            pc['state'], pc['model'] = 'model_loaded', str(_st.get('model') or 'strata')
+    except Exception:
+        pass
+"""
+
+
+def patch_widget_strata(source):
+    """Count a loaded Strata in /api/widget's PC state, so the headline stops saying 'no model loaded' while it runs."""
+    marker = '# HOMELAB_WIDGET_STRATA_V1'
+    if marker in source:
+        return source
+    anchor = "    headline = {'off': 'PC asleep or off',"
+    if source.count(anchor) != 1:
+        raise ValueError('widget summary shape changed; Strata state not added')
+    source = source.replace(anchor, WIDGET_STRATA + anchor) + '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source
