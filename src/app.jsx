@@ -209,7 +209,7 @@ const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat',speed:168.3}, // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
  'qwen3.6-35b-moe':{role:'General use',speed:82.1}, // measured 22 Oct 2026: 48K context, 100% CUDA0
  'qwen3.8-27b':{role:'Reasoning',speed:54.6}, // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
- [STRATA_MODEL]:{role:'Strata · careful reasoning',speed:67.2}, // 1 Nov 2026: Swift 1.5 IQ3_XXS + --resident-experts (audit: median 67 tok/s writing, ~200 tok/s prompt reading, was 49/133 with mmap); strata-bench 28/29
+ [STRATA_MODEL]:{role:'Strata · careful reasoning',speed:72.0}, // 1 Nov 2026: Swift 1.5 IQ3_XXS + --resident-experts, 64k context, 32 GB page file (22 GiB of experts locked in RAM; 3 runs: median 72 tok/s writing, ~294 tok/s prompt reading; was 62/217 with the 11 GB page file, 49/133 with mmap); strata-bench 28/29
  'qwen3.8-27b-uncensored':{role:'Uncensored · abliterated',speed:51.4} // 27 Oct 2026: Heretic ARA IQ4_XS 3.0 (13.99 GB, all on GPU), 51.38 tok/s over 1,024 tokens, ngram-mod 43% acceptance; replaced the 15.57 GB OrcaRouter build that spilled past 16 GB VRAM
 };
 function inlineMd(text,key){
