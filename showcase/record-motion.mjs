@@ -101,8 +101,8 @@ async function record(name, { viewport, scale, touch, theme, script }) {
   writeFileSync(join(dir, 'list.txt'), list.join('\n') + '\n');
   // GIFs play at the full 50 fps (the fastest a GIF can: delays are whole centiseconds and browsers slow 1 cs frames).
   // Bayer dithering compresses far better than error diffusion. GitHub embeds repo images directly (no 10 MB proxy cap),
-  // so the desktop clip is 900 px / 256 colours, ~17 MB.
-  const out = join(here, 'motion-' + name), [w, gfps, colours] = name === 'phone' ? [360, FPS, 160] : [900, FPS, 256];
+  // so the desktop clip is 1100 px / 256 colours, ~23 MB.
+  const out = join(here, 'motion-' + name), [w, gfps, colours] = name === 'phone' ? [360, FPS, 160] : [1100, FPS, 256];
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', join(dir, 'list.txt'), '-vf', `fps=${FPS},scale=${viewport.width}:-2:flags=lanczos`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out + '.mp4']);
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', out + '.mp4', '-vf', `fps=${gfps},scale=${w}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${colours}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`, out + '.gif']);
   console.log(`wrote showcase/motion-${name}.mp4 and .gif (${(clock / 1000).toFixed(1)} s, ${frames.length} captured frames)`);
