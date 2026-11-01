@@ -27,8 +27,8 @@ ACTIVE = {'queued', 'loading', 'generating'}
 PC_API = 'http://192.168.0.2:8080'
 # Strata (Swift 1.5 / Qwen3.8-Flash-Next) on the same card, also via the broker, which loads it and unloads llama-server.
 STRATA_API = 'http://192.168.0.2:8088'
-STRATA_MODEL = 'swift-1.5-iq2_xs'
-STRATA_LABEL = 'Strata · Qwen3.8-Flash-Next · gaming PC'
+STRATA_MODEL = 'swift-1.5-iq3_xxs'
+STRATA_LABEL = 'Strata · Swift 1.5 IQ3_XXS · gaming PC'
 PC_MODEL = 'qwen3.8-27b'
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Qwen3.8-27B · gaming PC'

@@ -453,9 +453,9 @@ class WidgetTests(unittest.TestCase):
 
     def test_loaded_strata_counts_as_the_pc_model(self):
         desk = {'online': True, 'last_success_at': 995, 'models': [{'id': 'qwen', 'state': 'unloaded'}], 'is_active': False}
-        st = {'online': True, 'last_success_at': 995, 'loaded': True, 'model': 'swift-1.5-iq2_xs'}
+        st = {'online': True, 'last_success_at': 995, 'loaded': True, 'model': 'swift-1.5-iq3_xxs'}
         s = self.summary(self.base(), ['router'], desktop=desk, strata=st)
-        self.assertEqual((s['pc']['state'], s['pc']['model'], s['headline']), ('model_loaded', 'swift-1.5-iq2_xs', 'Model loaded'))
+        self.assertEqual((s['pc']['state'], s['pc']['model'], s['headline']), ('model_loaded', 'swift-1.5-iq3_xxs', 'Model loaded'))
         # Unloaded, stale or unreachable Strata leaves the PC idle; a PC that is off stays off.
         for bad in ({**st, 'loaded': False}, {**st, 'last_success_at': 900}, {**st, 'online': False}):
             self.assertEqual(self.summary(self.base(), ['router'], desktop=desk, strata=bad)['pc']['state'], 'idle')
