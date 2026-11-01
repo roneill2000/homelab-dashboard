@@ -382,7 +382,9 @@ function AskQwen({gpu,ai,slim=false,task=false}){
   try{const response=await fetch('/api/qwen',{method:'POST',headers:{'Content-Type':'application/json','X-Qwen-Request':'1'},body:JSON.stringify({prompt:text,target,homelab}),signal:controller.signal});const result=await response.json();if(!mounted.current)return;
    if(response.status===409){accept({...result,status:'busy',error:result.error||'The local model is in use. Waiting for it to become available.'});requestRef.current?.();}
    else if(!response.ok){setError(result.error||'The question could not be accepted.');}
-   else{accept(result);requestRef.current?.()}
+   else{accept(result);requestRef.current?.();
+    // Android app (v1.9): follow this question and notify when its answer is ready while you're in another app.
+    if(result?.id&&['queued','loading','generating'].includes(result.status)){try{window.AndroidBridge?.watchAnswer?.(String(result.id))}catch{}}}
   }catch{if(mounted.current){setError('Could not confirm the request. Check model status before trying again.');requestRef.current?.()}}
   finally{clearTimeout(timeout);if(mounted.current)setPosting(false)}
  }
@@ -394,7 +396,7 @@ function AskQwen({gpu,ai,slim=false,task=false}){
  useEffect(()=>{if(collapsed)setTyping(false)},[collapsed]);
   const sectionRef=useRef(null),lastH=useRef(0),lastMB=useRef(0),lastCollapsed=useRef(collapsed),anim=useRef(null);
   // Text shared from another Android app (window.__homelabAsk): fill the box, show it, focus it; you pick the model and send.
-  useEffect(()=>{if(!task)return;const take=()=>{const t=window.__homelabPendingAsk;if(!t)return;window.__homelabPendingAsk=null;setPrompt(t);setExpanded(true);
+  useEffect(()=>{if(!task)return;const take=()=>{const p=window.__homelabPendingAsk;if(!p)return;window.__homelabPendingAsk=null;if(p.text)setPrompt(p.text);setExpanded(true);
    setTimeout(()=>{sectionRef.current?.scrollIntoView({block:'center',behavior:'smooth'});document.getElementById('qwen-prompt')?.focus({preventScroll:true})},350)};
    take();window.addEventListener('homelab-ask',take);return()=>window.removeEventListener('homelab-ask',take)},[task]);
  useLayoutEffect(()=>{const el=sectionRef.current;if(!el)return;
@@ -603,7 +605,8 @@ function App(){
    navigate('overview');
   };
   // Android share sheet: text shared to the app opens the AI page's Ask box with it filled in (never sent on its own).
-  window.__homelabAsk=text=>{if(typeof text!=='string'||!text.trim())return;window.__homelabPendingAsk=text.trim().slice(0,3000);navigate('ai');window.dispatchEvent(new Event('homelab-ask'))};
+  // Empty text (the "Ask AI" launcher shortcut) just opens the box with the keyboard up.
+  window.__homelabAsk=text=>{window.__homelabPendingAsk={text:typeof text==='string'?text.trim().slice(0,3000):''};navigate('ai');window.dispatchEvent(new Event('homelab-ask'))};
   return()=>{
    window.__hasOpenOverlay=null;
    window.__closeAllOverlays=null;
