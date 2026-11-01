@@ -393,6 +393,10 @@ function AskQwen({gpu,ai,slim=false,task=false}){
  const noKbd=coarse&&slim&&!typing;
  useEffect(()=>{if(collapsed)setTyping(false)},[collapsed]);
   const sectionRef=useRef(null),lastH=useRef(0),lastMB=useRef(0),lastCollapsed=useRef(collapsed),anim=useRef(null);
+  // Text shared from another Android app (window.__homelabAsk): fill the box, show it, focus it; you pick the model and send.
+  useEffect(()=>{if(!task)return;const take=()=>{const t=window.__homelabPendingAsk;if(!t)return;window.__homelabPendingAsk=null;setPrompt(t);setExpanded(true);
+   setTimeout(()=>{sectionRef.current?.scrollIntoView({block:'center',behavior:'smooth'});document.getElementById('qwen-prompt')?.focus({preventScroll:true})},350)};
+   take();window.addEventListener('homelab-ask',take);return()=>window.removeEventListener('homelab-ask',take)},[task]);
  useLayoutEffect(()=>{const el=sectionRef.current;if(!el)return;
   const flip=lastCollapsed.current!==collapsed,run=anim.current;
   // Interrupted mid-way: start from where the box is on screen now and drop the old animation, so they never stack.
@@ -498,6 +502,8 @@ function RecoveryPanel({activity,children}){
 }
 
 const navigation=[['overview','Overview','home'],['services','All services','grid'],['ai','Local AI','terminal'],['media','Media & downloads','play'],['network','Network & DNS','network'],['fleet','Hosts & containers','layers'],['storage','Storage','disk'],['infra','Infrastructure','server'],['updates','Updates','refresh']];
+// Inside the Android app (its WebView exposes AndroidBridge before page scripts run): app-only CSS hangs off html.in-app.
+if(typeof window!=='undefined'&&window.AndroidBridge)document.documentElement.classList.add('in-app');
 const VIEWS=['overview','services','ai','media','network','fleet','storage','infra','updates'];
 export const haptic=(type='tap')=>{
  if(typeof window!=='undefined'&&window.AndroidHaptics){
@@ -586,12 +592,26 @@ function App(){
   // Android deep links and launcher shortcuts (MainActivity passes only allowlisted page names and actions).
   window.__homelabOpen=page=>{if(VIEWS.includes(page))navigate(page)};
   window.__homelabShortcut=action=>{if(action==='wake-pc'){navigate('overview');setTimeout(()=>window.__homelabWake?.(),400)}};
+  // Android Back (gesture committed or button): an open overlay is closed by the 'commit' handler, else go back a page,
+  // else to Overview. The overlay check runs before the commit event, which starts closing it.
+  window.__homelabBack=()=>{
+   const open=[...document.querySelectorAll('.m3-menu-select__menu,.m3-search-view,.m3-dialog,.m3-nav-drawer.is-modal.open,.m3-xrail.is-modal,.m3-scrim:not(.is-leaving)')]
+    .some(m=>getComputedStyle(m).display!=='none'&&m.getClientRects().length>0);
+   window.dispatchEvent(new CustomEvent('predictiveback',{detail:{phase:'commit'}}));
+   if(anyOverlay||open)return;
+   if(history.length>1&&location.hash&&location.hash!=='#/'&&location.hash!=='#/overview'){history.back();return}
+   navigate('overview');
+  };
+  // Android share sheet: text shared to the app opens the AI page's Ask box with it filled in (never sent on its own).
+  window.__homelabAsk=text=>{if(typeof text!=='string'||!text.trim())return;window.__homelabPendingAsk=text.trim().slice(0,3000);navigate('ai');window.dispatchEvent(new Event('homelab-ask'))};
   return()=>{
    window.__hasOpenOverlay=null;
    window.__closeAllOverlays=null;
    window.__navigateOverview=null;
    window.__homelabOpen=null;
    window.__homelabShortcut=null;
+   window.__homelabBack=null;
+   window.__homelabAsk=null;
   };
  },[anyOverlay,closeAllOverlays]);
  useEffect(()=>{
