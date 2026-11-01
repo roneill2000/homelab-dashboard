@@ -79,6 +79,13 @@ async function record(name, { viewport, scale, touch, theme, script }) {
       const dy = (await loc.boundingBox()).y - top, y0 = await page.evaluate(() => scrollY), steps = Math.round(ms / 40);
       for (let i = 1; i <= steps; i++) { const k = i / steps, e = 1 - (1 - k) ** 3; await page.evaluate(y => scrollTo(0, y), y0 + dy * e); await capture(ms / steps); }
     },
+    // Mouse drag from x0 to x1 at height y (drag-to-select zoom on a chart), eased over `ms` of clip time.
+    async brush(x0, x1, y, ms = 900) {
+      await capture(500, async () => { await cursor(x0, y); await page.mouse.move(x0, y, { steps: 8 }); });
+      await capture(160, async () => { await cursor(x0, y, true); await page.mouse.down(); });
+      const steps = 16; for (let i = 1; i <= steps; i++) { const k = i / steps, x = x0 + (x1 - x0) * (1 - (1 - k) ** 2); await page.mouse.move(x, y); await cursor(x, y, true); await capture(ms / steps); }
+      await capture(900, async () => { await page.mouse.up(); await cursor(x1, y, false); });
+    },
     async drag(x, y0, y1, ms = 500) {
       const steps = 14; await cursor(x, y0, true); await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: y0 }] });
       for (let i = 1; i <= steps; i++) { const y = y0 + (y1 - y0) * i / steps; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await cursor(x, y, true); await capture(ms / steps); }
@@ -92,8 +99,8 @@ async function record(name, { viewport, scale, touch, theme, script }) {
   frames.sort((a, b) => a[0] - b[0]); const list = []; let i = 0;
   for (let t = 0; t < clock; t += 1000 / FPS) { while (i + 1 < frames.length && frames[i + 1][0] <= t) i++; list.push(`file '${frames[i][1]}'\nduration ${1 / FPS}`); }
   writeFileSync(join(dir, 'list.txt'), list.join('\n') + '\n');
-  // GIF budget ~10 MB (GitHub stops inlining larger images): the 43 s desktop clip is 800 px, 16 fps, 128 colours.
-  const out = join(here, 'motion-' + name), [w, gfps, colours] = name === 'phone' ? [360, 25, 160] : [800, 16, 128];
+  // GIF budget ~10 MB (GitHub stops inlining larger images): the ~50 s desktop clip is 760 px, 15 fps, 128 colours.
+  const out = join(here, 'motion-' + name), [w, gfps, colours] = name === 'phone' ? [360, 25, 160] : [760, 15, 128];
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', join(dir, 'list.txt'), '-vf', `fps=${FPS},scale=${viewport.width}:-2:flags=lanczos`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out + '.mp4']);
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', out + '.mp4', '-vf', `fps=${gfps},scale=${w}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${colours}:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle`, out + '.gif']);
   console.log(`wrote showcase/motion-${name}.mp4 and .gif (${(clock / 1000).toFixed(1)} s, ${frames.length} captured frames)`);
@@ -104,7 +111,7 @@ const nav = (page, label) => page.locator('nav, .m3-nav-bar').getByRole('button'
 
 if (!only || only === 'desktop') await record('desktop', {
   viewport: { width: 1440, height: 900 }, scale: 1, touch: false, theme: 'dark',
-  async script({ page, capture, hold, moveTo, click, press, scrollTo }) {
+  async script({ page, capture, hold, moveTo, click, press, scrollTo, brush }) {
     await capture(1300, () => page.reload());                       // Overview arrives: staggered cards, hero shape pops in
     await hold(900);
     await moveTo(nav(page, 'Storage')); await click(nav(page, 'Storage'), 1100);   // page change + nav indicator
@@ -119,12 +126,28 @@ if (!only || only === 'desktop') await record('desktop', {
     await hold(600);
     await moveTo(nav(page, 'Network')); await click(nav(page, 'Network'), 1100);
     await scrollTo(page.locator('.net-section'), 72);
-    const row = page.locator('.net-row').nth(1);
-    await moveTo(row); await click(row, 900);                        // picked host morphs into the chart card
+    const rows = page.locator('.net-row');
+    await moveTo(rows.nth(1)); await click(rows.nth(1), 900);        // picked host morphs into the chart card
     await hold(500);
+    await moveTo(rows.nth(0)); await click(rows.nth(0), 900);        // back to Proxmox, the busiest link
+    await hold(700);
     const expand = page.locator('.net-history').getByRole('button', { name: 'Open larger chart' });
     await moveTo(page.locator('.net-history .chart')); await click(expand, 900);   // chart opens in a dialog
-    await hold(1300);
+    await hold(900);
+    // Drag-select the busiest stretch of the last hour: the axis and labels follow the zoom.
+    const plot = await page.getByRole('dialog').locator('.chart svg').first().boundingBox();
+    const busy = await page.evaluate(() => { // x (0..1) of the largest receive/send value in the dialog's data, if exposed
+      const pts = [...document.querySelectorAll('[role=dialog] .chart svg path')].map(p => p.getAttribute('d') || '').join(' ');
+      const nums = [...pts.matchAll(/(-?\d+\.?\d*)[ ,](-?\d+\.?\d*)/g)].map(m => [+m[1], +m[2]]); if (!nums.length) return null;
+      const minY = Math.min(...nums.map(n => n[1])), xs = nums.map(n => n[0]), lo = Math.min(...xs), hi = Math.max(...xs);
+      return hi > lo ? (nums.find(n => n[1] === minY)[0] - lo) / (hi - lo) : null;
+    });
+    const c = Math.min(0.9, Math.max(0.1, busy ?? 0.85)), y = plot.y + plot.height * 0.55;
+    await brush(plot.x + plot.width * (c - 0.1), plot.x + plot.width * Math.min(0.99, c + 0.1), y, 1000);
+    await hold(1600);
+    const reset = page.getByRole('button', { name: 'Reset zoom' });
+    await moveTo(reset); await click(reset, 1000);                   // springs back to the full hour
+    await hold(500);
     await click(page.getByRole('button', { name: 'Close' }).last(), 700);
     await moveTo(nav(page, 'Local AI')); await click(nav(page, 'Local AI'), 1100);
     await hold(1100);                                                // loaded model card (Strata) first
