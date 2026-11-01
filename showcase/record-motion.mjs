@@ -6,8 +6,8 @@
 // animation and view transition is slowed to a tenth of its speed (CDP Animation.setPlaybackRate) and the page is
 // screenshotted as fast as possible. Each frame gets a timestamp in animation time, and the frames are resampled to a
 // steady 50 fps. The motion in the clips plays at real speed.
-// Public repo: every non-GET request is aborted, public IPv4 addresses are masked as they render, and the device map is
-// never shown.
+// Public repo: every non-GET request is aborted, public IPv4 addresses are masked as they render, the device map is
+// never shown, and /api/storage is rewritten without the private electricity rate (Energy shows kWh, never money).
 import { chromium } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -19,6 +19,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const URL = process.env.DASHBOARD_URL || 'http://192.168.0.2/';
 const RATE = 0.1, FPS = 50;
 const only = process.argv[2];
+const stripCost = async route => {
+  const res = await route.fetch(); const j = await res.json();
+  const strip = o => { if (o && typeof o === 'object') for (const k of Object.keys(o)) { if (/cost|rate_/.test(k)) delete o[k]; else strip(o[k]); } };
+  strip(j.energy); await route.fulfill({ response: res, json: j });
+};
 
 // Runs in the page before any script: masks public IPv4 addresses and adds a cursor/touch marker that the clip shows.
 function pageSetup(touch) {
@@ -41,9 +46,10 @@ function pageSetup(touch) {
 async function record(name, { viewport, scale, touch, theme, script }) {
   const dir = join(tmpdir(), 'homelab-motion-' + name); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport, deviceScaleFactor: scale, isMobile: touch, hasTouch: touch });
+  const page = await browser.newPage({ viewport, deviceScaleFactor: scale, isMobile: touch, hasTouch: touch, colorScheme: theme });
   await page.route('**/*', r => r.request().method() === 'GET' ? r.continue() : r.abort());
-  await page.addInitScript(t => localStorage.setItem('homelab.theme.v2', JSON.stringify(t)), theme);
+  await page.route('**/api/storage*', stripCost);
+  await page.addInitScript(t => localStorage.setItem('homelab.theme.v3', JSON.stringify(t)), theme);
   await page.addInitScript(pageSetup, touch);
   await page.goto(URL); await page.waitForTimeout(3500);
   const cdp = await page.context().newCDPSession(page);
@@ -86,9 +92,10 @@ async function record(name, { viewport, scale, touch, theme, script }) {
   frames.sort((a, b) => a[0] - b[0]); const list = []; let i = 0;
   for (let t = 0; t < clock; t += 1000 / FPS) { while (i + 1 < frames.length && frames[i + 1][0] <= t) i++; list.push(`file '${frames[i][1]}'\nduration ${1 / FPS}`); }
   writeFileSync(join(dir, 'list.txt'), list.join('\n') + '\n');
-  const out = join(here, 'motion-' + name), w = name === 'phone' ? 360 : 900;
+  // GIF budget ~10 MB (GitHub stops inlining larger images): the 43 s desktop clip is 800 px, 16 fps, 128 colours.
+  const out = join(here, 'motion-' + name), [w, gfps, colours] = name === 'phone' ? [360, 25, 160] : [800, 16, 128];
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', join(dir, 'list.txt'), '-vf', `fps=${FPS},scale=${viewport.width}:-2:flags=lanczos`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out + '.mp4']);
-  execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', out + '.mp4', '-vf', `fps=25,scale=${w}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle`, out + '.gif']);
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', out + '.mp4', '-vf', `fps=${gfps},scale=${w}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${colours}:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle`, out + '.gif']);
   console.log(`wrote showcase/motion-${name}.mp4 and .gif (${(clock / 1000).toFixed(1)} s, ${frames.length} captured frames)`);
   rmSync(dir, { recursive: true, force: true });
 }
@@ -120,8 +127,22 @@ if (!only || only === 'desktop') await record('desktop', {
     await hold(1300);
     await click(page.getByRole('button', { name: 'Close' }).last(), 700);
     await moveTo(nav(page, 'Local AI')); await click(nav(page, 'Local AI'), 1100);
-    await hold(900);
+    await hold(1100);                                                // loaded model card (Strata) first
+    await scrollTo(page.getByRole('heading', { name: 'Request history' }), 72, 1000);   // every request through the GPU broker
+    await hold(1200);
+    await moveTo(nav(page, 'Infrastructure')); await click(nav(page, 'Infrastructure'), 1100);
+    const jump = page.getByRole('button', { name: 'Energy' }).first();
+    await moveTo(jump); await click(jump, 1000);                     // section jump to Energy (kWh only, no cost)
+    await hold(1300);
     await moveTo(nav(page, 'Overview')); await click(nav(page, 'Overview'), 1100);
+    await hold(500);
+    const colours = page.getByRole('button', { name: 'Colours' }).first();
+    await moveTo(colours); await click(colours, 900);                // Material You picker
+    const ocean = page.getByRole('radio', { name: 'Ocean' }), pine = page.getByRole('radio', { name: 'Pine' });
+    await moveTo(ocean); await click(ocean, 1100);                   // whole scheme regenerates from the seed (saved in this browser only)
+    await hold(500);
+    await moveTo(pine); await click(pine, 1000);
+    await click(page.getByRole('button', { name: 'Done' }), 700);
     const toggle = page.getByRole('button', { name: /Switch to (light|dark)/ });
     await moveTo(toggle); await press(toggle, 350, 900);            // icon turns, theme switches
     await hold(1400);

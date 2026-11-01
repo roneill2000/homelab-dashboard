@@ -33,40 +33,40 @@ h2{font:500 22pt/1.15 'Google Sans Flex';letter-spacing:-.015em;margin:2mm 0 2mm
 
 <section class="page" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:10mm;align-items:center">
  <div>
-  <div class="eyebrow">Homelab · October 2026</div>
+  <div class="eyebrow">Homelab · November 2026</div>
   <h1>Homelab<br>Command Center</h1>
-  <p class="lede">A dashboard for my Proxmox and Unraid homelab. The first screen says whether anything needs attention. The other pages cover services, disks, network, backups, updates and the local AI models.</p>
-  <div class="chips"><span class="chip">React 18</span><span class="chip">Python backend</span><span class="chip">Material 3 Expressive</span><span class="chip">Proxmox VE</span><span class="chip">Unraid</span><span class="chip">Intel Arc A310</span><span class="chip">llama.cpp</span></div>
+  <p class="lede">A dashboard for my Proxmox and Unraid homelab. The first screen says whether anything needs attention. The other pages cover services, disks, network, backups, energy, updates and the local AI models.</p>
+  <div class="chips"><span class="chip">React 18</span><span class="chip">Python backend</span><span class="chip">Material 3 Expressive</span><span class="chip">Proxmox VE</span><span class="chip">Unraid</span><span class="chip">Intel Arc A310</span><span class="chip">llama.cpp</span><span class="chip">Strata</span></div>
   <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:10mm">
-   <div class="stat">28<small>services monitored</small></div>
-   <div class="stat">20<small>VMs, containers &amp; apps</small></div>
-   <div class="stat">10<small>automated UI check suites</small></div>
+   <div class="stat">29<small>services in the catalog</small></div>
+   <div class="stat">23<small>VMs, containers &amp; apps</small></div>
+   <div class="stat">15<small>automated UI check suites</small></div>
   </div>
  </div>
  <div class="shot"><img src="overview.png"></div>
- <div class="foot"><span>Homelab Command Center</span><span>1 / 8</span></div>
+ <div class="foot"><span>Homelab Command Center</span><span>1 / 9</span></div>
 </section>
 
 <section class="page">
  <div class="eyebrow">01 · Overview</div><h2>Overview</h2>
- <p class="sub">The top card says "All clear" or lists what needs attention, and each item links to its page. Pinned services come next, then the quick actions: wake or sleep the gaming PC, pause DNS blocking for five minutes, and check for updates.</p>
+ <p class="sub">The top card says "All clear" or lists what needs attention, and each item links to its page. Quick actions come next (wake or sleep the gaming PC, pause DNS blocking for five minutes, snooze alerts, check for updates), then live network, storage and host activity, the pinned services, and an Ask box at the bottom.</p>
  <div class="grid" style="grid-template-columns:1fr 58mm 62mm;margin-top:6mm;align-items:start">
   <div class="shot"><img src="overview.png"></div>
   <div class="shot phone"><img src="phone.png"></div>
   <div class="grid" style="gap:4mm">
-   <div class="feat"><b><i class="shape cookie" style="background:var(--pine)"></i>On a phone</b><span>The health card and four pinned services fit on the first screen.</span></div>
+   <div class="feat"><b><i class="shape cookie" style="background:var(--pine)"></i>On a phone</b><span>The health card, quick actions and the start of the activity card fit on the first screen.</span></div>
    <div class="feat"><b><i class="shape" style="background:var(--cedar)"></i>Confirmations</b><span>Actions that change something ask first, and the server only accepts them from the dashboard.</span></div>
    <div class="feat"><b><i class="shape" style="background:var(--amber)"></i>Missing readings</b><span>Each reading has a timestamp. If a source stops answering, its tile shows a dash instead of zero.</span></div>
   </div>
  </div>
- <div class="foot"><span>Homelab Command Center · Overview</span><span>2 / 8</span></div>
+ <div class="foot"><span>Homelab Command Center · Overview</span><span>2 / 9</span></div>
 </section>
 
 <section class="page">
  <div class="eyebrow">02 · Design</div><h2>Material 3 Expressive design</h2>
- <p class="sub">The colours come from Google's Material colour library, generated from a single dark green for both the light and dark themes. Layout, shapes and motion follow Material 3 Expressive, Google's 2025 update to Material Design.</p>
+ <p class="sub">The colours come from Google's Material colour library, generated from one seed colour for both the light and dark themes. The seed is pine green by default; the Colours picker offers presets or any colour, and in the Android app it follows the phone's wallpaper like other Material You apps. Layout, shapes and motion follow Material 3 Expressive, Google's 2025 update to Material Design.</p>
  <div class="grid" style="grid-template-columns:1fr 58mm 66mm;margin-top:6mm;align-items:start">
-  <div class="shot"><img src="overview-light.png"></div>
+  <div class="grid" style="gap:4mm"><div class="shot"><img src="colours.png"></div><div class="shot"><img src="overview-light.png" style="height:44mm;object-fit:cover;object-position:top"></div></div>
   <div class="shot phone"><img src="phone-sheet.png"></div>
   <div class="grid" style="gap:4mm">
    <div class="feat"><b><i class="shape cookie" style="background:var(--pine)"></i>Shapes</b><span>The health icon sits in a scalloped shape that changes when something is wrong. Each service category has its own icon shape, and the loading indicator morphs between shapes.</span></div>
@@ -74,7 +74,7 @@ h2{font:500 22pt/1.15 'Google Sans Flex';letter-spacing:-.015em;margin:2mm 0 2mm
    <div class="feat"><b><i class="shape" style="background:var(--blue)"></i>Accessibility</b><span>Text contrast is at least 4.5:1 in both themes. Automated tests cover keyboard focus, dialogs and navigation.</span></div>
   </div>
  </div>
- <div class="foot"><span>Homelab Command Center · Design</span><span>3 / 8</span></div>
+ <div class="foot"><span>Homelab Command Center · Design</span><span>3 / 9</span></div>
 </section>
 
 <section class="page">
@@ -89,21 +89,21 @@ h2{font:500 22pt/1.15 'Google Sans Flex';letter-spacing:-.015em;margin:2mm 0 2mm
   <div class="feat"><b>Chart colours</b><span>Each line colour was checked for colour-blind readers in both themes.<span class="swatches"><i style="background:#00a390"></i><i style="background:#da7457"></i><i style="background:#4297d5"></i><i style="background:#a19219"></i><i style="background:#8d86df"></i></span></span></div>
   <div class="feat"><b>Gaps</b><span>If a host reboots, its chart shows a gap for the missing time.</span></div>
  </div>
- <div class="foot"><span>Homelab Command Center · Storage &amp; network</span><span>4 / 8</span></div>
+ <div class="foot"><span>Homelab Command Center · Storage &amp; network</span><span>4 / 9</span></div>
 </section>
 
 <section class="page">
  <div class="eyebrow">04 · Local AI</div><h2>Local AI</h2>
- <p class="sub">Four models run on the gaming PC's RTX 5070 Ti through llama.cpp. The page puts the loaded model first with an Open chat button, next to the Wake and Sleep controls. A smaller Gemma model on the Arc A310 answers questions about the homelab and lists the readings it used.</p>
+ <p class="sub">Four models run on the gaming PC's RTX 5070 Ti through llama.cpp, plus Strata, a 177B mixture-of-experts model streamed from the NVMe drive. Only one fits on the GPU at a time, so a small broker swaps them automatically when a request arrives. The page puts the loaded model first, and every request is logged with its swap time and speeds. A smaller Gemma model on the Arc A310 runs the nightly log review.</p>
  <div class="grid" style="grid-template-columns:1.65fr 1fr;margin-top:6mm;align-items:start">
-  <div class="shot"><img src="ai.png"></div>
+  <div class="grid" style="gap:4mm"><div class="shot"><img src="ai.png" style="height:68mm;object-fit:cover;object-position:top"></div><div class="shot"><img src="ai-history.png" style="height:52mm;object-fit:cover;object-position:0 18%"></div></div>
   <div class="grid" style="gap:4mm">
-   <div class="feat"><b>Recorded speeds</b><span class="speeds"><b>Gemma 4 26B</b> · 168 tok/s<br><b>Qwen 3.6 35B MoE</b> · 82 tok/s<br><b>Qwen 3.8 27B</b> · 55 tok/s<br><b>Qwen 3.8 27B uncensored</b> · 51 tok/s<br><b>Gemma 4 E4B on the A310</b> · 14 to 18 tok/s</span></div>
-   <div class="feat"><b>Sources</b><span>Each answer lists the readings the model was given and when they were taken.</span></div>
-   <div class="feat"><b>Read-only tools</b><span>Models in Open WebUI can query the servers through a fixed set of commands and nothing else.</span></div>
+   <div class="feat"><b>Recorded speeds</b><span class="speeds"><b>Gemma 4 26B</b> · 168 tok/s<br><b>Strata · Swift 1.5 177B MoE</b> · 72 tok/s<br><b>Qwen 3.6 35B MoE</b> · 82 tok/s<br><b>Qwen 3.8 27B</b> · 55 tok/s<br><b>Qwen 3.8 27B uncensored</b> · 51 tok/s<br><b>Gemma 4 E4B on the A310</b> · 14 to 18 tok/s</span></div>
+   <div class="feat"><b>GPU broker</b><span>Every client talks to one address. A request for the other engine unloads the current one first, and nothing loads while a game is running.</span></div>
+   <div class="feat"><b>Ask box</b><span>Sends just the question by default; a switch adds homelab readings. Strata answers can search the web.</span></div>
   </div>
  </div>
- <div class="foot"><span>Homelab Command Center · Local AI</span><span>5 / 8</span></div>
+ <div class="foot"><span>Homelab Command Center · Local AI</span><span>5 / 9</span></div>
 </section>
 
 <section class="page">
@@ -117,26 +117,40 @@ h2{font:500 22pt/1.15 'Google Sans Flex';letter-spacing:-.015em;margin:2mm 0 2mm
    <div class="feat"><b>Section links</b><span>Buttons at the top of the page jump to recovery, logs, the change history or the service list.</span></div>
   </div>
  </div>
- <div class="foot"><span>Homelab Command Center · Recovery</span><span>6 / 8</span></div>
+ <div class="foot"><span>Homelab Command Center · Recovery</span><span>6 / 9</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">06 · Updates</div><h2>Updates</h2>
+ <div class="eyebrow">06 · Energy</div><h2>Energy</h2>
+ <p class="sub">Power for the always-on gear and the gaming PC: CPU energy counters on Proxmox and Unraid, the Arc A310's own counter and the RTX 5070 Ti's board power are measured; motherboards, disks, the router and power-supply losses are labelled estimates. Hourly totals are kept for 400 days.</p>
+ <div class="grid" style="grid-template-columns:1.65fr 1fr;margin-top:6mm;align-items:start">
+  <div class="shot"><img src="energy.png"></div>
+  <div class="grid" style="gap:4mm">
+   <div class="feat"><b>Measured or estimated</b><span>Every device says which it is, and the explainer lists each part's share. Totals are treated as ±20%.</span></div>
+   <div class="feat"><b>Cost</b><span>With a private electricity rate set on the server, the tiles show cost per day, today and the month's projection. It is left out of these screenshots.</span></div>
+   <div class="feat"><b>Morning digest</b><span>Yesterday's energy use is included in the 7 AM summary notification.</span></div>
+  </div>
+ </div>
+ <div class="foot"><span>Homelab Command Center · Energy</span><span>7 / 9</span></div>
+</section>
+
+<section class="page">
+ <div class="eyebrow">07 · Updates</div><h2>Updates</h2>
  <p class="sub">Each Proxmox container is snapshotted before <span class="mono">apt upgrade</span> runs, and Docker apps update through Unraid's own updater. Guests update one at a time; a failure stops the run and shows the rollback command. Items with an update waiting are listed first, and current or skipped ones are folded away.</p>
  <div class="grid" style="grid-template-columns:1fr 58mm;gap:6mm;margin-top:5mm;align-items:start">
   <div class="shot"><img src="updates.png"></div>
   <div class="shot phone"><img src="phone-updates.png"></div>
  </div>
- <div class="foot"><span>Homelab Command Center · Updates</span><span>7 / 8</span></div>
+ <div class="foot"><span>Homelab Command Center · Updates</span><span>8 / 9</span></div>
 </section>
 
 <section class="page">
- <div class="eyebrow">07 · Fleet &amp; services</div><h2>Hosts, containers and services</h2>
+ <div class="eyebrow">08 · Fleet &amp; services</div><h2>Hosts, containers and services</h2>
  <p class="sub">Proxmox, Unraid and the Orange Pi are at the top, followed by CPU, memory and state for every VM, container and Docker app. The services page groups everything by category, and unreachable, stale and unmonitored services are labelled in text as well as colour.</p>
  <div class="grid" style="grid-template-columns:1fr 58mm;gap:6mm;margin-top:5mm;align-items:start">
   <div class="shot"><img src="fleet.png"></div>
   <div class="shot phone"><img src="services.png"></div>
  </div>
- <div class="foot"><span>Homelab Command Center · Fleet &amp; services</span><span>8 / 8</span></div>
+ <div class="foot"><span>Homelab Command Center · Fleet &amp; services</span><span>9 / 9</span></div>
 </section>
 </body></html>
