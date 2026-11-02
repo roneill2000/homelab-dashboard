@@ -25,7 +25,7 @@ if p['schedule']:
 else: print(json.dumps({'backup':str(backup),'runner_installed':True,'schedule_enabled':False}))
 '''
 if __name__=='__main__':
- payload=dict(runner=(Path(__file__).parent/'runner.py').read_text(),schedule='--schedule' in sys.argv,log_monitor=(Path(__file__).parent.parent/'log_monitor.py').read_text())
+ payload=dict(runner=(Path(__file__).parent/'runner.py').read_text(),schedule='--schedule' in sys.argv,log_monitor=(Path(__file__).parent.parent/'backend'/'log_monitor.py').read_text())
  tree=ast.parse(payload['runner'])
  values={n.targets[0].id:ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id in ('MODEL','MODEL_REVISION','MODEL_REPO','MODEL_FILE','MODEL_SHA256','IMAGE')}
  payload['manifest']={k:values[v] for k,v in [('model','MODEL'),('revision','MODEL_REVISION'),('repository','MODEL_REPO'),('file','MODEL_FILE'),('sha256','MODEL_SHA256'),('image','IMAGE')]}

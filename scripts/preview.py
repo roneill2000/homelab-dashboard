@@ -6,7 +6,9 @@ import json
 import urllib.parse
 import urllib.request
 
-BASE = Path(__file__).parent
+BASE = Path(__file__).resolve().parent.parent  # repo root: index.html lives there
+import sys
+sys.path.insert(0, str(BASE / 'backend'))
 (BASE / '.preview').mkdir(exist_ok=True)
 os.environ['HOMELAB_METRICS_DB'] = str(BASE / '.preview/metrics.sqlite3')
 import storage_monitor

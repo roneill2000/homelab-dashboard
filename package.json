@@ -4,9 +4,11 @@
   "version": "2.0.0",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node run-checks.mjs",
-    "check:all": "node run-checks.mjs --all",
-    "test": "python3 -m unittest discover -p 'test_*.py' && python3 -m unittest discover -s syslog -p 'test_*.py'"
+    "check": "node checks/run-checks.mjs",
+    "check:all": "node checks/run-checks.mjs --all",
+    "test": "python3 -m unittest discover -s tests -t . -p 'test_*.py' && python3 -m unittest discover -s syslog -p 'test_*.py'",
+    "deploy": "python3 scripts/deploy.py",
+    "preview": "python3 scripts/preview.py"
   },
   "devDependencies": {
     "@material/material-color-utilities": "0.4.0",

@@ -4,7 +4,7 @@ import json
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent / 'backend'  # host_probe.py lives in backend/
 SCRIPT = r'''
 import pathlib,json,datetime,subprocess,time,urllib.request,shutil
 p=json.loads(PAYLOAD)

@@ -3,7 +3,8 @@ from pathlib import Path
 import json
 import subprocess
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent  # repo root (this script lives in scripts/)
+BACKEND = ROOT / 'backend'
 REMOTE = r"""
 import ast, base64, datetime, hashlib, json, os, pathlib, shutil, subprocess, time, urllib.request
 payload = json.loads(PAYLOAD)
@@ -135,7 +136,7 @@ if __name__ == '__main__':
         p.name: base64.b64encode(p.read_bytes()).decode('ascii')
         for p in (ROOT / 'fonts').glob('*.woff2')
     }
-    data = {name:(ROOT/name).read_text(encoding='utf-8') for name in ('index.html','catalog.json','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','energy_monitor.py','maintenance.py','ai_history.py','net_monitor.py','ai_monitor.py','gpu_broker.py','download_proxy.py')}
+    data = {name:((BACKEND if name.endswith('.py') else ROOT)/name).read_text(encoding='utf-8') for name in ('index.html','catalog.json','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','energy_monitor.py','maintenance.py','ai_history.py','net_monitor.py','ai_monitor.py','gpu_broker.py','download_proxy.py')}
     data['fonts'] = fonts_payload
     script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
     subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)

@@ -1,6 +1,6 @@
 // Full-page screenshots of every view, dark and light, at phone (412px), tablet (768px) and desktop (1440px).
-// Usage: node screenshots.mjs <label>     -> .preview/shots/<label>/<width>-<theme>-<view>.png
-// Needs the preview running (python3 preview.py) unless DASHBOARD_URL is set.
+// Usage: node checks/screenshots.mjs <label>     -> .preview/shots/<label>/<width>-<theme>-<view>.png
+// Needs the preview running (python3 scripts/preview.py) unless DASHBOARD_URL is set.
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 

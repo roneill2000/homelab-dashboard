@@ -19,5 +19,5 @@ subprocess.run(['/usr/bin/python3',str(root/'homelab-cache-guard.py')],check=Tru
 print(json.dumps({'backup':str(backup),'schedule':line,'reserve_changed':False}))
 '''
 if __name__=='__main__':
- script=REMOTE.replace('json.loads(PAYLOAD)','json.loads('+repr(json.dumps({'source':Path(__file__).with_name('cache_guard.py').read_text()}))+')')
+ script=REMOTE.replace('json.loads(PAYLOAD)','json.loads('+repr(json.dumps({'source':(Path(__file__).resolve().parent.parent/'backend'/'cache_guard.py').read_text()}))+')')
  subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.4','python3','-'],input=script,text=True,check=True)

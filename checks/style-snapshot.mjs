@@ -1,6 +1,6 @@
 // Computed-style snapshot of every element on every view (412/1000/1440, dark/light), for refactoring CSS safely.
-// Usage: node style-snapshot.mjs <out.json>    then    node style-snapshot.mjs --diff a.json b.json
-// Needs the preview running (python3 preview.py). Live data is frozen: /api/* responses are recorded on the first
+// Usage: node checks/style-snapshot.mjs <out.json>    then    node checks/style-snapshot.mjs --diff a.json b.json
+// Needs the preview running (python3 scripts/preview.py). Live data is frozen: /api/* responses are recorded on the first
 // visit and replayed, and the clock is fixed, so two runs differ only when the CSS does.
 import { chromium } from '@playwright/test';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';

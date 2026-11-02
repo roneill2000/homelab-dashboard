@@ -111,9 +111,9 @@ Requires Node.js 18+ and Python 3.10+.
 ```sh
 npm ci
 npm run build          # writes index.html
-python3 preview.py     # local preview on 127.0.0.1:8799
-npm run check          # confirms index.html matches a fresh build, then 15 Playwright check suites
-python3 -m unittest discover -v
+python3 scripts/preview.py   # local preview on 127.0.0.1:8799
+npm run check          # confirms index.html matches a fresh build, then the Playwright check suites
+npm test               # back-end unit tests (tests/ and syslog/)
 ```
 
 Refresh the showcase screenshots, PDF and clips (requires `ffmpeg`):
@@ -123,15 +123,26 @@ node showcase/build-showcase.mjs   # screenshots + PDF
 node showcase/record-motion.mjs    # desktop and phone clips
 ```
 
+### Repository layout
+
+| Folder | What lives there |
+|---|---|
+| `src/` | React app and styles (bundled by `build.mjs` into `index.html`) |
+| `backend/` | Python modules the dashboard host runs: monitors, proxies, the GPU broker, the server patches |
+| `scripts/` | Tools run by hand: `deploy.py`, `preview.py`, installers and one-off configurators |
+| `tests/`, `checks/` | Python unit tests and Playwright check suites |
+| `nightly/`, `alerts/`, `updates/`, `pc/`, `systemd/`, ... | Services that run on other hosts, and their installers |
+| `docs/`, `handoffs/` | Plans, findings and session notes |
+
 ## Deployment
 
 Runs in a Proxmox LXC under systemd (`homelab-dashboard.service`):
 
 ```sh
-python3 deploy.py
+python3 scripts/deploy.py
 ```
 
-`deploy.py` backs up the current files, updates `index.html` and the back-end patches, checks syntax and API health, and rolls back on failure.
+`scripts/deploy.py` backs up the current files, updates `index.html` and the back-end patches, checks syntax and API health, and rolls back on failure.
 
 ---
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).parent / 'updates'))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'updates'))
 import homelab_update as u
 import update_proxy as proxy
 from backend_patch import patch_updates

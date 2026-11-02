@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0,str(Path(__file__).parent/'nightly'))
+sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'nightly'))
 import qwen_service as q
 import qwen_proxy as proxy
 

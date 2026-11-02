@@ -21,7 +21,7 @@ const GATE = ['accessibility-check', 'activity-check', 'android-bridge-check', '
 const args = process.argv.slice(2), all = args.includes('--all');
 const wanted = args.filter(a => a !== '--all');
 if (!all && !wanted.length) wanted.push(...GATE);
-const scripts = readdirSync('.').filter(f => /^(ui-smoke|.*-check)\.mjs$/.test(f)).map(f => f.slice(0, -4))
+const scripts = readdirSync('checks').filter(f => /^(ui-smoke|.*-check)\.mjs$/.test(f)).map(f => f.slice(0, -4))
   .filter(n => !SKIP.has(n) && (!wanted.length || wanted.includes(n))).sort();
 
 const run = (cmd, args, ms) => new Promise(resolve => {
@@ -46,8 +46,8 @@ let preview = null;
 if (!process.env.DASHBOARD_URL) {
   // Refuse to run if something already serves the preview port: the checks would test that server's build, not this one.
   let busy = false; try { await fetch(URL); busy = true; } catch {}
-  if (busy) { console.log(`BAD  ${URL} is already in use (another preview.py?). Stop it first: pkill -f "python3 preview.py"`); process.exit(1); }
-  preview = spawn('python3', ['preview.py'], { stdio: 'ignore' });
+  if (busy) { console.log(`BAD  ${URL} is already in use (another preview.py?). Stop it first: pkill -f "scripts/preview.py"`); process.exit(1); }
+  preview = spawn('python3', ['scripts/preview.py'], { stdio: 'ignore' });
   for (let i = 0; i < 60; i++) {
     try { if ((await fetch(URL)).ok) break; } catch {}
     await new Promise(r => setTimeout(r, 1000));
@@ -58,10 +58,10 @@ let bad = 0; const log = [];
 for (const name of scripts) {
   // Some checks read live telemetry through the preview and can flake (e.g. identical chart samples).
   // A failed script is retried once; only a script that fails twice in a row counts as BAD.
-  let { code, out } = await run('node', [`${name}.mjs`], 300000);
+  let { code, out } = await run('node', [`checks/${name}.mjs`], 300000);
   let retried = false;
   const failed = () => code !== 0 || /^FAIL/m.test(out) || out.includes('TIMEOUT');
-  if (failed()) { retried = true; ({ code, out } = await run('node', [`${name}.mjs`], 300000)); }
+  if (failed()) { retried = true; ({ code, out } = await run('node', [`checks/${name}.mjs`], 300000)); }
   const pass = (out.match(/^PASS/gm) || []).length, fail = (out.match(/^FAIL.*$/gm) || []);
   const ok = !failed();
   if (!ok) bad++;
