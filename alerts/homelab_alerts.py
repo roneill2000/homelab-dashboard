@@ -461,6 +461,16 @@ def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_
     return out
 
 
+def broker_check(ok=None):
+    """The GPU broker on LXC 104 (gpu_broker.py): every AI client goes through its one URL :8000 since 2 Nov 2026, so a
+    dead or hung broker silently stops all of them. Checked whether or not the PC is awake (the broker answers /health
+    itself). systemd's Restart=on-failure covers a crash, not a hang."""
+    up = ok() if ok else http_ok('http://192.168.0.2:8000/health', timeout=6)
+    return {'broker-down': (not up, 'GPU broker is not answering',
+                            'Every local-AI client (Open WebUI, OpenHands, OpenCode, Ask box) uses http://192.168.0.2:8000. '
+                            'On LXC 104: systemctl restart homelab-gpu-broker; journalctl -u homelab-gpu-broker.', 4)}
+
+
 CADDY = '192.168.0.20'
 CA_KEY = Path('/var/lib/homelab-alerts/caddy-ca-key.txt')  # Caddy root key id first seen; a change means devices must re-trust
 LEAF_MIN_H = 3  # Caddy's 12 h local certs renew with ~4 h left, so under 3 h means renewal is stuck
@@ -578,7 +588,7 @@ def header_text(text):
 
 # Dashboard page an alert opens in the Android app (tapping the ntfy notification follows homelab://view/<page>).
 PAGES = (('cloud-', 'infra'), ('config-backup', 'infra'), ('restore-', 'infra'), ('smart-', 'storage'),
-         ('lan-', 'network'), ('speedtest-', 'network'), ('llama-', 'ai'), ('strata-', 'ai'), ('updates-', 'updates'),
+         ('lan-', 'network'), ('speedtest-', 'network'), ('llama-', 'ai'), ('strata-', 'ai'), ('broker-', 'ai'), ('updates-', 'updates'),
          ('docker:', 'hosts'), ('units:', 'hosts'), ('mount:', 'hosts'), ('pi-', 'hosts'))
 SNOOZE = ('http, Snooze 2 h, http://192.168.0.2/api/action/maintenance, method=POST, headers.X-Dashboard-Action=1, '
           'headers.Content-Type=application/json, body=\'{"minutes":120}\', clear=true')
@@ -691,6 +701,7 @@ def main(argv):
         current.update(ai_engine_checks())
     except Exception:
         pass
+    current.update(broker_check())
     try:
         current.update(cert_checks(now))
     except Exception:

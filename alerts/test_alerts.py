@@ -166,6 +166,10 @@ class SnoozeAndEngineTests(unittest.TestCase):
         sends, st = a.transitions(st, {'x': (False, 'T', 'd', 4), 'z': (False, 'Z', 'd', 4)})
         self.assertEqual([x[:2] for x in a.hold_for_maintenance(sends, st, True)], [('x', 'up')])
 
+    def test_broker_down_is_its_own_check(self):
+        self.assertTrue(a.broker_check(ok=lambda: False)['broker-down'][0])
+        self.assertFalse(a.broker_check(ok=lambda: True)['broker-down'][0])
+
     def test_engines_only_checked_while_pc_awake(self):
         self.assertEqual(a.ai_engine_checks(awake=lambda: False), {})
         c = a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: False, llama_ok=lambda: True, game=lambda: False)
