@@ -49,7 +49,7 @@ try{
   const link=row.getByRole('link',{name:/Open chat/});
   if(await link.count())expect(await link.getAttribute('href')).toBe('http://192.168.0.16:3000/?model=qwen3.8-flash-next-iq3_xxs');
   await expect(p.getByRole('group',{name:'GPU engine'})).toHaveCount(0);
-  await expect(chat.getByRole('link',{name:/^Strata/})).toHaveAttribute('href','https://strata.lan');await p.close()});
+  await expect(chat.getByRole('link',{name:/^Strata/})).toHaveAttribute('href','https://ai.lan');await p.close()});
 
  await test('Overview: Quick actions and Activity come before Pinned services and the Ask panel (phone and desktop)',async()=>{
   for(const [w,h] of [[412,915],[1440,900]]){

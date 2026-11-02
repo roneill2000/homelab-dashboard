@@ -257,7 +257,7 @@ function LocalAI({ai,gpu,compact=false,onOpen,power,onNavigate}){
  const llamaItems=(pc.models||(live?[]:Object.keys(modelProfiles).filter(id=>id!==STRATA_MODEL&&id!==CODER_MODEL).map(id=>({id,state:'unknown',context_tokens:null})))).filter(m=>m.id!==STRATA_MODEL&&m.id!==CODER_MODEL);
  const coder=ai?.coder||{},coderLive=sourceFresh(coder);
  const items=[...llamaItems,{id:strata.model||STRATA_MODEL,engine:'strata',state:strataLive?(strata.loaded?'loaded':'unloaded'):'unknown',context_tokens:strata.context_tokens??null},...(ai?.coder?[{id:coder.model||CODER_MODEL,engine:'coder',state:coderLive?(coder.loaded?'loaded':'unloaded'):'unknown',context_tokens:coder.context_tokens??null}]:[])];
- const fresh=m=>m.engine==='strata'?strataLive:m.engine==='coder'?coderLive:live,canChat=m=>fresh(m)&&webLive&&m.engine!=='coder';
+ const fresh=m=>m.engine==='strata'?strataLive:m.engine==='coder'?coderLive:live,canChat=m=>fresh(m)&&webLive;
  const pcStatus=pc.online===false?'Gaming PC unavailable':'Waiting for gaming PC status';
  const labels={loaded:'Loaded',unloaded:'Loads on demand',loading:'Loading',unloading:'Unloading',sleeping:'Idle · unloaded',failed:'Failed',unknown:'Unknown'};
  const loaded=items.filter(m=>fresh(m)&&m.state==='loaded'),others=items.filter(m=>!(fresh(m)&&m.state==='loaded'));
@@ -276,7 +276,7 @@ function LocalAI({ai,gpu,compact=false,onOpen,power,onNavigate}){
     {live&&!loaded.length&&<p className="ai-task__note">No model is loaded. Choosing one in Open WebUI loads it (about 30 s).</p>}
     {!live&&<p className="ai-task__note ai-offline" role="status"><strong>{pcStatus}.</strong> It may be off, asleep, or its model server stopped. Wake it to chat; status checks resume automatically.</p>}
     {live&&others.length>0&&<details className="ai-others"><summary>Other models <span className="count">{others.length}</span><Icon name="down" size={20} className="ai-others__chevron"/></summary><div className="ai-model-list">{others.map(modelRow)}</div><p className="source-note">One desktop model loads at a time. Opening a chat with another model switches to it (Strata takes about 2 minutes).</p></details>}
-    <div className="ai-task__actions">{power}<span className="ai-task__links"><a className="m3-btn m3-btn--text m3-state text-button ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer">Open WebUI <Icon name="external" size={16}/></a><a className="m3-btn m3-btn--text m3-state text-button" href="https://opencode.lan" target="_blank" rel="noreferrer">OpenCode <Icon name="external" size={16}/></a><a className="m3-btn m3-btn--text m3-state text-button" href="https://strata.lan" target="_blank" rel="noreferrer">Strata <Icon name="external" size={16}/></a></span></div>
+    <div className="ai-task__actions">{power}<span className="ai-task__links"><a className="m3-btn m3-btn--text m3-state text-button ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer">Open WebUI <Icon name="external" size={16}/></a><a className="m3-btn m3-btn--text m3-state text-button" href="https://opencode.lan" target="_blank" rel="noreferrer">OpenCode <Icon name="external" size={16}/></a><a className="m3-btn m3-btn--text m3-state text-button" href="https://ai.lan" target="_blank" rel="noreferrer">Strata <Icon name="external" size={16}/></a></span></div>
     <SourceNote source={web}/>
    </article>
    <AskQwen gpu={gpu} ai={ai} task/>
