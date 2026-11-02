@@ -204,12 +204,13 @@ function ActivityPanel({activity,ranges}){
 }
 const gpuLabels={compute_pct:'Compute',render_pct:'Render',video_pct:'Video',copy_pct:'Copy',enhance_pct:'Video enhance',vram_used_mib:'VRAM used',temperature_c:'Temperature'};
 const gpuColors=['var(--md-chart-1)','var(--md-chart-3)','var(--md-chart-5)','var(--md-chart-4)','var(--md-chart-2)'];
-const STRATA_MODEL='swift-1.5-iq3_xxs';
+const STRATA_MODEL='qwen3.8-flash-next-iq3_xxs',CODER_MODEL='qwen3.8-flash-next-coder-iq1_m';
 const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat',speed:168.3}, // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
  'qwen3.6-35b-moe':{role:'General use',speed:82.1}, // measured 22 Oct 2026: 48K context, 100% CUDA0
  'qwen3.8-27b':{role:'Reasoning',speed:54.6}, // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
- [STRATA_MODEL]:{role:'Strata · careful reasoning',speed:72.0}, // 1 Nov 2026: Swift 1.5 IQ3_XXS + --resident-experts, 64k context, 32 GB page file (22 GiB of experts locked in RAM; 3 runs: median 72 tok/s writing, ~294 tok/s prompt reading; was 62/217 with the 11 GB page file, 49/133 with mmap); strata-bench 28/29
+ [STRATA_MODEL]:{role:'Strata · general reasoning',speed:69.1}, // 1 Nov 2026: Qwen3.8-Flash-Next IQ3_XXS (ISTA-DASLab GSQ-RCO) replaced Swift 1.5: same quality (strata-bench 28/29, hard v3 44/50 vs 43/50), median 69 tok/s writing, ~295 tok/s prompt reading, resident experts + 64k
+ [CODER_MODEL]:{role:'Strata · coding (OpenCode)',speed:108.5}, // 1 Nov 2026: Qwen3.8-Flash-Next Coder IQ1_M (half the experts at ~3.5 bit, all in RAM): 108 tok/s writing, ~2,600 tok/s prompt reading, 25k-token prompt in 6.8 s; strata-bench 28/29, v3 43/50; --kv-grow + 128k context
  'qwen3.8-27b-uncensored':{role:'Uncensored · abliterated',speed:51.4} // 27 Oct 2026: Heretic ARA IQ4_XS 3.0 (13.99 GB, all on GPU), 51.38 tok/s over 1,024 tokens, ngram-mod 43% acceptance; replaced the 15.57 GB OrcaRouter build that spilled past 16 GB VRAM
 };
 function inlineMd(text,key){
@@ -253,9 +254,10 @@ function LocalAI({ai,gpu,compact=false,onOpen,power,onNavigate}){
  // Strata is a second engine on the same GPU; the GPU broker loads whichever engine a chat asks for, so it is listed as one more model.
  const strata=ai?.strata||{},strataLive=sourceFresh(strata);
  const web=ai?.webui||{},pc=ai?.desktop||{},live=sourceFresh(pc),webLive=sourceFresh(web);
- const llamaItems=(pc.models||(live?[]:Object.keys(modelProfiles).filter(id=>id!==STRATA_MODEL).map(id=>({id,state:'unknown',context_tokens:null})))).filter(m=>m.id!==STRATA_MODEL);
- const items=[...llamaItems,{id:strata.model||STRATA_MODEL,engine:'strata',state:strataLive?(strata.loaded?'loaded':'unloaded'):'unknown',context_tokens:strata.context_tokens??null}];
- const fresh=m=>m.engine==='strata'?strataLive:live,canChat=m=>fresh(m)&&webLive;
+ const llamaItems=(pc.models||(live?[]:Object.keys(modelProfiles).filter(id=>id!==STRATA_MODEL&&id!==CODER_MODEL).map(id=>({id,state:'unknown',context_tokens:null})))).filter(m=>m.id!==STRATA_MODEL&&m.id!==CODER_MODEL);
+ const coder=ai?.coder||{},coderLive=sourceFresh(coder);
+ const items=[...llamaItems,{id:strata.model||STRATA_MODEL,engine:'strata',state:strataLive?(strata.loaded?'loaded':'unloaded'):'unknown',context_tokens:strata.context_tokens??null},...(ai?.coder?[{id:coder.model||CODER_MODEL,engine:'coder',state:coderLive?(coder.loaded?'loaded':'unloaded'):'unknown',context_tokens:coder.context_tokens??null}]:[])];
+ const fresh=m=>m.engine==='strata'?strataLive:m.engine==='coder'?coderLive:live,canChat=m=>fresh(m)&&webLive&&m.engine!=='coder';
  const pcStatus=pc.online===false?'Gaming PC unavailable':'Waiting for gaming PC status';
  const labels={loaded:'Loaded',unloaded:'Loads on demand',loading:'Loading',unloading:'Unloading',sleeping:'Idle · unloaded',failed:'Failed',unknown:'Unknown'};
  const loaded=items.filter(m=>fresh(m)&&m.state==='loaded'),others=items.filter(m=>!(fresh(m)&&m.state==='loaded'));
@@ -289,7 +291,7 @@ function LocalAI({ai,gpu,compact=false,onOpen,power,onNavigate}){
 // Gaming PC GPU (RTX 5070 Ti) from pc/gpu_metrics.py, read only while this page is open (2 s ping to /api/ai/live).
 const pcGpuColors=['var(--md-chart-1)'],pcGpuMetrics={power:['power_w','Power','W'],temperature:['temperature_c','Temperature','°C'],load:['utilization_pct','GPU load','%'],vram:['vram_used_mib','VRAM','MiB']};
 // Request history (30 Oct 2026): one row per generation request through the GPU broker, speeds from the engines' own timings.
-const engineName={llama:'llama-server',strata:'Strata'},swapName={'unload-strata':'Unloaded Strata','unload-llama':'Unloaded llama','load-strata':'Loaded Strata','unload-llama+load-strata':'Swapped to Strata',game:'Refused: game running',failed:'Switch failed'};
+const engineName={llama:'llama-server',strata:'Strata',coder:'Strata Coder'},swapName={'unload-coder':'Unloaded Coder','load-coder':'Loaded Coder','unload-strata+load-coder':'Swapped to Coder','unload-llama+load-coder':'Swapped to Coder','unload-coder+load-strata':'Swapped to Strata','unload-strata':'Unloaded Strata','unload-llama':'Unloaded llama','load-strata':'Loaded Strata','unload-llama+load-strata':'Swapped to Strata',game:'Refused: game running',failed:'Switch failed'};
 const secs=v=>valid(v)?(v<10?`${num(v,1)} s`:`${num(v)} s`):'—';
 function AiHistoryPanel({history:h}){
  const engines=Object.entries(h?.engines||{}),recent=h?.recent||[];
@@ -353,7 +355,7 @@ function QwenEvidence({evidence}){
  const labels=items=>(items||[]).map(k=>evidenceNames[k]||k).join(', ');
  return <details className="qwen-evidence"><summary>Show evidence</summary><p className="source-note">Exact observations supplied to the model. Freshness is measured at capture time; general knowledge is not sourced here.</p>{valid(evidence.observed_at)&&<p className="source-note">Captured {new Date(evidence.observed_at*1000).toLocaleString()}</p>}{Object.entries(evidence.sources).map(([key,value])=><details className="evidence-source" key={key}><summary>{evidenceNames[key]||key}</summary><pre>{JSON.stringify(value,null,2)}</pre></details>)}{evidence.recorded_configuration&&<details className="evidence-source"><summary>Recorded configuration · {evidence.recorded_configuration.as_of}</summary><pre>{JSON.stringify(evidence.recorded_configuration,null,2)}</pre></details>}{evidence.budget_omissions?.length>0&&<p className="source-note warning">Trimmed to fit: {evidence.budget_omissions.join(', ')}</p>}{evidence.not_selected?.length>0&&<p className="source-note">Not selected for this question: {labels(evidence.not_selected)}</p>}</details>
 }
-const PC_MODEL_NAMES={'qwen3.8-27b':'Qwen3.8 27B','qwen3.8-27b-uncensored':'Qwen3.8 27B Uncensored','gemma-4-26b-a4b':'Gemma 4 26B MoE','qwen3.6-35b-moe':'Qwen3.6 35B MoE',[STRATA_MODEL]:'Strata · Swift 1.5 IQ3_XXS'};
+const PC_MODEL_NAMES={'qwen3.8-27b':'Qwen3.8 27B','qwen3.8-27b-uncensored':'Qwen3.8 27B Uncensored','gemma-4-26b-a4b':'Gemma 4 26B MoE','qwen3.6-35b-moe':'Qwen3.6 35B MoE',[STRATA_MODEL]:'Strata · Qwen3.8 Flash IQ3_XXS',[CODER_MODEL]:'Strata · Qwen3.8 Coder IQ1_M'};
 const targetLabel=t=>t==='a310'||t==='a310-12b'?'Gemma 4 E4B · A310':t==='strata'?`${PC_MODEL_NAMES[STRATA_MODEL]} · gaming PC`:t==='auto'?'Auto · 27B on PC, else A310':`${PC_MODEL_NAMES[t.slice(3)||'qwen3.8-27b']||t.slice(3)} · gaming PC`;
 function AskQwen({gpu,ai,slim=false,task=false}){
  const [homelab,setHomelab]=useState(()=>{try{return localStorage.getItem('qwenHomelab')==='1'}catch{return false}});

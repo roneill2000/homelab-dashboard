@@ -32,7 +32,7 @@ _stuck = None        # {'key': (model, task id), 'decoded': n, 'since': t} while
 _watchdog = {}       # last watchdog action, reported in the snapshot
 # Gaming PC GPU readings (pc/gpu_metrics.py on the PC, NVML, cached 2 s there). Read only while someone is watching.
 PC_GPU_URL = 'http://192.168.0.12:9835/gpu'
-# Strata (Swift 1.5 / Qwen3.8-Flash-Next) on the gaming PC. /health is cheap and does not count as model activity.
+# Strata (Qwen3.8-Flash-Next; Coder on :8089) on the gaming PC. /health is cheap and does not count as model activity.
 STRATA_URL = 'http://192.168.0.12:8088/health'
 _pc_gpu = {'latest': None, 'history': [], 'error': None, 'last_try': 0}
 GPU_KEYS = ('power_w', 'power_limit_w', 'temperature_c', 'utilization_pct', 'memory_util_pct', 'vram_used_mib',
@@ -136,8 +136,8 @@ def webui():
     return dict(version=str(result.get('version', ''))[:40])
 
 
-def strata():
-    result = fetch(STRATA_URL)
+def strata(port=8088):
+    result = fetch(STRATA_URL if port == 8088 else f'http://192.168.0.12:{port}/health')
     if result.get('service') != 'strata':
         raise ValueError('Unexpected Strata response')
     return dict(model=str(result.get('model') or '')[:80], loaded=result.get('loaded') is True,
@@ -255,8 +255,9 @@ def collect(now=None, min_interval=1.0):
         _last_poll = now
         prior = copy.deepcopy(_latest)
     result = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        futures = {k: pool.submit(fn) for k, fn in [('webui', webui), ('desktop', desktop), ('strata', strata)]}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        # 'coder': the second Strata server (Qwen3.8 Coder for OpenCode, :8089, started unloaded)
+        futures = {k: pool.submit(fn) for k, fn in [('webui', webui), ('desktop', desktop), ('strata', strata), ('coder', lambda: strata(8089))]}
         for key, future in futures.items():
             old = prior.get(key, {})
             try:
@@ -323,17 +324,17 @@ def game_running():
         return False
 
 
-def strata_post(path):
-    req = urllib.request.Request(STRATA_BASE + path, data=b'{}', method='POST', headers={'Content-Type': 'application/json'})
+def strata_post(path, port=8088):
+    req = urllib.request.Request((STRATA_BASE if port == 8088 else f'http://192.168.0.12:{port}') + path, data=b'{}', method='POST', headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=SWITCH_TIMEOUT) as response:
         return response.status
 
 
-def wait_strata(loaded, timeout=SWITCH_TIMEOUT, sleep=time.sleep):
+def wait_strata(loaded, timeout=SWITCH_TIMEOUT, sleep=time.sleep, port=8088):
     until = time.time() + timeout
     while time.time() < until:
         try:
-            if strata().get('loaded') is loaded:
+            if strata(port).get('loaded') is loaded:
                 return True
         except Exception:
             pass

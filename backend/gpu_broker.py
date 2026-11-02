@@ -1,8 +1,9 @@
 """GPU broker: one engine on the gaming PC's 16 GB card at a time, switched automatically.
 
-Listens on :8080 (llama-server router) and :8088 (Strata) on this host and forwards to the same ports on the PC.
-Before forwarding a generation request it makes sure the right engine holds the GPU: a llama-server request unloads
-Strata; a Strata request unloads llama-server's models and loads Strata. Status reads (/models, /health, /slots, ...)
+Listens on :8080 (llama-server router), :8088 (Strata, general model) and :8089 (Strata, Qwen3.8 Coder for OpenCode)
+on this host and forwards to the same ports on the PC. Before forwarding a generation request it makes sure the right
+engine holds the GPU: every other engine is unloaded first (llama-server's models, the other Strata server), then a
+Strata engine is loaded if it isn't. Status reads (/models, /health, /slots, ...)
 pass straight through and never switch. Responses stream (SSE) as they arrive. Clients keep their own auth headers.
 """
 import http.client
@@ -18,7 +19,9 @@ import ai_history
 import ai_monitor
 
 PC = '192.168.0.12'
-PORTS = {8080: 'llama', 8088: 'strata'}
+PORTS = {8080: 'llama', 8088: 'strata', 8089: 'coder'}
+# The two Strata servers (one model each; the coder one starts unloaded with --lazy). Only one is ever loaded.
+STRATA = {'strata': 8088, 'coder': 8089}
 # Requests that generate (and so need their engine on the GPU). Anything else is forwarded as-is.
 GENERATE = ('/v1/chat/completions', '/v1/completions', '/v1/messages', '/v1/embeddings', '/v1/responses',
             '/completion', '/completions', '/chat/completions', '/embedding', '/embeddings', '/infill')
@@ -48,11 +51,11 @@ def needs_gpu(method, path):
     return method == 'POST' and path.split('?', 1)[0].rstrip('/') in GENERATE
 
 
-def strata_loaded():
+def strata_loaded(engine='strata'):
     try:
-        return ai_monitor.strata().get('loaded') is True
+        return ai_monitor.strata(STRATA[engine]).get('loaded') is True
     except Exception:
-        return False
+        return False  # a Strata server that isn't running holds no GPU
 
 
 def game_running():
@@ -69,30 +72,30 @@ def llama_busy():
 
 
 def ensure(engine):
-    """Give the GPU to `engine` ('llama' or 'strata'); serialised so concurrent requests cannot interleave a switch.
-    Returns what it had to do ('unload-strata', 'load-strata', 'swap-to-strata') or None."""
+    """Give the GPU to `engine` ('llama', 'strata' or 'coder'); serialised so concurrent requests cannot interleave a
+    switch. Unloads every other engine, then loads a Strata engine if needed. Returns what it did, '+'-joined, or None."""
     did = []
     with _switch_lock, ai_monitor.gpu_switch():
-        if engine == 'llama':
-            if strata_loaded():
-                log('llama request: unloading Strata')
-                did.append('unload-strata')
-                ai_monitor.strata_post('/unload')
-                if not ai_monitor.wait_strata(False, timeout=120):
-                    raise RuntimeError('Strata did not unload')
-        else:
+        for other, port in STRATA.items():
+            if other != engine and strata_loaded(other):
+                log(f'{engine} request: unloading {other}')
+                did.append('unload-' + other)
+                ai_monitor.strata_post('/unload', port=port)
+                if not ai_monitor.wait_strata(False, timeout=120, port=port):
+                    raise RuntimeError(f'{other} did not unload')
+        if engine in STRATA:
             if llama_busy():
-                log('Strata request: unloading llama-server models')
+                log(f'{engine} request: unloading llama-server models')
                 did.append('unload-llama')
                 ai_monitor.unload_llama()
-            if not strata_loaded():
+            if not strata_loaded(engine):
                 if game_running():
                     raise GamePaused()
-                log('Strata request: loading Strata')
-                did.append('load-strata')
-                ai_monitor.strata_post('/load')
-                if not ai_monitor.wait_strata(True):
-                    raise RuntimeError('Strata did not load')
+                log(f'{engine} request: loading it')
+                did.append('load-' + engine)
+                ai_monitor.strata_post('/load', port=STRATA[engine])
+                if not ai_monitor.wait_strata(True, port=STRATA[engine]):
+                    raise RuntimeError(f'{engine} did not load')
     return '+'.join(did) or None
 
 
@@ -148,7 +151,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else None
         generate = needs_gpu(self.command, self.path)
         # Strata's chat page has its own Load button; it must free the GPU of llama models first, like a request.
-        load = engine == 'strata' and self.command == 'POST' and self.path.split('?', 1)[0].rstrip('/') == '/load'
+        load = engine in STRATA and self.command == 'POST' and self.path.split('?', 1)[0].rstrip('/') == '/load'
         t0 = time.time()
         row = dict(ts=t0, engine=engine, model=ai_history.model_of(body) if generate and body else None, ok=0, status=None)
         if generate or load:

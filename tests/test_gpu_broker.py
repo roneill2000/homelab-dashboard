@@ -158,30 +158,38 @@ class EnsureTests(unittest.TestCase):
         d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
         p = patch.object(g.ai_monitor, 'GPU_LOCK', __import__('pathlib').Path(d.name) / 'gpu.lock'); p.start(); self.addCleanup(p.stop)
 
-    def run_ensure(self, engine, strata_loaded, llama_busy, wait=True, game=False):
+    def run_ensure(self, engine, loaded, llama_busy, wait=True, game=False):
+        """loaded: which Strata engines are loaded, e.g. {'strata': True}; returns the calls made, in order."""
         calls = []
-        with patch.object(g, 'strata_loaded', side_effect=list(strata_loaded)), \
+        state = {'strata': False, 'coder': False, **loaded}
+        with patch.object(g, 'strata_loaded', side_effect=lambda e='strata': state[e]), \
              patch.object(g, 'llama_busy', return_value=llama_busy), \
              patch.object(g, 'game_running', return_value=game), \
-             patch.object(g.ai_monitor, 'strata_post', side_effect=lambda p: calls.append(p)), \
+             patch.object(g.ai_monitor, 'strata_post', side_effect=lambda p, port=8088: calls.append(f'{p}:{port}')), \
              patch.object(g.ai_monitor, 'unload_llama', side_effect=lambda: calls.append('unload-llama')), \
              patch.object(g.ai_monitor, 'wait_strata', return_value=wait):
             g.ensure(engine)
         return calls
 
     def test_llama_request_unloads_strata_only_when_loaded(self):
-        self.assertEqual(self.run_ensure('llama', [True], False), ['/unload'])
-        self.assertEqual(self.run_ensure('llama', [False], True), [])
+        self.assertEqual(self.run_ensure('llama', {'strata': True}, False), ['/unload:8088'])
+        self.assertEqual(self.run_ensure('llama', {'coder': True}, False), ['/unload:8089'])
+        self.assertEqual(self.run_ensure('llama', {}, True), [])
 
     def test_strata_request_frees_llama_then_loads_strata(self):
-        self.assertEqual(self.run_ensure('strata', [False], True), ['unload-llama', '/load'])
-        self.assertEqual(self.run_ensure('strata', [True], False), [])
+        self.assertEqual(self.run_ensure('strata', {}, True), ['unload-llama', '/load:8088'])
+        self.assertEqual(self.run_ensure('strata', {'strata': True}, False), [])
+
+    def test_coder_and_general_strata_swap_each_other_out(self):
+        self.assertEqual(self.run_ensure('coder', {'strata': True}, False), ['/unload:8088', '/load:8089'])
+        self.assertEqual(self.run_ensure('strata', {'coder': True}, False), ['/unload:8089', '/load:8088'])
+        self.assertEqual(self.run_ensure('coder', {'coder': True}, True), ['unload-llama'])
 
     def test_strata_is_not_loaded_while_a_game_runs(self):
         with self.assertRaises(g.GamePaused):
-            self.run_ensure('strata', [False], False, game=True)
+            self.run_ensure('strata', {}, False, game=True)
         # Already loaded: nothing to load, so no refusal.
-        self.assertEqual(self.run_ensure('strata', [True], False, game=True), [])
+        self.assertEqual(self.run_ensure('strata', {'strata': True}, False, game=True), [])
 
     def test_game_detection_is_a_refused_llama_port(self):
         with patch.object(g.ai_monitor.socket, 'create_connection', side_effect=ConnectionRefusedError):
@@ -191,7 +199,7 @@ class EnsureTests(unittest.TestCase):
 
     def test_switch_that_never_finishes_raises(self):
         with self.assertRaises(RuntimeError):
-            self.run_ensure('strata', [False], False, wait=False)
+            self.run_ensure('strata', {}, False, wait=False)
 
 
 if __name__ == '__main__':

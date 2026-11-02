@@ -91,7 +91,7 @@ class EngineSwitchTests(unittest.TestCase):
   self.assertEqual(a._switch['state'],'failed')
  def test_wait_strata_polls_until_state_matches(self):
   seq=iter([{'loaded':False},{'loaded':False},{'loaded':True}])
-  with patch.object(a,'strata',side_effect=lambda:next(seq)):
+  with patch.object(a,'strata',side_effect=lambda port=8088:next(seq)):
    self.assertTrue(a.wait_strata(True,timeout=60,sleep=lambda s:None))
 
 if __name__=='__main__':unittest.main()

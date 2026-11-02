@@ -39,15 +39,15 @@ try{
   // The preview builds /api/storage on Proxmox, which cannot read the PC's model server, so pin the AI sources to a known
   // state (PC up, a llama model loaded, Strata unloaded) instead of depending on whatever the PC is doing right now.
   const pin=async r=>{const res=await r.fetch();const d=await res.json();const now=Date.now()/1000,ok={online:true,last_success_at:now,last_attempt_at:now,error:null};
-   d.ai={...(d.ai||{}),desktop:{...(d.ai?.desktop||{}),...ok,models:[{id:'qwen3.8-27b',state:'loaded',context_tokens:65536}]},strata:{...(d.ai?.strata||{}),...ok,loaded:false,model:'swift-1.5-iq3_xxs'},webui:{...(d.ai?.webui||{}),...ok}};
+   d.ai={...(d.ai||{}),desktop:{...(d.ai?.desktop||{}),...ok,models:[{id:'qwen3.8-27b',state:'loaded',context_tokens:65536}]},strata:{...(d.ai?.strata||{}),...ok,loaded:false,model:'qwen3.8-flash-next-iq3_xxs'},webui:{...(d.ai?.webui||{}),...ok}};
    await r.fulfill({response:res,json:d})};
   const p=await open(1440,900,'#/ai',p=>p.route('**/api/storage*',pin));const chat=p.locator('.ai-task--chat');
   // Loaded (featured) or under the collapsed Other models: open that list first so the row is visible either way.
   await p.waitForTimeout(1500);await chat.locator('details.ai-others').evaluate(d=>{d.open=true}).catch(()=>{});
-  await expect(chat.getByRole('heading',{name:'Strata · Swift 1.5 IQ3_XXS'})).toHaveCount(1,{timeout:8000});
-  const row=chat.locator('.ai-model').filter({has:p.getByRole('heading',{name:'Strata · Swift 1.5 IQ3_XXS'})});
+  await expect(chat.getByRole('heading',{name:'Strata · Qwen3.8 Flash IQ3_XXS'})).toHaveCount(1,{timeout:8000});
+  const row=chat.locator('.ai-model').filter({has:p.getByRole('heading',{name:'Strata · Qwen3.8 Flash IQ3_XXS'})});
   const link=row.getByRole('link',{name:/Open chat/});
-  if(await link.count())expect(await link.getAttribute('href')).toBe('http://192.168.0.16:3000/?model=swift-1.5-iq3_xxs');
+  if(await link.count())expect(await link.getAttribute('href')).toBe('http://192.168.0.16:3000/?model=qwen3.8-flash-next-iq3_xxs');
   await expect(p.getByRole('group',{name:'GPU engine'})).toHaveCount(0);
   await expect(chat.getByRole('link',{name:/^Strata/})).toHaveAttribute('href','https://strata.lan');await p.close()});
 

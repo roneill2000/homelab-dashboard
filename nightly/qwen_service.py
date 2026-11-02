@@ -25,10 +25,10 @@ ACTIVE = {'queued', 'loading', 'generating'}
 # evals/ask-qwen-2026-10-22) and falls back to the A310 when it is off, asleep or fails mid-answer.
 # Through the GPU broker on LXC 104 (gpu_broker.py), which unloads Strata first when needed; status reads pass straight through.
 PC_API = 'http://192.168.0.2:8080'
-# Strata (Swift 1.5 / Qwen3.8-Flash-Next) on the same card, also via the broker, which loads it and unloads llama-server.
+# Strata (Qwen3.8-Flash-Next IQ3_XXS; Swift 1.5 until 1 Nov) on the same card, also via the broker, which loads it and unloads llama-server.
 STRATA_API = 'http://192.168.0.2:8088'
-STRATA_MODEL = 'swift-1.5-iq3_xxs'
-STRATA_LABEL = 'Strata · Swift 1.5 IQ3_XXS · gaming PC'
+STRATA_MODEL = 'qwen3.8-flash-next-iq3_xxs'
+STRATA_LABEL = 'Strata · Qwen3.8 Flash IQ3_XXS · gaming PC'
 PC_MODEL = 'qwen3.8-27b'
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Qwen3.8-27B · gaming PC'
