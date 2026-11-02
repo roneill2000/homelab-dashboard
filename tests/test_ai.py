@@ -151,3 +151,18 @@ class PcGpuTests(unittest.TestCase):
   self.assertEqual(a._pc_gpu['latest']['power_w'],80);self.assertEqual(a._pc_gpu['error'],'GPU metrics unavailable')
   with patch.object(a,'fetch',return_value={'error':'GPU reading failed'}):a.pc_gpu_poll(2006)
   self.assertEqual(a._pc_gpu['error'],'GPU metrics unavailable')
+ def test_strata_live_speed_fills_desktop_while_watching(self):
+  res={'desktop':{'online':True,'is_active':False,'active_speed':None},'strata':{'online':True,'loaded':True,'model':'flash'},'coder':{'online':True,'loaded':False}}
+  with patch.object(a,'_live_until',2000),patch.object(a,'_strata_hold',{}),patch.object(a,'fetch',return_value={'live':{'state':'generating','tok_s':74.2}}):
+   a.apply_strata_speed(res,1000)
+  d=res['desktop'];self.assertEqual(d['active_speed'],74.2);self.assertTrue(d['is_active']);self.assertFalse(d['is_recent']);self.assertEqual(d['active_model'],'flash')
+ def test_strata_speed_held_briefly_then_cleared(self):
+  with patch.object(a,'_strata_hold',{}):
+   with patch.object(a,'fetch',return_value={'live':{'tok_s':70.0}}):self.assertEqual(a.strata_live(8088,1000),(70.0,False))
+   with patch.object(a,'fetch',return_value={'live':{'tok_s':None}}):
+    self.assertEqual(a.strata_live(8088,1004),(70.0,True));self.assertIsNone(a.strata_live(8088,1006))
+ def test_strata_speed_skipped_when_not_watching_or_llama_active(self):
+  for until,active in ((0,False),(2000,True)):
+   res={'desktop':{'online':True,'is_active':active,'active_speed':5},'strata':{'online':True,'loaded':True}}
+   with patch.object(a,'_live_until',until),patch.object(a,'fetch',side_effect=AssertionError):a.apply_strata_speed(res,1000)
+   self.assertEqual(res['desktop']['active_speed'],5)

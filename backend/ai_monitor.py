@@ -144,6 +144,43 @@ def strata(port=8088):
                 context_tokens=positive(result.get('max_context')), images=result.get('images') is True)
 
 
+_strata_hold = {}    # port -> (last live tok/s, at, model): keeps the speed ~5 s after a Strata reply ends
+
+
+def strata_live(port, now):
+    """Live decode speed from a loaded Strata server's GET /metrics ('live' block), else None."""
+    live = (fetch(f'http://192.168.0.12:{port}/metrics') or {}).get('live') or {}
+    tps = live.get('tok_s')  # rolling decode rate; null between requests and while reading the prompt
+    if isinstance(tps, (int, float)) and not isinstance(tps, bool) and tps > 0:
+        _strata_hold[port] = (round(tps, 1), now)
+        return round(tps, 1), False
+    held = _strata_hold.get(port)
+    if held and now - held[1] <= 5.0:
+        return held[0], True
+    return None
+
+
+def apply_strata_speed(result, now):
+    """While the Local AI page is open and llama-server is idle, report the loaded Strata server's live speed."""
+    desk = result.get('desktop')
+    with _lock:
+        watching = now < _live_until
+    if not watching or not desk or not desk.get('online') or desk.get('is_active'):
+        return
+    for key, port in (('strata', 8088), ('coder', 8089)):
+        st = result.get(key) or {}
+        if not (st.get('online') and st.get('loaded')):
+            continue
+        try:
+            got = strata_live(port, now)
+        except Exception:
+            got = None
+        if got:
+            desk.update(active_speed=got[0], is_active=True, is_recent=got[1], active_model=st.get('model') or None,
+                        active_engine=key)
+            return
+
+
 def desktop():
     global _token_samples, _last_speed, _last_active_at, _last_active_model, _last_slot_check, _stuck, _watchdog
     config = json.loads(CONFIG.read_text())
@@ -265,6 +302,7 @@ def collect(now=None, min_interval=1.0):
                 result[key] = dict(value, online=True, last_attempt_at=int(now), last_success_at=int(now), error=None)
             except Exception:
                 result[key] = dict(old, online=False, last_attempt_at=int(now), error='Source unavailable')
+    apply_strata_speed(result, now)
     with _lock:
         _latest.clear()
         _latest.update(result)
