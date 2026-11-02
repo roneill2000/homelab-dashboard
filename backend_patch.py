@@ -1042,3 +1042,60 @@ def patch_widget_strata(source):
     source = source.replace(anchor, WIDGET_STRATA + anchor) + '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+WIDGET_MORE = r"""    # Widget v2 (Android 1.10): storage, network and DNS, now playing and pending updates. Each block is null when its
+    # source isn't fresh, so the widget shows a dash instead of a wrong number.
+    _ur = obj(t.get('unraid'))
+    widget_storage = None
+    if fresh and fresh_src(_ur):
+        _scr = obj(t.get('scrutiny'))
+        widget_storage = {'array_pct': number(_ur.get('array_pct')), 'array_free_tb': number(_ur.get('array_free_tb')),
+                          'cache_pct': number(_ur.get('cache_pct')),
+                          'drives_ok': (not any(isinstance(x, dict) and x.get('healthy') is False for x in _scr.get('drives') or []))
+                                       if fresh_src(_scr) else None}
+    _sp, _ph3 = obj(t.get('speedtest')), obj(t.get('pihole'))
+    widget_network = {'down_mbps': number(_sp.get('dl')) if fresh and fresh_src(_sp) else None,
+                      'up_mbps': number(_sp.get('ul')) if fresh and fresh_src(_sp) else None,
+                      'ping_ms': number(_sp.get('ping')) if fresh and fresh_src(_sp) else None,
+                      'dns_blocked_pct': number(_ph3.get('pct')) if fresh and fresh_src(_ph3) else None}
+    _jf = obj(media.get('jellyfin'))
+    widget_media = None
+    if fresh and fresh_src(_jf):
+        _np = [x for x in _jf.get('now_playing') or [] if isinstance(x, dict)]
+        _first = None
+        if _np:
+            x = _np[0]
+            _ep = (f"S{x['season']}E{x['episode']}" if isinstance(x.get('season'), int) and isinstance(x.get('episode'), int) else None)
+            _first = {'title': x.get('series') or x.get('title'), 'episode': _ep, 'user': x.get('user'), 'paused': bool(x.get('paused')),
+                      'progress': number(x.get('progress'))}
+        widget_media = {'streams': len(_np), 'now_playing': _first}
+    widget_updates = None
+    try:
+        import update_proxy, threading as _th
+        _box = {}
+        def _get():
+            try: _box['b'] = update_proxy.status()
+            except Exception: pass
+        _w = _th.Thread(target=_get, daemon=True); _w.start(); _w.join(2.5)
+        _items = obj(_box.get('b')).get('items')
+        if isinstance(_items, list):
+            widget_updates = {'pending': sum(1 for i in _items if isinstance(i, dict) and i.get('state') == 'pending'),
+                              'checked_at': obj(_box.get('b')).get('checked_at')}
+    except Exception:
+        pass
+"""
+
+
+def patch_widget_more(source):
+    """Add storage, network/DNS, now playing and pending updates to /api/widget for the status-first widget (app 1.10)."""
+    marker = '# HOMELAB_WIDGET_MORE_V1'
+    if marker in source:
+        return source
+    anchor = "    return {'dns': widget_dns, 'status': 'attention' if problems else 'all_up',"
+    if source.count(anchor) != 1:
+        raise ValueError('widget summary shape changed; extra widget blocks not added')
+    source = source.replace(anchor, WIDGET_MORE + "    return {'storage': widget_storage, 'network': widget_network, 'media': widget_media, 'updates': widget_updates, "
+                            "'dns': widget_dns, 'status': 'attention' if problems else 'all_up',") + '\n' + marker + '\n'
+    compile(source, '<dashboard>', 'exec')
+    return source

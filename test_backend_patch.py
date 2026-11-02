@@ -3,7 +3,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_widget_strata, patch_widget_dns, patch_widget_cloud, patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import patch_widget_more, patch_widget_strata, patch_widget_dns, patch_widget_cloud, patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
 
 FIXTURE = '''
 import time
@@ -388,7 +388,7 @@ class WidgetTests(unittest.TestCase):
            '        if self.path.startswith("/api/telemetry"):\n'
            '            pass\n')
 
-    def summary(self, telemetry, ids, desktop=None, gpu=None, backup='OK', now=1000, strata=None):
+    def summary(self, telemetry, ids, desktop=None, gpu=None, backup='OK', now=1000, strata=None, updates=None):
         import json, sys, types
         from unittest.mock import mock_open
         ai = types.ModuleType('ai_monitor')
@@ -398,9 +398,10 @@ class WidgetTests(unittest.TestCase):
         sm = types.ModuleType('storage_monitor')
         sm.snapshot = lambda w: {'activity': {'recovery': {'backup': {'latest': {'status': backup}}}}}
         ns = {'BaseHTTPRequestHandler': object}
-        exec(compile(patch_widget_strata(patch_widget_dns(patch_widget(self.SRC))), 'widget', 'exec'), ns)
+        exec(compile(patch_widget_more(patch_widget_strata(patch_widget_dns(patch_widget(self.SRC)))), 'widget', 'exec'), ns)
         ns['TELEMETRY'].update(telemetry)
-        with patch.dict(sys.modules, {'ai_monitor': ai, 'storage_monitor': sm}), patch('builtins.open', mock_open(read_data=json.dumps(ids))):
+        up = types.ModuleType('update_proxy'); up.status = (lambda: updates) if updates is not None else (lambda: (_ for _ in ()).throw(RuntimeError('ssh')))
+        with patch.dict(sys.modules, {'ai_monitor': ai, 'storage_monitor': sm, 'update_proxy': up}), patch('builtins.open', mock_open(read_data=json.dumps(ids))):
             return ns['_dashboard_widget_summary'](now=now)
 
     def base(self, **over):
@@ -450,6 +451,30 @@ class WidgetTests(unittest.TestCase):
         old_gpu = {'power_w': 100, 'observed_at': 800}
         s = self.summary(self.base(), ['router'], desktop={'online': True, 'last_success_at': 995, 'models': []}, gpu=old_gpu)
         self.assertEqual((s['pc']['state'], s['pc']['gpu']), ('idle', None))
+
+
+    def test_status_first_blocks_storage_network_media_updates(self):
+        t = self.base(unraid={'online': True, 'array_pct': 69.0, 'array_free_tb': 1.24, 'cache_pct': 22.1, 'last_success_at': 990},
+                      speedtest={'online': True, 'dl': 2342.7, 'ul': 297.9, 'ping': 10.7, 'last_success_at': 990},
+                      pihole={'status': 'protected', 'blocking': True, 'pct': 4.4, 'online': True, 'last_success_at': 990})
+        t['media'] = {**t['media'], 'jellyfin': {'online': True, 'last_success_at': 990, 'now_playing': [
+            {'title': 'Tomorrow', 'series': 'The Bear', 'season': 3, 'episode': 2, 'user': 'ryan', 'paused': False, 'progress': 0.4}]}}
+        upd = {'items': [{'state': 'pending'}, {'state': 'current'}, {'state': 'pending'}], 'checked_at': 900}
+        s = self.summary(t, ['router'], updates=upd)
+        self.assertEqual(s['storage'], {'array_pct': 69.0, 'array_free_tb': 1.24, 'cache_pct': 22.1, 'drives_ok': True})
+        self.assertEqual(s['network'], {'down_mbps': 2342.7, 'up_mbps': 297.9, 'ping_ms': 10.7, 'dns_blocked_pct': 4.4})
+        self.assertEqual(s['media'], {'streams': 1, 'now_playing': {'title': 'The Bear', 'episode': 'S3E2', 'user': 'ryan', 'paused': False, 'progress': 0.4}})
+        self.assertEqual(s['updates'], {'pending': 2, 'checked_at': 900})
+        # Missing or stale sources are null, never zeros; an unreachable update runner leaves updates null.
+        bare = self.summary(self.base(updated_at=900), ['router'])
+        self.assertEqual((bare['storage'], bare['media'], bare['updates'], bare['network']['down_mbps']), (None, None, None, None))
+        bad_drive = self.summary(self.base(unraid={'online': True, 'array_pct': 50, 'last_success_at': 990},
+                                           scrutiny={'online': True, 'drives': [{'healthy': False}], 'last_success_at': 990}), ['router'])
+        self.assertIs(bad_drive['storage']['drives_ok'], False)
+        src = patch_widget_more(patch_widget_strata(patch_widget_dns(patch_widget(self.SRC))))
+        self.assertEqual(patch_widget_more(src), src)
+        with self.assertRaises(ValueError):
+            patch_widget_more('class DashboardHandler: pass\n')
 
     def test_loaded_strata_counts_as_the_pc_model(self):
         desk = {'online': True, 'last_success_at': 995, 'models': [{'id': 'qwen', 'state': 'unloaded'}], 'is_active': False}
