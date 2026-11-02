@@ -204,3 +204,74 @@ class EnsureTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+NAMES = {'strata': 'qwen3.8-flash-next-iq3_xxs', 'coder': 'qwen3.8-flash-next-coder-iq1_m'}
+
+
+class UnifiedPortTests(unittest.TestCase):
+    """:8000, one URL for every model (2 Nov 2026): the request's model picks the engine."""
+
+    def setUp(self):
+        FakePC.seen = []
+        FakePC.release = threading.Event()
+        FakePC.release.set()
+        self.pc = serve(http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakePC))
+        self.broker = serve(g.Server(('127.0.0.1', 0), 'auto', ('127.0.0.1', 0)))
+        self.broker.ports = {e: self.pc.server_address[1] for e in ('llama', 'strata', 'coder')}
+        self.port = self.broker.server_address[1]
+        self.patches = [patch.object(g, 'strata_names', return_value=NAMES),
+                        patch.object(g, 'llama_token', return_value='secret')]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        for s in (self.broker, self.pc):
+            s.shutdown()
+            s.server_close()
+
+    def post(self, model, auth=None):
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        headers = {'Content-Type': 'application/json', **({'Authorization': auth} if auth else {})}
+        c.request('POST', '/v1/chat/completions', body=json.dumps({'model': model}).encode(), headers=headers)
+        r = c.getresponse()
+        return r.status, r.read()
+
+    def test_route_by_model_name(self):
+        self.assertEqual(g.route('qwen3.8-flash-next-coder-iq1_m', NAMES), 'coder')
+        self.assertEqual(g.route('qwen3.8-flash-next-iq3_xxs', NAMES), 'strata')
+        self.assertEqual(g.route('QWEN3.8-FLASH-NEXT-IQ3_XXS', NAMES), 'strata')
+        self.assertEqual(g.route('qwen3.8-flash-next-coder-q2', {}), 'coder')   # a name the servers no longer report
+        self.assertEqual(g.route('qwen3.8-27b', NAMES), 'llama')
+        self.assertEqual(g.route(None, NAMES), 'llama')
+
+    def test_coder_request_switches_to_coder_without_the_llama_token(self):
+        with patch.object(g, 'ensure') as ensure:
+            self.assertEqual(self.post(NAMES['coder'])[0], 200)
+        ensure.assert_called_once_with('coder')
+        self.assertIsNone(FakePC.seen[0][2])
+
+    def test_llama_request_gets_the_brokers_token_not_the_clients(self):
+        with patch.object(g, 'ensure') as ensure:
+            self.assertEqual(self.post('qwen3.8-27b', auth='Bearer whatever')[0], 200)
+        ensure.assert_called_once_with('llama')
+        self.assertEqual(FakePC.seen[0][2], 'Bearer secret')
+
+    def test_models_lists_every_engine(self):
+        with patch.object(g.ai_monitor, 'fetch', return_value={'data': [{'id': 'qwen3.8-27b'}, {'id': 'gemma-4-26b-a4b'}]}):
+            c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+            c.request('GET', '/v1/models')
+            ids = [m['id'] for m in json.loads(c.getresponse().read())['data']]
+        self.assertEqual(ids, ['qwen3.8-27b', 'gemma-4-26b-a4b', NAMES['strata'], NAMES['coder']])
+        self.assertEqual(FakePC.seen, [])
+
+    def test_other_paths_and_bad_bodies_never_reach_the_pc(self):
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        c.request('POST', '/models/unload', body=b'{}', headers={'Content-Type': 'application/json'})
+        self.assertEqual(c.getresponse().status, 404)
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        c.request('POST', '/v1/chat/completions', body=b'[1]', headers={'Content-Type': 'application/json'})
+        self.assertEqual(c.getresponse().status, 400)
+        self.assertEqual(FakePC.seen, [])

@@ -1,4 +1,4 @@
-# GPU broker for the gaming PC (gpu_broker.py): :8080 llama-server and :8088 Strata, switched automatically.
+# GPU broker for the gaming PC (gpu_broker.py): :8080 llama-server, :8088 Strata, :8089 Strata Coder, and :8000 = one URL for all models (routed by name); switched automatically.
 # Install once on LXC 104: cp systemd/homelab-gpu-broker.service /etc/systemd/system/ && systemctl enable --now homelab-gpu-broker
 # deploy.py ships /usr/local/bin/gpu_broker.py and restarts this unit when it is installed.
 [Unit]
