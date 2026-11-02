@@ -412,7 +412,7 @@ def patch_strata(source):
 
 
 def patch_opencode(source):
-    """Add the LXC 114 agents (OpenCode :4096, OpenHands Agent Canvas :4097) to the TCP monitor and host inventory, like patch_memos."""
+    """Add LXC 114's OpenHands Agent Canvas (:4097) to the TCP monitor and host inventory, like patch_memos. (OpenCode, :4096, was removed 2 Nov 2026; the name stays because deploy.py calls it.)"""
     tree = ast.parse(source)
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
     found = set()
@@ -420,13 +420,13 @@ def patch_opencode(source):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
             if name == 'port_targets':
-                for key, target in (('opencode', "('192.168.0.19', 4096)"), ('openhands', "('192.168.0.19', 4097)")):
+                for key, target in (('openhands', "('192.168.0.19', 4097)"),):
                     if key not in [getattr(k, 'value', None) for k in node.value.keys]:
                         node.value.keys.append(ast.Constant(key))
                         node.value.values.append(expression(target))
                 found.add(name)
             elif name == 'known':
-                row = expression("('OpenHands · OpenCode', 'LXC 114', 'https://openhands.lan', checks.get('openhands', False) or checks.get('opencode', False))")
+                row = expression("('OpenHands', 'LXC 114', 'https://openhands.lan', checks.get('openhands', False))")
                 keys = [getattr(k, 'value', None) for k in node.value.keys]
                 if 19 in keys:
                     node.value.values[keys.index(19)] = row

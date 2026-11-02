@@ -1,6 +1,6 @@
 """GPU broker: one engine on the gaming PC's 16 GB card at a time, switched automatically.
 
-Listens on :8080 (llama-server router), :8088 (Strata, general model) and :8089 (Strata, Qwen3.8 Coder for OpenCode)
+Listens on :8080 (llama-server router), :8088 (Strata, general model) and :8089 (Strata, Qwen3.8 Coder for OpenHands)
 on this host and forwards to the same ports on the PC. Before forwarding a generation request it makes sure the right
 engine holds the GPU: every other engine is unloaded first (llama-server's models, the other Strata server), then a
 Strata engine is loaded if it isn't. Status reads (/models, /health, /slots, ...)
@@ -44,7 +44,7 @@ HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 
        'upgrade', 'host', 'content-length'}
 MAX_BODY = 64 * 1024 * 1024
 _switch_lock = threading.Lock()
-# Browsers attach Origin to cross-site requests; the broker's clients (OpenCode, Open WebUI, the Qwen broker) are
+# Browsers attach Origin to cross-site requests; the broker's clients (OpenHands, Open WebUI, the Qwen broker) are
 # servers and send none. Host must name this machine, which stops DNS rebinding (a foreign name resolving here).
 HOSTS = {'192.168.0.2', '127.0.0.1', 'localhost'}
 # Strata's own chat page, served through Caddy (strata.lan -> here, so opening it also frees the GPU of llama models).

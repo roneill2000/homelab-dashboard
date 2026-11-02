@@ -6,7 +6,6 @@
 | memos | https://memos.lan | 192.168.0.18:5230 |
 | openwebui | https://ai.lan | 192.168.0.16:3000 |
 | openhands | https://openhands.lan | 192.168.0.19:4097 |
-| opencode | https://opencode.lan | 192.168.0.19:4096 |
 | pve | https://proxmox.lan | 192.168.0.3:8006 |
 | unraid | https://nas.lan | 192.168.0.4:80 |
 | scrutiny | https://scrutiny.lan | 192.168.0.4:8080 |

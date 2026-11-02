@@ -210,7 +210,7 @@ const modelProfiles={
  'qwen3.6-35b-moe':{role:'General use',speed:82.1}, // measured 22 Oct 2026: 48K context, 100% CUDA0
  'qwen3.8-27b':{role:'Reasoning',speed:54.6}, // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
  [STRATA_MODEL]:{role:'Strata · general reasoning',speed:69.1}, // 1 Nov 2026: Qwen3.8-Flash-Next IQ3_XXS (ISTA-DASLab GSQ-RCO) replaced Swift 1.5: same quality (strata-bench 28/29, hard v3 44/50 vs 43/50), median 69 tok/s writing, ~295 tok/s prompt reading, resident experts + 64k
- [CODER_MODEL]:{role:'Strata · coding (OpenCode)',speed:108.5}, // 1 Nov 2026: Qwen3.8-Flash-Next Coder IQ1_M (half the experts at ~3.5 bit, all in RAM): 108 tok/s writing, ~2,600 tok/s prompt reading, 25k-token prompt in 6.8 s; strata-bench 28/29, v3 43/50; --kv-grow + 128k context
+ [CODER_MODEL]:{role:'Strata · coding (OpenHands)',speed:108.5}, // 1 Nov 2026: Qwen3.8-Flash-Next Coder IQ1_M (half the experts at ~3.5 bit, all in RAM): 108 tok/s writing, ~2,600 tok/s prompt reading, 25k-token prompt in 6.8 s; strata-bench 28/29, v3 43/50; --kv-grow + 128k context
  'qwen3.8-27b-uncensored':{role:'Uncensored · abliterated',speed:51.4} // 27 Oct 2026: Heretic ARA IQ4_XS 3.0 (13.99 GB, all on GPU), 51.38 tok/s over 1,024 tokens, ngram-mod 43% acceptance; replaced the 15.57 GB OrcaRouter build that spilled past 16 GB VRAM
 };
 function inlineMd(text,key){
@@ -276,7 +276,7 @@ function LocalAI({ai,gpu,compact=false,onOpen,power,onNavigate}){
     {live&&!loaded.length&&<p className="ai-task__note">No model is loaded. Choosing one in Open WebUI loads it (about 30 s).</p>}
     {!live&&<p className="ai-task__note ai-offline" role="status"><strong>{pcStatus}.</strong> It may be off, asleep, or its model server stopped. Wake it to chat; status checks resume automatically.</p>}
     {live&&others.length>0&&<details className="ai-others"><summary>Other models <span className="count">{others.length}</span><Icon name="down" size={20} className="ai-others__chevron"/></summary><div className="ai-model-list">{others.map(modelRow)}</div><p className="source-note">One desktop model loads at a time. Opening a chat with another model switches to it (Strata takes about 2 minutes).</p></details>}
-    <div className="ai-task__actions">{power}<span className="ai-task__links"><a className="m3-btn m3-btn--text m3-state text-button ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer">Open WebUI <Icon name="external" size={16}/></a><a className="m3-btn m3-btn--text m3-state text-button" href="https://opencode.lan" target="_blank" rel="noreferrer">OpenCode <Icon name="external" size={16}/></a></span></div>
+    <div className="ai-task__actions">{power}<span className="ai-task__links"><a className="m3-btn m3-btn--text m3-state text-button ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer">Open WebUI <Icon name="external" size={16}/></a></span></div>
     <SourceNote source={web}/>
    </article>
    <AskQwen gpu={gpu} ai={ai} task/>
@@ -295,7 +295,7 @@ const engineName={llama:'llama-server',strata:'Strata',coder:'Strata Coder'},swa
 const secs=v=>valid(v)?(v<10?`${num(v,1)} s`:`${num(v)} s`):'—';
 function AiHistoryPanel({history:h}){
  const engines=Object.entries(h?.engines||{}),recent=h?.recent||[];
- return <section className="ai-history"><div className="section-heading"><div><h2>Request history</h2><p>Every request through the GPU broker (Open WebUI, OpenCode, Ask). Speeds are the engines' own figures; prompt reading counts prompts of {num(h?.min_prompt||500)}+ tokens.</p></div></div>
+ return <section className="ai-history"><div className="section-heading"><div><h2>Request history</h2><p>Every request through the GPU broker (Open WebUI, OpenHands, Ask). Speeds are the engines' own figures; prompt reading counts prompts of {num(h?.min_prompt||500)}+ tokens.</p></div></div>
   <article className="m3-card m3-card--outlined panel">
    {!engines.length&&!recent.length?<p className="m3-empty-note"><Icon name="monitoring" size={20}/>No requests recorded yet. They appear here as soon as something uses a local model.</p>:<>
    <h3 className="energy-sub">Last 7 days</h3>

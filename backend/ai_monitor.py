@@ -256,7 +256,7 @@ def collect(now=None, min_interval=1.0):
         prior = copy.deepcopy(_latest)
     result = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        # 'coder': the second Strata server (Qwen3.8 Coder for OpenCode, :8089, started unloaded)
+        # 'coder': the second Strata server (Qwen3.8 Coder for OpenHands, :8089, started unloaded)
         futures = {k: pool.submit(fn) for k, fn in [('webui', webui), ('desktop', desktop), ('strata', strata), ('coder', lambda: strata(8089))]}
         for key, future in futures.items():
             old = prior.get(key, {})
