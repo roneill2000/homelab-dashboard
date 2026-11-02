@@ -25,6 +25,22 @@ class SnapshotTests(unittest.TestCase):
   with patch.object(s,'MAX_BYTES',100):
    data=self.scan([self.line(100000+i,'x'*70+' FAILURE') for i in range(5)]+[self.line(199999,'FAILURE')])
   self.assertTrue(data['hosts'][0]['truncated']);self.assertTrue(data['coverage_limited'])
+ def test_rotation_and_quiet_sources_are_full_coverage(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d);import os
+   (p/'utilities.log.1').write_text(self.line(110000,'older than the window')+'\n'+self.line(150000,'FAILURE before rotation')+'\n'+self.line(190000,'ok')+'\n')
+   os.utime(p/'utilities.log.1',(190000,190000))
+   (p/'utilities.log').write_text(self.line(195000,'FAILURE after rotation')+'\n')
+   (p/'kasm.log').write_text('')
+   data=s.snapshot(p,[re.compile('CRITICAL')],[re.compile('FAILURE')],200000)
+  self.assertFalse(data['coverage_limited']);self.assertEqual(data['matched_entries'],2)
+  hosts={h['host']:h for h in data['hosts']}
+  self.assertTrue(hosts['utilities']['rotated_read']);self.assertTrue(hosts['kasm']['quiet'])
+  # An old rotated file (outside the window) is not read, so a recent-only current file still counts as a gap.
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d);(p/'utilities.log.1').write_text(self.line(50000,'x')+'\n');os.utime(p/'utilities.log.1',(50000,50000))
+   (p/'utilities.log').write_text(self.line(195000,'FAILURE')+'\n')
+   self.assertTrue(s.snapshot(p,[],[re.compile('FAILURE')],200000)['coverage_limited'])
  def test_critical_priority_and_symlink_ignored(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d);(p/'real.log').write_text(self.line(199900,'CRITICAL')+'\n'+self.line(199999,'FAILURE'))

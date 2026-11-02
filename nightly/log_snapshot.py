@@ -31,12 +31,23 @@ def snapshot(directory, critical, warning, now=None):
     groups={};coverage=[];matched=0
     for p in files[:MAX_FILES]:
         size=p.stat().st_size;start=max(0,size-MAX_BYTES);parsed=[];unknown=0;lines=0;error=False
+        # Weekly rotation leaves the start of the window in <name>.log.1 (uncompressed: delaycompress), so read it
+        # too while it was still being written inside the window.
+        rotated=p.with_name(p.name+'.1');prev=b'';rot_start=0
+        try:
+            if rotated.is_file() and not rotated.is_symlink() and rotated.stat().st_mtime>=cutoff:
+                rsize=rotated.stat().st_size;rot_start=max(0,rsize-MAX_BYTES)
+                with rotated.open('rb') as f:
+                    f.seek(rot_start)
+                    if rot_start:f.readline()
+                    prev=f.read(MAX_BYTES)
+        except OSError:error=True
         try:
             with p.open('rb') as f:
                 f.seek(start)
                 if start:f.readline()
                 raw=f.read(MAX_BYTES)
-            for line in raw.decode('utf-8','replace').splitlines():
+            for line in (prev+(b'\n' if prev and not prev.endswith(b'\n') else b'')+raw).decode('utf-8','replace').splitlines():
                 lines+=1
                 try:ts=datetime.fromisoformat(line.split()[0].replace('Z','+00:00')).timestamp()
                 except (ValueError,IndexError):unknown+=1;continue
@@ -57,8 +68,11 @@ def snapshot(directory, critical, warning, now=None):
                                      message=message[:1200],count=0,first_at=ts,last_at=ts)
                 g=groups[key];g['count']+=1;g['first_at']=min(g['first_at'],ts);g['last_at']=max(g['last_at'],ts)
         except OSError:error=True
-        coverage.append(dict(host=p.stem,bytes_read=min(size,MAX_BYTES),lines=lines,unknown_timestamps=unknown,
-                             truncated=start>0,window_may_be_incomplete=error or unknown>0 or not parsed or min(parsed)>cutoff,
+        # A file with no lines at all is a quiet source (nothing logged), not a gap in coverage.
+        quiet=not error and lines==0
+        coverage.append(dict(host=p.stem,bytes_read=min(size,MAX_BYTES)+len(prev),lines=lines,unknown_timestamps=unknown,quiet=quiet,
+                             rotated_read=bool(prev),truncated=start>0 or rot_start>0,
+                             window_may_be_incomplete=not quiet and (error or unknown>0 or not parsed or min(parsed)>cutoff),
                              oldest_read_at=min(parsed,default=None),newest_read_at=max(parsed,default=None),read_error=error))
     ordered=sorted(groups.values(),key=lambda g:(g['level']=='CRITICAL',g['last_at']),reverse=True)
     represented=sum(g['count'] for g in ordered)
