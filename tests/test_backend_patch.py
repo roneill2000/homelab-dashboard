@@ -513,3 +513,20 @@ class AiLiveTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class OpenCodeRemovalTests(unittest.TestCase):
+    """OpenCode was removed 2 Nov 2026: a backend that earlier deploys gave an 'opencode' check loses it."""
+
+    def test_patch_drops_opencode_and_keeps_openhands(self):
+        src = ("def poll_network_and_matrix():\n"
+               "    port_targets = {'router': ('192.168.0.1', 80), 'opencode': ('192.168.0.19', 4096)}\n"
+               "    known = {19: ('OpenHands · OpenCode', 'LXC 114', 'x', False)}\n"
+               "    for i in [2, 19]:\n"
+               "        pass\n")
+        from backend_patch import patch_opencode
+        out = patch_opencode(src)
+        self.assertNotIn("'opencode'", out)
+        self.assertIn("'openhands': ('192.168.0.19', 4097)", out)
+        self.assertIn("('OpenHands', 'LXC 114', 'https://openhands.lan'", out)
+        self.assertEqual(out, patch_opencode(out))  # idempotent

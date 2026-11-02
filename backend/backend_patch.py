@@ -420,6 +420,10 @@ def patch_opencode(source):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
             if name == 'port_targets':
+                keys = [getattr(k, 'value', None) for k in node.value.keys]
+                if 'opencode' in keys:  # removed 2 Nov 2026; earlier deploys added it to the installed file
+                    i = keys.index('opencode')
+                    del node.value.keys[i], node.value.values[i]
                 for key, target in (('openhands', "('192.168.0.19', 4097)"),):
                     if key not in [getattr(k, 'value', None) for k in node.value.keys]:
                         node.value.keys.append(ast.Constant(key))
