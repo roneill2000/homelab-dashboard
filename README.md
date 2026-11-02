@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="showcase/banner.png" alt="Homelab Command Center" />
+<img src="showcase/banner@2x.png" width="100%" alt="Homelab Command Center" />
 
 <h1>Homelab Command Center</h1>
 
