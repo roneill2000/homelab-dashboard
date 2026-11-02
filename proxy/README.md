@@ -5,6 +5,7 @@
 | proxy | https://proxy.lan | 192.168.0.20 (LXC 115, Caddy) |
 | memos | https://memos.lan | 192.168.0.18:5230 |
 | openwebui | https://ai.lan | 192.168.0.16:3000 |
+| openhands | https://openhands.lan | 192.168.0.19:4097 |
 | opencode | https://opencode.lan | 192.168.0.19:4096 |
 | pve | https://proxmox.lan | 192.168.0.3:8006 |
 | unraid | https://nas.lan | 192.168.0.4:80 |
@@ -33,3 +34,5 @@
 - SABnzbd only answers hostnames on its allow-list: `sab.lan` was added to `host_whitelist` in `/var/lib/sabnzbd/sabnzbd.ini` (LXC 102) on 22 Oct 2026; backup at `sabnzbd.ini.bak-20261022`. Add any new SABnzbd name there too.
 - Pi-hole admin pages live at `/admin/` (the root returns 403/404 by design).
 - `tv.lan` (UHF) returns 404 at `/`, the same as direct `192.168.0.13:8080`; that is the app, not the proxy.
+
+`http://proxy.lan/homelab-ca.crt` serves Caddy's local root CA (public cert only) for installing on phones, so `*.lan` HTTPS is trusted (needed for home-screen web apps).

@@ -4,7 +4,7 @@ const {useState,useEffect,useLayoutEffect,useRef}=React;
 
 // Material Symbols Rounded names for the dashboard's icon keys. Any other string is used as a Material Symbols name
 // directly (add it to m3-icons.mjs so the font subset includes it).
-export const SYMBOLS={home:'home',grid:'apps',server:'dns',disk:'hard_drive',network:'lan',play:'play_circle',layers:'stacks',search:'search',arrow:'arrow_forward',external:'open_in_new',down:'expand_more',up:'expand_less',refresh:'refresh',star:'star',close:'close',check:'check',shield:'shield',activity:'monitoring',sun:'light_mode',moon:'dark_mode',copy:'content_copy',bell:'notifications',folder:'folder',book:'menu_book',cloud:'cloud',terminal:'terminal',menu:'menu',clock:'schedule',wifi:'wifi',game:'sports_esports'};
+export const SYMBOLS={home:'home',grid:'apps',server:'dns',disk:'hard_drive',network:'lan',play:'play_circle',layers:'stacks',search:'search',arrow:'arrow_forward',external:'open_in_new',down:'expand_more',up:'expand_less',refresh:'refresh',star:'star',close:'close',check:'check',shield:'shield',activity:'monitoring',sun:'light_mode',moon:'dark_mode',copy:'content_copy',bell:'notifications',folder:'folder',book:'menu_book',cloud:'cloud',terminal:'terminal',menu:'menu',clock:'schedule',wifi:'wifi',game:'sports_esports',agent:'psychology'};
 export function Icon({name='grid',size=20,filled=false,className='',style,...props}){
   return <span className={`material-symbols-rounded${filled?' is-filled':''}${className?' '+className:''}`} style={{fontSize:size,...style}} aria-hidden="true" {...props}>{SYMBOLS[name]||name}</span>;
 }

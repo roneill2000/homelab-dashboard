@@ -412,7 +412,7 @@ def patch_strata(source):
 
 
 def patch_opencode(source):
-    """Add the OpenCode web UI (LXC 114) to the TCP monitor and host inventory, like patch_memos."""
+    """Add the LXC 114 agents (OpenCode :4096, OpenHands Agent Canvas :4097) to the TCP monitor and host inventory, like patch_memos."""
     tree = ast.parse(source)
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
     found = set()
@@ -420,14 +420,19 @@ def patch_opencode(source):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
             if name == 'port_targets':
-                if 'opencode' not in [getattr(k, 'value', None) for k in node.value.keys]:
-                    node.value.keys.append(ast.Constant('opencode'))
-                    node.value.values.append(expression("('192.168.0.19', 4096)"))
+                for key, target in (('opencode', "('192.168.0.19', 4096)"), ('openhands', "('192.168.0.19', 4097)")):
+                    if key not in [getattr(k, 'value', None) for k in node.value.keys]:
+                        node.value.keys.append(ast.Constant(key))
+                        node.value.values.append(expression(target))
                 found.add(name)
             elif name == 'known':
-                if 19 not in [getattr(k, 'value', None) for k in node.value.keys]:
+                row = expression("('OpenHands · OpenCode', 'LXC 114', 'https://openhands.lan', checks.get('openhands', False) or checks.get('opencode', False))")
+                keys = [getattr(k, 'value', None) for k in node.value.keys]
+                if 19 in keys:
+                    node.value.values[keys.index(19)] = row
+                else:
                     node.value.keys.append(ast.Constant(19))
-                    node.value.values.append(expression("('OpenCode', 'LXC 114', 'http://192.168.0.19:4096', checks.get('opencode', False))"))
+                    node.value.values.append(row)
                 found.add(name)
         if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
             if 19 not in [getattr(v, 'value', None) for v in node.iter.elts]:
