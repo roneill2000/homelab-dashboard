@@ -144,8 +144,8 @@ def all_models():
     try:
         data = [m for m in ai_monitor.fetch(f'http://{PC}:8080/v1/models', llama_token()).get('data', [])
                 if isinstance(m, dict) and m.get('id')]
-        data = [{'id': m['id'], 'object': 'model', 'owned_by': 'llama-server', 'created': m.get('created', 0)}
-                for m in data]
+        # llama-server's entries pass through whole: their `status` (loaded/unloaded) is what the approver judges read
+        data = [dict(m, owned_by=m.get('owned_by') or 'llama-server') for m in data]
     except Exception as exc:
         log(f'models: llama-server list unavailable ({exc.__class__.__name__})')
     for engine, name in strata_names().items():

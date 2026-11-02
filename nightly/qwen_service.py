@@ -23,10 +23,12 @@ BIND = ('192.168.0.4', 11438)
 ACTIVE = {'queued', 'loading', 'generating'}
 # Gaming PC llama.cpp router: Ask Qwen uses its 27B when the PC is on (8/10 vs 4-6/10 for the A310 4B in
 # evals/ask-qwen-2026-10-22) and falls back to the A310 when it is off, asleep or fails mid-answer.
-# Through the GPU broker on LXC 104 (gpu_broker.py), which unloads Strata first when needed; status reads pass straight through.
-PC_API = 'http://192.168.0.2:8080'
-# Strata (Qwen3.8-Flash-Next IQ3_XXS; Swift 1.5 until 1 Nov) on the same card, also via the broker, which loads it and unloads llama-server.
-STRATA_API = 'http://192.168.0.2:8088'
+# Through the GPU broker's one URL for every model (gpu_broker.py :8000, since 2 Nov 2026): the request's model picks the
+# engine and the broker switches the GPU (unloading Strata or llama-server first) and adds the router token itself.
+LOCAL_API = 'http://192.168.0.2:8000'
+PC_API = LOCAL_API
+# Strata (Qwen3.8-Flash-Next IQ3_XXS; Swift 1.5 until 1 Nov) on the same card, same URL; its model name routes it there.
+STRATA_API = LOCAL_API
 STRATA_MODEL = 'qwen3.8-flash-next-iq3_xxs'
 STRATA_LABEL = 'Strata · Qwen3.8 Flash IQ3_XXS · gaming PC'
 PC_MODEL = 'qwen3.8-27b'

@@ -265,6 +265,13 @@ class UnifiedPortTests(unittest.TestCase):
             c.request('GET', '/v1/models')
             ids = [m['id'] for m in json.loads(c.getresponse().read())['data']]
         self.assertEqual(ids, ['qwen3.8-27b', 'gemma-4-26b-a4b', NAMES['strata'], NAMES['coder']])
+
+    def test_llama_model_status_passes_through_for_the_approver(self):
+        listed = {'data': [{'id': 'qwen3.8-27b', 'status': {'value': 'loaded'}}]}
+        with patch.object(g.ai_monitor, 'fetch', return_value=listed):
+            data = g.all_models()['data']
+        self.assertEqual(data[0]['status'], {'value': 'loaded'})
+        self.assertNotIn('status', data[1])  # Strata entries carry none, so a judge never picks Strata
         self.assertEqual(FakePC.seen, [])
 
     def test_other_paths_and_bad_bodies_never_reach_the_pc(self):
