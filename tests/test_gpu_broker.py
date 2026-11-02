@@ -2,6 +2,7 @@ import http.client
 import http.server
 import json
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -82,7 +83,7 @@ class BrokerTests(unittest.TestCase):
             self.assertEqual(r.read1(64), b'data: one\n\n')  # arrives before the upstream finishes
             FakePC.release.set()
             self.assertEqual(r.read(), b'data: two\n\n')
-        ensure.assert_called_once_with('llama')
+        ensure.assert_called_once_with('llama', hold=True)
         self.assertEqual(FakePC.seen[0][3], body)
 
     def test_failed_switch_is_503_and_never_reaches_the_pc(self):
@@ -146,7 +147,7 @@ class BrokerTests(unittest.TestCase):
                 c = http.client.HTTPConnection('127.0.0.1', strata.server_address[1], timeout=10)
                 c.request('POST', '/load', body=b'{}', headers={'Content-Type': 'application/json'})
                 r = c.getresponse(); FakePC.release.set(); r.read()
-            ensure.assert_called_once_with('strata')
+            ensure.assert_called_once_with('strata', hold=False)  # a page Load holds no stream
             remember.assert_not_called()  # a load is not a request in the history
         finally:
             strata.shutdown(); strata.server_close()
@@ -250,13 +251,13 @@ class UnifiedPortTests(unittest.TestCase):
     def test_coder_request_switches_to_coder_without_the_llama_token(self):
         with patch.object(g, 'ensure') as ensure:
             self.assertEqual(self.post(NAMES['coder'])[0], 200)
-        ensure.assert_called_once_with('coder')
+        ensure.assert_called_once_with('coder', hold=True)
         self.assertIsNone(FakePC.seen[0][2])
 
     def test_llama_request_gets_the_brokers_token_not_the_clients(self):
         with patch.object(g, 'ensure') as ensure:
             self.assertEqual(self.post('qwen3.8-27b', auth='Bearer whatever')[0], 200)
-        ensure.assert_called_once_with('llama')
+        ensure.assert_called_once_with('llama', hold=True)
         self.assertEqual(FakePC.seen[0][2], 'Bearer secret')
 
     def test_models_lists_every_engine(self):
@@ -274,6 +275,13 @@ class UnifiedPortTests(unittest.TestCase):
         self.assertNotIn('status', data[1])  # Strata entries carry none, so a judge never picks Strata
         self.assertEqual(FakePC.seen, [])
 
+    def test_unknown_or_missing_model_is_refused_before_any_swap(self):
+        with patch.object(g, 'llama_ids', return_value=['qwen3.8-27b']), patch.object(g, 'ensure') as ensure:
+            self.assertEqual(self.post('gpt-4o-mini')[0], 404)
+            self.assertEqual(self.post('')[0], 400)
+        ensure.assert_not_called()
+        self.assertEqual(FakePC.seen, [])
+
     def test_other_paths_and_bad_bodies_never_reach_the_pc(self):
         c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
         c.request('POST', '/models/unload', body=b'{}', headers={'Content-Type': 'application/json'})
@@ -282,3 +290,41 @@ class UnifiedPortTests(unittest.TestCase):
         c.request('POST', '/v1/chat/completions', body=b'[1]', headers={'Content-Type': 'application/json'})
         self.assertEqual(c.getresponse().status, 400)
         self.assertEqual(FakePC.seen, [])
+
+
+
+class DrainTests(unittest.TestCase):
+    """A swap waits for the other engine's streaming replies (Sonnet audit, 2 Nov 2026)."""
+
+    def setUp(self):
+        self.p = [patch.object(g, '_switch', return_value=[]), patch.object(g.ai_monitor, 'gpu_switch')]
+        for p in self.p:
+            p.start()
+
+    def tearDown(self):
+        for p in self.p:
+            p.stop()
+        for e in g._inflight:
+            g._inflight[e] = 0
+
+    def test_swap_waits_until_the_other_engines_stream_ends(self):
+        g.ensure('coder', hold=True)
+        self.assertEqual(g._inflight['coder'], 1)
+        done = threading.Event()
+        t = threading.Thread(target=lambda: (g.ensure('llama', hold=True), done.set()))
+        t.start()
+        self.assertFalse(done.wait(1.5))   # still waiting: the coder reply is streaming
+        g.release('coder')
+        self.assertTrue(done.wait(5))
+        self.assertEqual(g._inflight, {'llama': 1, 'strata': 0, 'coder': 0})
+
+    def test_same_engine_requests_do_not_wait(self):
+        g.ensure('coder', hold=True)
+        t0 = time.time()
+        g.ensure('coder', hold=True)
+        self.assertLess(time.time() - t0, 0.5)
+        self.assertEqual(g._inflight['coder'], 2)
+
+    def test_drain_gives_up_after_its_timeout(self):
+        g._inflight['strata'] = 1
+        self.assertFalse(g.drain('llama', timeout=0.2))

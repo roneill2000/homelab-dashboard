@@ -31,6 +31,12 @@ STRATA = {'strata': 8088, 'coder': 8089}
 UNIFIED_PORT = 8000
 _names = {'at': 0.0, 'strata': '', 'coder': ''}
 _names_lock = threading.Lock()
+_llama_ids = {'at': 0.0, 'ids': []}
+# Generation requests still streaming, per engine. A request for another engine waits (up to DRAIN_TIMEOUT) for these to
+# finish before its swap, so a swap never cuts a reply mid-stream (Sonnet audit, 2 Nov 2026: ping-pong between clients).
+_inflight = {'llama': 0, 'strata': 0, 'coder': 0}
+_inflight_cv = threading.Condition()
+DRAIN_TIMEOUT = 600
 # Requests that generate (and so need their engine on the GPU). Anything else is forwarded as-is.
 GENERATE = ('/v1/chat/completions', '/v1/completions', '/v1/messages', '/v1/embeddings', '/v1/responses',
             '/completion', '/completions', '/chat/completions', '/embedding', '/embeddings', '/infill')
@@ -80,32 +86,65 @@ def llama_busy():
         return False
 
 
-def ensure(engine):
+def drain(engine, timeout=DRAIN_TIMEOUT):
+    """Wait until no other engine has a reply streaming; True when drained, False when the timeout passed first."""
+    deadline = time.time() + timeout
+    with _inflight_cv:
+        while any(n for e, n in _inflight.items() if e != engine):
+            left = deadline - time.time()
+            if left <= 0:
+                return False
+            _inflight_cv.wait(min(left, 1.0))
+    return True
+
+
+def release(engine):
+    with _inflight_cv:
+        _inflight[engine] = max(0, _inflight[engine] - 1)
+        _inflight_cv.notify_all()
+
+
+def ensure(engine, hold=False):
     """Give the GPU to `engine` ('llama', 'strata' or 'coder'); serialised so concurrent requests cannot interleave a
-    switch. Unloads every other engine, then loads a Strata engine if needed. Returns what it did, '+'-joined, or None."""
+    switch. Waits for other engines' streaming replies to finish, unloads every other engine, then loads a Strata engine
+    if needed. With hold=True the caller is counted as streaming on `engine` (call release() when done), counted under
+    the switch lock so no other swap can slip in between. Returns what it did, '+'-joined, or None."""
     did = []
-    with _switch_lock, ai_monitor.gpu_switch():
-        for other, port in STRATA.items():
-            if other != engine and strata_loaded(other):
-                log(f'{engine} request: unloading {other}')
-                did.append('unload-' + other)
-                ai_monitor.strata_post('/unload', port=port)
-                if not ai_monitor.wait_strata(False, timeout=120, port=port):
-                    raise RuntimeError(f'{other} did not unload')
-        if engine in STRATA:
-            if llama_busy():
-                log(f'{engine} request: unloading llama-server models')
-                did.append('unload-llama')
-                ai_monitor.unload_llama()
-            if not strata_loaded(engine):
-                if game_running():
-                    raise GamePaused()
-                log(f'{engine} request: loading it')
-                did.append('load-' + engine)
-                ai_monitor.strata_post('/load', port=STRATA[engine])
-                if not ai_monitor.wait_strata(True, port=STRATA[engine]):
-                    raise RuntimeError(f'{engine} did not load')
+    with _switch_lock:
+        if not drain(engine):
+            log(f'{engine} request: other engine still streaming after {DRAIN_TIMEOUT} s, switching anyway')
+        with ai_monitor.gpu_switch():
+            did = _switch(engine)
+        if hold:
+            with _inflight_cv:
+                _inflight[engine] += 1
     return '+'.join(did) or None
+
+
+def _switch(engine):
+    """Unload every other engine, then load a Strata engine if needed (callers hold the switch locks)."""
+    did = []
+    for other, port in STRATA.items():
+        if other != engine and strata_loaded(other):
+            log(f'{engine} request: unloading {other}')
+            did.append('unload-' + other)
+            ai_monitor.strata_post('/unload', port=port)
+            if not ai_monitor.wait_strata(False, timeout=120, port=port):
+                raise RuntimeError(f'{other} did not unload')
+    if engine in STRATA:
+        if llama_busy():
+            log(f'{engine} request: unloading llama-server models')
+            did.append('unload-llama')
+            ai_monitor.unload_llama()
+        if not strata_loaded(engine):
+            if game_running():
+                raise GamePaused()
+            log(f'{engine} request: loading it')
+            did.append('load-' + engine)
+            ai_monitor.strata_post('/load', port=STRATA[engine])
+            if not ai_monitor.wait_strata(True, port=STRATA[engine]):
+                raise RuntimeError(f'{engine} did not load')
+    return did
 
 
 def strata_names(max_age=60.0):
@@ -132,6 +171,18 @@ def route(model, names=None):
     if 'flash-next' in m or m.startswith('strata'):
         return 'coder' if 'coder' in m else 'strata'
     return 'llama'
+
+
+def llama_ids(max_age=60.0):
+    """llama-server's model ids (cached); [] when it can't be asked, so a request then goes through and llama answers."""
+    if time.time() - _llama_ids['at'] > max_age:
+        try:
+            _llama_ids['ids'] = [m['id'] for m in ai_monitor.fetch(f'http://{PC}:8080/v1/models', llama_token())
+                                 .get('data', []) if isinstance(m, dict) and m.get('id')]
+            _llama_ids['at'] = time.time()
+        except Exception:
+            return _llama_ids['ids']
+    return _llama_ids['ids']
 
 
 def llama_token():
@@ -226,17 +277,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 model = json.loads(body or b'{}').get('model')
             except (ValueError, AttributeError):
                 return self.fail(400, 'Request body is not a JSON object')
+            if not isinstance(model, str) or not model.strip():
+                return self.fail(400, 'Name a model (GET /v1/models lists them)')
             engine = route(model)
+            if engine == 'llama':
+                known = llama_ids()
+                if known and model not in known:  # refuse before any swap: an unknown name must not unload Strata
+                    return self.fail(404, f'Unknown model {model!r}; GET /v1/models lists the available ones')
             host, port = self.server.upstream[0], self.server.ports[engine]
             if engine == 'llama':
                 extra['Authorization'] = 'Bearer ' + llama_token()
         # Strata's chat page has its own Load button; it must free the GPU of llama models first, like a request.
         load = engine in STRATA and self.command == 'POST' and self.path.split('?', 1)[0].rstrip('/') == '/load'
-        t0 = time.time()
+        t0, held = time.time(), False
         row = dict(ts=t0, engine=engine, model=ai_history.model_of(body) if generate and body else None, ok=0, status=None)
         if generate or load:
             try:
-                row['swap'] = ensure(engine)
+                row['swap'] = ensure(engine, hold=generate)
+                held = generate
             except GamePaused:
                 if generate:
                     remember(dict(row, status=503, swap='game', wall_s=time.time() - t0))
@@ -283,6 +341,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             log(f'{self.command} {self.path} ({engine}): {exc.__class__.__name__}')
         finally:
             conn.close()
+            if held:
+                release(engine)
             if generate:
                 remember(dict(row, ttfb_s=first - t1 if first else None, wall_s=time.time() - t0, **(ai_history.timings(tail) if row['ok'] else {})))
 
