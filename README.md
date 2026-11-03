@@ -76,7 +76,7 @@ flowchart LR
 ```
 
 - **Read-only by default.** Every page is built from telemetry the backend collects in the background; the browser never talks to the servers directly.
-- **One switch for the GPU.** Clients (Open WebUI, OpenHands, the Ask box) all use the broker's address; it loads the requested engine, unloads the other, and refuses while a game is running.
+- **One switch for the GPU.** Clients (Open WebUI, Hermes, the Ask box) all use the broker's address; it loads the requested engine, unloads the other, and refuses while a game is running.
 
 ---
 

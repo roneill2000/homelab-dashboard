@@ -5,7 +5,7 @@
 | proxy | https://proxy.lan | 192.168.0.20 (LXC 115, Caddy) |
 | memos | https://memos.lan | 192.168.0.18:5230 |
 | openwebui | https://ai.lan | 192.168.0.16:3000 |
-| openhands | https://openhands.lan | 192.168.0.19:4097 |
+| hermes | https://hermes.lan | 192.168.0.21:8787 |
 | pve | https://proxmox.lan | 192.168.0.3:8006 |
 | unraid | https://nas.lan | 192.168.0.4:80 |
 | scrutiny | https://scrutiny.lan | 192.168.0.4:8080 |

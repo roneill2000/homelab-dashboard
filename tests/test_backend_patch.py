@@ -516,17 +516,21 @@ if __name__ == '__main__':
 
 
 class OpenCodeRemovalTests(unittest.TestCase):
-    """OpenCode was removed 2 Nov 2026: a backend that earlier deploys gave an 'opencode' check loses it."""
+    """OpenCode was removed and OpenHands retired 2 Nov 2026 (Hermes, LXC 116, replaces them): a backend that earlier
+    deploys gave 'opencode'/'openhands' checks and a .19 row loses them and gains Hermes."""
 
-    def test_patch_drops_opencode_and_keeps_openhands(self):
+    def test_patch_swaps_openhands_for_hermes(self):
         src = ("def poll_network_and_matrix():\n"
-               "    port_targets = {'router': ('192.168.0.1', 80), 'opencode': ('192.168.0.19', 4096)}\n"
-               "    known = {19: ('OpenHands · OpenCode', 'LXC 114', 'x', False)}\n"
+               "    port_targets = {'router': ('192.168.0.1', 80), 'opencode': ('192.168.0.19', 4096), 'openhands': ('192.168.0.19', 4097)}\n"
+               "    known = {19: ('OpenHands', 'LXC 114', 'x', False)}\n"
                "    for i in [2, 19]:\n"
                "        pass\n")
         from backend_patch import patch_opencode
         out = patch_opencode(src)
         self.assertNotIn("'opencode'", out)
-        self.assertIn("'openhands': ('192.168.0.19', 4097)", out)
-        self.assertIn("('OpenHands', 'LXC 114', 'https://openhands.lan'", out)
+        self.assertNotIn("'openhands'", out)
+        self.assertNotIn("OpenHands", out)
+        self.assertIn("'hermes': ('192.168.0.21', 8787)", out)
+        self.assertIn("21: ('Hermes', 'LXC 116', 'https://hermes.lan'", out)
+        self.assertIn("for i in [2, 21]", out)
         self.assertEqual(out, patch_opencode(out))  # idempotent

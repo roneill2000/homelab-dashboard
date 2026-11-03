@@ -138,13 +138,13 @@
       "status": "running"
     },
     {
-      "id": "lxc-114",
+      "id": "lxc-116",
       "host": "proxmox",
-      "name": "openhands",
-      "ip": "192.168.0.19",
+      "name": "hermes",
+      "ip": "192.168.0.21",
       "kind": "lxc",
       "ports": [
-        4097
+        8787
       ],
       "status": "running"
     },

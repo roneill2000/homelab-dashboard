@@ -467,7 +467,7 @@ def broker_check(ok=None):
     itself). systemd's Restart=on-failure covers a crash, not a hang."""
     up = ok() if ok else http_ok('http://192.168.0.2:8000/health', timeout=6)
     return {'broker-down': (not up, 'GPU broker is not answering',
-                            'Every local-AI client (Open WebUI, OpenHands, Ask box) uses http://192.168.0.2:8000. '
+                            'Every local-AI client (Open WebUI, Hermes, Ask box) uses http://192.168.0.2:8000. '
                             'On LXC 104: systemctl restart homelab-gpu-broker; journalctl -u homelab-gpu-broker.', 4)}
 
 

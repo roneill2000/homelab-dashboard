@@ -412,7 +412,9 @@ def patch_strata(source):
 
 
 def patch_opencode(source):
-    """Add LXC 114's OpenHands Agent Canvas (:4097) to the TCP monitor and host inventory, like patch_memos. (OpenCode, :4096, was removed 2 Nov 2026; the name stays because deploy.py calls it.)"""
+    """Add LXC 116's Hermes WebUI (:8787) to the TCP monitor and host inventory, like patch_memos. OpenCode (:4096) was removed
+    and OpenHands (LXC 114, :4097) retired on 2 Nov 2026: earlier deploys added them to the installed file, so their check,
+    row and host-matrix entry are dropped here. The name stays because deploy.py calls it."""
     tree = ast.parse(source)
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
     found = set()
@@ -421,26 +423,33 @@ def patch_opencode(source):
             name = node.targets[0].id
             if name == 'port_targets':
                 keys = [getattr(k, 'value', None) for k in node.value.keys]
-                if 'opencode' in keys:  # removed 2 Nov 2026; earlier deploys added it to the installed file
-                    i = keys.index('opencode')
-                    del node.value.keys[i], node.value.values[i]
-                for key, target in (('openhands', "('192.168.0.19', 4097)"),):
+                for gone in ('opencode', 'openhands'):  # retired 2 Nov 2026; earlier deploys added them to the installed file
+                    keys = [getattr(k, 'value', None) for k in node.value.keys]
+                    if gone in keys:
+                        i = keys.index(gone)
+                        del node.value.keys[i], node.value.values[i]
+                for key, target in (('hermes', "('192.168.0.21', 8787)"),):
                     if key not in [getattr(k, 'value', None) for k in node.value.keys]:
                         node.value.keys.append(ast.Constant(key))
                         node.value.values.append(expression(target))
                 found.add(name)
             elif name == 'known':
-                row = expression("('OpenHands', 'LXC 114', 'https://openhands.lan', checks.get('openhands', False))")
+                row = expression("('Hermes', 'LXC 116', 'https://hermes.lan', checks.get('hermes', False))")
                 keys = [getattr(k, 'value', None) for k in node.value.keys]
                 if 19 in keys:
-                    node.value.values[keys.index(19)] = row
+                    i = keys.index(19)
+                    del node.value.keys[i], node.value.values[i]
+                    keys = [getattr(k, 'value', None) for k in node.value.keys]
+                if 21 in keys:
+                    node.value.values[keys.index(21)] = row
                 else:
-                    node.value.keys.append(ast.Constant(19))
+                    node.value.keys.append(ast.Constant(21))
                     node.value.values.append(row)
                 found.add(name)
         if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
-            if 19 not in [getattr(v, 'value', None) for v in node.iter.elts]:
-                node.iter.elts.append(ast.Constant(19))
+            node.iter.elts = [v for v in node.iter.elts if getattr(v, 'value', None) != 19]
+            if 21 not in [getattr(v, 'value', None) for v in node.iter.elts]:
+                node.iter.elts.append(ast.Constant(21))
                 node.iter.elts.sort(key=lambda v: v.value)
             found.add('matrix')
     assert found == {'port_targets', 'known', 'matrix'}, found

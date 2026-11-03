@@ -35,15 +35,15 @@ RECORDED = {
               'Stopped VMs 100, 101, 109, 110 are intentionally not backed up.',
               'The Homepage Updates page snapshots each LXC before apt upgrade and updates one guest at a time; it never reboots.',
               'Desktop router (RTX 5070 Ti, 16 GB): qwen3.6-35b-moe now 32,768 context, 54.8-63.1 tok/s; gemma-4-26b-a4b about 163 tok/s; one model loaded at a time.',
-              'OpenHands Agent Canvas (Ryan\'s preferred coding agent since 2026-11-02) runs in LXC 114 at https://openhands.lan (192.168.0.19:4097, service agent-canvas, own API-key login); default model is the Strata Coder via the GPU broker (one URL for every model: 192.168.0.2:8000/v1, routed by model name); it runs commands as root without confirmation (Ryan\'s choice). It needs the gaming PC on for models.',
-              'OpenCode was removed everywhere on 2026-11-02 (LXC 114 web UI and CLI, gaming PC CLI, opencode.lan); OpenHands replaces it. The MCP tools it shared with OpenHands now live in /opt/homelab-agent-tools on LXC 114.',
+              'Hermes Agent (Nous Research) with Hermes WebUI is Ryan\'s homelab and coding agent since 2026-11-02: LXC 116 at https://hermes.lan (192.168.0.21:8787, service hermes-webui, password login); default model is the Strata Coder via the GPU broker (one URL for every model: 192.168.0.2:8000/v1, routed by model name). It has SSH to Proxmox and Unraid plus the homelab and Proxmox MCP tools, and runs commands without approval (Ryan\'s choice).',
+              'OpenCode was removed everywhere and OpenHands (LXC 114, openhands.lan) was retired on 2026-11-02; Hermes replaces them. LXC 114 is stopped, not deleted.',
               'Zurg (Real-Debrid) is disabled since 2026-10-20 after its rclone mount hung twice; Jellyfin uses local 4TB folders and TorBox only.',
               'Minecraft (192.168.0.25 on Unraid br0) runs Paper 26.3 on Java 25 (6 GB Aikar + UseCompactObjectHeaders) mounted directly on /mnt/cache/appdata/minecraft/ (bypassing FUSE shfs, sync-chunk-writes=false) with Moonrise 6 worker / 2 I/O threads, ALTERNATE_CURRENT redstone, and Chunky + ChunkyBorder (50,000m Overworld/End borders, 6,250m Nether border).',
               'Jellyfin is 12.2.0 at 192.168.0.17:8096 with legacy token authorization re-enabled for older clients.',
               'Homepage Local AI has Wake PC (Wake-on-LAN magic packet) and Sleep PC (SSH forced command, 60 s on-screen warning, refuses if GPU >= 30% unless forced; cancel with C:/llm/cancel-sleep.cmd). Wake from sleep restores the router; from full shutdown the PC stops at the login screen.',
               'Phone alerts all go to one ntfy.sh topic from: Proxmox notifications (backups etc.), the Proxmox watchdog (Pi-hole DNS on .11 and .10, DuckDNS, WireGuard, root disk), smart-notify, fix-unraid-mount, Unraid (array, parity, disk usage 70/90%, temps, Docker), Scrutiny (drive failures), Uptime Kuma on the Pi, the Pi DDNS script, and homelab-alerts (gaps only: container shares and services, stopped Docker apps, failed updates, stale speed tests, Pi services/disk/temp). NetAlertX alerts on new devices only; Speedtest Tracker ntfy is off.',
               'Speedtest Tracker auto-selects the nearest Ookla server with Hostinger (73570) blocked; it was pinned to Comcast 1774, which dropped out of Ookla rotation on 20-21 Oct and caused NoServersException failures.',
-              'OpenHands Agent Canvas runs commands without confirmation (Ryan\'s choice); its web tools are DuckDuckGo search and a page fetcher.'],
+              'Hermes runs commands without approval (Ryan\'s choice); it has built-in web search/extract and a local Chromium browser.'],
     'notice': 'Recorded configuration, not a live configuration check.'}
 
 KEYWORDS = {
