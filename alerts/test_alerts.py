@@ -253,6 +253,7 @@ class CertTests(unittest.TestCase):
         good = [(1000 + 8 * 3600, 'LEAF'), (1000 + 5 * 86400, 'ROOT1')]
         c = self.run_checks({'a.lan': good, 'b.lan': good})
         self.assertFalse(c['lan-certs'][0]); self.assertFalse(c['lan-ca'][0]); self.assertEqual(self.key.read_text(), 'ROOT1')
+        self.assertEqual(c['lan-certs'][2], '')  # healthy: no dangling detail
         c = self.run_checks({'a.lan': [(1000 + 3600, 'LEAF'), good[1]], 'b.lan': [], 'c.lan': good})
         self.assertTrue(c['lan-certs'][0]); self.assertIn('a.lan: expires in 1.0 h', c['lan-certs'][2]); self.assertIn('b.lan: no certificate', c['lan-certs'][2])
 
