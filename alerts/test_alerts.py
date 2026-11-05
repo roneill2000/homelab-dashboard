@@ -172,11 +172,15 @@ class SnoozeAndEngineTests(unittest.TestCase):
 
     def test_engines_only_checked_while_pc_awake(self):
         self.assertEqual(a.ai_engine_checks(awake=lambda: False), {})
-        c = a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: False, llama_ok=lambda: True, game=lambda: False)
+        c = a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: False, llama_ok=lambda: True, game=lambda: False, coder_ok=lambda: True)
         self.assertTrue(c['strata-down'][0]); self.assertFalse(c['llama-down'][0])
+        c = a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: True, llama_ok=lambda: True, game=lambda: False, coder_ok=lambda: False)
+        self.assertTrue(c['strata-coder-down'][0]); self.assertFalse(c['strata-down'][0])
+        c = a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: True, llama_ok=lambda: True, game=lambda: False, coder_ok=lambda: True)
+        self.assertFalse(c['strata-coder-down'][0])
 
     def test_llama_down_only_when_no_game_and_unknown_is_skipped(self):
-        down = lambda **k: a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: True, llama_ok=lambda: False, **k)
+        down = lambda **k: a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: True, llama_ok=lambda: False, coder_ok=lambda: True, **k)
         self.assertTrue(down(game=lambda: False)['llama-down'][0])
         self.assertFalse(down(game=lambda: True)['llama-down'][0])
         self.assertNotIn('llama-down', down(game=lambda: None))

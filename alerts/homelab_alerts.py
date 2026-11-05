@@ -440,7 +440,7 @@ def paused_for_game():
     return True if 'GAME=yes' in out else False if 'GAME=no' in out else None
 
 
-def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_for_game):
+def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_for_game, coder_ok=None):
     """The PC's two AI engines, only while the PC is awake (asleep is normal, and keeps the last state).
     Strata's server stays up during games (game-watch only unloads its model); llama-server is stopped on purpose
     during games, so it only counts as down when no game is running."""
@@ -450,6 +450,10 @@ def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_
     up = strata_ok() if strata_ok else http_ok(f'http://{PC}:8088/health')
     out['strata-down'] = (not up, 'Strata is not running',
                           'The gaming PC is awake but Strata (:8088) does not answer. On the PC: Start-ScheduledTask Strata.', 3)
+    up = coder_ok() if coder_ok else http_ok(f'http://{PC}:8089/health')
+    out['strata-coder-down'] = (not up, 'Strata Coder is not running',
+                                'The gaming PC is awake but the Coder server (:8089, Hermes default model) does not answer; '
+                                'Hermes requests hang. On the PC: Start-ScheduledTask Strata-Coder.', 3)
     up = llama_ok() if llama_ok else http_ok(f'http://{PC}:8080/health')
     if up:
         out['llama-down'] = (False, 'llama-server is not running', '', 3)
@@ -482,7 +486,8 @@ def lan_names():
     except Exception:
         return []
     text = re.sub(r'#.*', '', text)  # names in comments are not sites
-    return sorted(set(re.findall(r'\b([a-z0-9-]+(?:\.[a-z0-9-]+)*\.lan)\b', text)))
+    # names declared as http://name.lan are HTTP-only on purpose (e.g. the CA bootstrap); not cert candidates
+    return sorted(set(re.findall(r'(?<!http://)(?<!https://)\b([a-z0-9-]+(?:\.[a-z0-9-]+)*\.lan)\b', text)))
 
 
 def served_chain(name):
@@ -532,7 +537,8 @@ def cert_checks(now, names=None, chain=served_chain, key_file=CA_KEY):
     elif keys and known not in keys:
         ca.append('Caddy has a new root CA, so devices that trusted the old one will show certificate warnings until it is trusted again '
                   '(then delete ' + str(key_file) + ' to accept it)')
-    detail = 'Caddy (LXC 115) is not renewing these: ' + '; '.join(leaf[:8]) + (f' (+{len(leaf) - 8} more)' if len(leaf) > 8 else '')
+    detail = '; '.join(leaf[:8]) + (f' (+{len(leaf) - 8} more)' if len(leaf) > 8 else '')
+    detail = f'Caddy (LXC 115) is not renewing these: {detail}' if leaf else ''
     return {'lan-certs': (bool(leaf), 'HTTPS certificates are not renewing', detail, 3),
             'lan-ca': (bool(ca), 'Caddy certificate authority problem', '; '.join(ca), 3)}
 
