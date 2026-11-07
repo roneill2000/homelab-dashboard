@@ -16,7 +16,7 @@ from open_webui.models.tools import Tools,ToolForm
 from open_webui.models.models import Models,ModelForm
 from open_webui.routers.tools import get_local_tool_specs,load_tool_module_by_id
 async def main():
- reference=await Models.get_model_by_id('qwen3.8-27b')
+ reference=await Models.get_model_by_id('qwen3.8-27b-uncensored')
  assert reference
  tool_id='homelab_diagnostics'
  module,frontmatter,_=await load_tool_module_by_id(tool_id,content=SOURCE)
@@ -43,7 +43,7 @@ async def main():
   result=await module.homelab_diagnostics(host,'summary')
   assert result.get('ok'),(host,result.get('error'))
   verified.append(host)
- for name in ('qwen3.8-27b','gemma-4-26b-a4b'):
+ for name in ('qwen3.8-27b-uncensored','gemma-4-26b-a4b'):
   existing=await Models.get_model_by_id(name)
   if existing:
    data=existing.model_dump(exclude={'user_id','created_at','updated_at','version_id'})

@@ -39,7 +39,7 @@ try{
   // The preview builds /api/storage on Proxmox, which cannot read the PC's model server, so pin the AI sources to a known
   // state (PC up, a llama model loaded, Strata unloaded) instead of depending on whatever the PC is doing right now.
   const pin=async r=>{const res=await r.fetch();const d=await res.json();const now=Date.now()/1000,ok={online:true,last_success_at:now,last_attempt_at:now,error:null};
-   d.ai={...(d.ai||{}),desktop:{...(d.ai?.desktop||{}),...ok,models:[{id:'qwen3.8-27b',state:'loaded',context_tokens:65536}]},strata:{...(d.ai?.strata||{}),...ok,loaded:false,model:'qwen3.8-flash-next-iq3_xxs'},webui:{...(d.ai?.webui||{}),...ok}};
+   d.ai={...(d.ai||{}),desktop:{...(d.ai?.desktop||{}),...ok,models:[{id:'qwen3.8-27b-uncensored',state:'loaded',context_tokens:65536}]},strata:{...(d.ai?.strata||{}),...ok,loaded:false,model:'qwen3.8-flash-next-iq3_xxs'},webui:{...(d.ai?.webui||{}),...ok}};
    await r.fulfill({response:res,json:d})};
   const p=await open(1440,900,'#/ai',p=>p.route('**/api/storage*',pin));const chat=p.locator('.ai-task--chat');
   // Loaded (featured) or under the collapsed Other models: open that list first so the row is visible either way.

@@ -9,7 +9,7 @@ from open_webui.models.models import Models
 from open_webui.utils.auth import create_token
 from open_webui.utils.mfa import get_auth,get_mfa_config,is_mfa_required
 async def owner():
- model=await Models.get_model_by_id('qwen3.8-27b')
+ model=await Models.get_model_by_id('qwen3.8-27b-uncensored')
  auth=await get_auth(model.user_id)
  assert not is_mfa_required('password',await get_mfa_config()), 'Use an existing verified browser session when MFA is required'
  return {'id':model.user_id,'session_stamp':auth.session_stamp,'auth_method':'password'}

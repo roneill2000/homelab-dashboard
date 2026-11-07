@@ -16,10 +16,10 @@ import asyncio,json,logging
 logging.disable(logging.CRITICAL)
 from open_webui.models.models import Models,ModelForm
 async def main():
-    reference=await Models.get_model_by_id('qwen3.8-27b')
-    assert reference is not None, 'Existing 27B configuration required'
+    reference=await Models.get_model_by_id('qwen3.8-27b-uncensored')
+    assert reference is not None, 'Existing 27B (Cold Fusion) configuration required'
     updates={
-        'qwen3.8-27b':{'reasoning_effort':'medium'},
+        'qwen3.8-27b-uncensored':{'reasoning_effort':'medium'},
     }
     verified=[]
     for name,params in updates.items():

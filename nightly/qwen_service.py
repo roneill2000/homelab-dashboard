@@ -31,11 +31,11 @@ PC_API = LOCAL_API
 STRATA_API = LOCAL_API
 STRATA_MODEL = 'qwen3.8-flash-next-iq3_xxs'
 STRATA_LABEL = 'Strata · Qwen3.8 Flash IQ3_XXS · gaming PC'
-PC_MODEL = 'qwen3.8-27b'
+PC_MODEL = 'qwen3.8-27b-uncensored'  # Cold Fusion since 7 Nov 2026 (stock 27B removed)
 PC_TOKEN = r.ROOT / 'router-token'
-PC_LABEL = 'Qwen3.8-27B · gaming PC'
+PC_LABEL = 'Qwen3.8-27B Cold Fusion · gaming PC'
 A310_LABEL = 'Gemma 4 E4B · A310'
-PC_NAMES = {'qwen3.8-27b': 'Qwen3.8-27B', 'qwen3.8-27b-uncensored': 'Qwen3.8-27B Uncensored', 'gemma-4-26b-a4b': 'Gemma 4 26B MoE'}
+PC_NAMES = {'qwen3.8-27b-uncensored': 'Qwen3.8-27B Cold Fusion', 'gemma-4-26b-a4b': 'Gemma 4 26B MoE'}
 # Model choices: 'a310' (Gemma 4 E4B; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
 # 'auto' (27B if the PC is on),
 # 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves, or 'strata'.
