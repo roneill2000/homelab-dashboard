@@ -170,6 +170,17 @@ class SnoozeAndEngineTests(unittest.TestCase):
         self.assertTrue(a.broker_check(ok=lambda: False)['broker-down'][0])
         self.assertFalse(a.broker_check(ok=lambda: True)['broker-down'][0])
 
+    def test_gpu_spill_check(self):
+        def live(util, power, model='qwen3.8-27b-uncensored', active=True, age=2):
+            return lambda: {'gpu': {'latest': {'utilization_pct': util, 'power_w': power, 'observed_at': 1000 - age}},
+                            'is_active': active, 'active_model': model}
+        self.assertTrue(a.gpu_spill_check(live(100, 85), now=1000)['gpu-spill'][0])
+        self.assertFalse(a.gpu_spill_check(live(100, 290), now=1000)['gpu-spill'][0])           # normal generation
+        self.assertFalse(a.gpu_spill_check(live(100, 85, active=False), now=1000)['gpu-spill'][0])  # idle resets
+        self.assertFalse(a.gpu_spill_check(live(100, 95, model='qwen3.8-flash-next-iq3_xxs'), now=1000)['gpu-spill'][0])  # Strata is RAM-bound
+        self.assertEqual(a.gpu_spill_check(live(100, 85, age=120), now=1000), {})               # stale sample: no change
+        self.assertEqual(a.gpu_spill_check(lambda: 1 / 0, now=1000), {})                         # dashboard down: no change
+
     def test_engines_only_checked_while_pc_awake(self):
         self.assertEqual(a.ai_engine_checks(awake=lambda: False), {})
         c = a.ai_engine_checks(awake=lambda: True, strata_ok=lambda: False, llama_ok=lambda: True, game=lambda: False, coder_ok=lambda: True)

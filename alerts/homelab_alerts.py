@@ -475,6 +475,41 @@ def broker_check(ok=None):
                             'On LXC 104: systemctl restart homelab-gpu-broker; journalctl -u homelab-gpu-broker.', 4)}
 
 
+SPILL_UTIL_PCT = 85   # GPU busy...
+SPILL_POWER_W = 120   # ...but drawing little: a llama model that no longer fits VRAM (Windows moved part of it to RAM;
+                      # measured ~85 W at 100 % with 1-60 tok/s; normal Cold Fusion/Gemma generation draws far more)
+
+
+def live_ai(wait=4.0, sleep=time.sleep):
+    """/api/ai/live starts the dashboard's 30 s watch window; the PC GPU is only sampled while watching, so read twice."""
+    fetch('/api/ai/live', timeout=10)
+    sleep(wait)
+    return fetch('/api/ai/live', timeout=10)
+
+
+def gpu_spill_check(live=live_ai, now=None):
+    """llama-server generating while the GPU is busy but drawing little power = VRAM spill (7 Nov 2026: the 64k Cold
+    Fusion config sits within ~55 MiB of the CUDA budget). Strata engines are skipped: they are RAM/SSD-bound and draw
+    ~100-140 W normally. Not generating counts as fine (resets the count); missing/stale data changes nothing."""
+    try:
+        d = live()
+    except Exception:
+        return {}
+    g = ((d or {}).get('gpu') or {}).get('latest') or {}
+    now = time.time() if now is None else now
+    util, power, seen = g.get('utilization_pct'), g.get('power_w'), g.get('observed_at')
+    if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (util, power, seen)) or now - seen > 30:
+        return {}
+    model = d.get('active_model') or ''
+    generating = bool(d.get('is_active')) and bool(model) and 'flash-next' not in model
+    bad = generating and util >= SPILL_UTIL_PCT and power < SPILL_POWER_W
+    return {'gpu-spill': (bad, 'Local AI model spilled out of VRAM',
+                          f'{model or "A llama-server model"} is generating with the GPU {util:.0f}% busy at only {power:.0f} W: '
+                          'part of it sits in system RAM and answers are very slow. Something else is using VRAM, or the '
+                          'model config no longer fits. Unload it (dashboard engine switch) or close the other GPU app; '
+                          'settings in C:\\llm\\models.ini.', 3)}
+
+
 CADDY = '192.168.0.20'
 CA_KEY = Path('/var/lib/homelab-alerts/caddy-ca-key.txt')  # Caddy root key id first seen; a change means devices must re-trust
 LEAF_MIN_H = 3  # Caddy's 12 h local certs renew with ~4 h left, so under 3 h means renewal is stuck
@@ -708,6 +743,7 @@ def main(argv):
     except Exception:
         pass
     current.update(broker_check())
+    current.update(gpu_spill_check())
     try:
         current.update(cert_checks(now))
     except Exception:
