@@ -43,7 +43,7 @@ async def main():
   result=await module.homelab_diagnostics(host,'summary')
   assert result.get('ok'),(host,result.get('error'))
   verified.append(host)
- for name in ('qwen3.8-27b','qwen3.6-35b-moe','gemma-4-26b-a4b'):
+ for name in ('qwen3.8-27b','gemma-4-26b-a4b'):
   existing=await Models.get_model_by_id(name)
   if existing:
    data=existing.model_dump(exclude={'user_id','created_at','updated_at','version_id'})

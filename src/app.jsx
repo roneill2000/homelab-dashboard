@@ -207,8 +207,7 @@ const gpuColors=['var(--md-chart-1)','var(--md-chart-3)','var(--md-chart-5)','va
 const STRATA_MODEL='qwen3.8-flash-next-iq3_xxs',CODER_MODEL='qwen3.8-flash-next-coder-iq1_m';
 const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat',speed:168.3}, // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
- 'qwen3.6-35b-moe':{role:'General use',speed:82.1}, // measured 22 Oct 2026: 48K context, 100% CUDA0
- 'qwen3.8-27b':{role:'Reasoning',speed:54.6}, // measured 21-22 Oct 2026: UD-IQ4_XS 48K ctx + ngram-mod (was 16.3 tok/s)
+ 'qwen3.8-27b':{role:'Reasoning',speed:102}, // measured 6 Nov 2026: UD-IQ4_XS 48K ctx + MTP drafter (3 drafts, 1 slot); was 54.6 with ngram-mod
  [STRATA_MODEL]:{role:'Strata · general reasoning',speed:69.1}, // 1 Nov 2026: Qwen3.8-Flash-Next IQ3_XXS (ISTA-DASLab GSQ-RCO) replaced Swift 1.5: same quality (strata-bench 28/29, hard v3 44/50 vs 43/50), median 69 tok/s writing, ~295 tok/s prompt reading, resident experts + 64k
  [CODER_MODEL]:{role:'Strata · coding (Hermes)',speed:108.5}, // 1 Nov 2026: Qwen3.8-Flash-Next Coder IQ1_M (half the experts at ~3.5 bit, all in RAM): 108 tok/s writing, ~2,600 tok/s prompt reading, 25k-token prompt in 6.8 s; strata-bench 28/29, v3 43/50; --kv-grow + 128k context
  'qwen3.8-27b-uncensored':{role:'Uncensored · abliterated',speed:51.4} // 27 Oct 2026: Heretic ARA IQ4_XS 3.0 (13.99 GB, all on GPU), 51.38 tok/s over 1,024 tokens, ngram-mod 43% acceptance; replaced the 15.57 GB OrcaRouter build that spilled past 16 GB VRAM
@@ -355,7 +354,7 @@ function QwenEvidence({evidence}){
  const labels=items=>(items||[]).map(k=>evidenceNames[k]||k).join(', ');
  return <details className="qwen-evidence"><summary>Show evidence</summary><p className="source-note">Exact observations supplied to the model. Freshness is measured at capture time; general knowledge is not sourced here.</p>{valid(evidence.observed_at)&&<p className="source-note">Captured {new Date(evidence.observed_at*1000).toLocaleString()}</p>}{Object.entries(evidence.sources).map(([key,value])=><details className="evidence-source" key={key}><summary>{evidenceNames[key]||key}</summary><pre>{JSON.stringify(value,null,2)}</pre></details>)}{evidence.recorded_configuration&&<details className="evidence-source"><summary>Recorded configuration · {evidence.recorded_configuration.as_of}</summary><pre>{JSON.stringify(evidence.recorded_configuration,null,2)}</pre></details>}{evidence.budget_omissions?.length>0&&<p className="source-note warning">Trimmed to fit: {evidence.budget_omissions.join(', ')}</p>}{evidence.not_selected?.length>0&&<p className="source-note">Not selected for this question: {labels(evidence.not_selected)}</p>}</details>
 }
-const PC_MODEL_NAMES={'qwen3.8-27b':'Qwen3.8 27B','qwen3.8-27b-uncensored':'Qwen3.8 27B Uncensored','gemma-4-26b-a4b':'Gemma 4 26B MoE','qwen3.6-35b-moe':'Qwen3.6 35B MoE',[STRATA_MODEL]:'Strata · Qwen3.8 Flash IQ3_XXS',[CODER_MODEL]:'Strata · Qwen3.8 Coder IQ1_M'};
+const PC_MODEL_NAMES={'qwen3.8-27b':'Qwen3.8 27B','qwen3.8-27b-uncensored':'Qwen3.8 27B Uncensored','gemma-4-26b-a4b':'Gemma 4 26B MoE',[STRATA_MODEL]:'Strata · Qwen3.8 Flash IQ3_XXS',[CODER_MODEL]:'Strata · Qwen3.8 Coder IQ1_M'};
 const targetLabel=t=>t==='a310'||t==='a310-12b'?'Gemma 4 E4B · A310':t==='strata'?`${PC_MODEL_NAMES[STRATA_MODEL]} · gaming PC`:t==='auto'?'Auto · 27B on PC, else A310':`${PC_MODEL_NAMES[t.slice(3)||'qwen3.8-27b']||t.slice(3)} · gaming PC`;
 function AskQwen({gpu,ai,slim=false,task=false}){
  const [homelab,setHomelab]=useState(()=>{try{return localStorage.getItem('qwenHomelab')==='1'}catch{return false}});

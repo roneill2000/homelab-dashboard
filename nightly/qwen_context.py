@@ -34,7 +34,7 @@ RECORDED = {
               'mount-heal in LXC 102 checks fstab CIFS/NFS mounts every 2 minutes and remounts stale or missing ones.',
               'Stopped VMs 100, 101, 109, 110 are intentionally not backed up.',
               'The Homepage Updates page snapshots each LXC before apt upgrade and updates one guest at a time; it never reboots.',
-              'Desktop router (RTX 5070 Ti, 16 GB): qwen3.6-35b-moe now 32,768 context, 54.8-63.1 tok/s; gemma-4-26b-a4b about 163 tok/s; one model loaded at a time.',
+              'Desktop router (RTX 5070 Ti, 16 GB): qwen3.8-27b (MTP drafter, ~100 tok/s), qwen3.8-27b-uncensored (64k context, Hermes), gemma-4-26b-a4b (vision, ~163 tok/s); one model loaded at a time; the 35B was removed on 2026-11-06.',
               'Hermes Agent (Nous Research) with Hermes WebUI is Ryan\'s homelab and coding agent since 2026-11-02: LXC 116 at https://hermes.lan (192.168.0.21:8787, service hermes-webui, password login); default model is the Strata Coder via the GPU broker (one URL for every model: 192.168.0.2:8000/v1, routed by model name). It has SSH to Proxmox and Unraid plus the homelab and Proxmox MCP tools, and runs commands without approval (Ryan\'s choice).',
               'OpenCode was removed everywhere and OpenHands (LXC 114, openhands.lan) was retired on 2026-11-02; Hermes replaces them. LXC 114 is stopped, not deleted.',
               'Zurg (Real-Debrid) is disabled since 2026-10-20 after its rclone mount hung twice; Jellyfin uses local 4TB folders and TorBox only.',

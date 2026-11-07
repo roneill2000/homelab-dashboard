@@ -20,7 +20,6 @@ async def main():
     assert reference is not None, 'Existing 27B configuration required'
     updates={
         'qwen3.8-27b':{'reasoning_effort':'medium'},
-        'qwen3.6-35b-moe':{'temperature':1.0,'top_p':0.95,'top_k':20,'min_p':0.0,'presence_penalty':1.5,'repeat_penalty':1.0},
     }
     verified=[]
     for name,params in updates.items():

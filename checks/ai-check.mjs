@@ -8,7 +8,7 @@ try{
  await page.goto(base);await expect(page.getByRole('heading',{name:'Overview',exact:true})).toBeVisible();
  const data=await(await page.request.get(base+'/api/storage')).json();
  expect(data.ai.webui.online).toBe(true);expect(data.ai.desktop.online).toBe(true);
- expect(data.ai.desktop.models.map(m=>m.id).sort()).toEqual(['gemma-4-26b-a4b','qwen3.6-35b-moe','qwen3.8-27b']);
+ expect(data.ai.desktop.models.map(m=>m.id).sort()).toEqual(['gemma-4-26b-a4b','qwen3.8-27b','qwen3.8-27b-uncensored']);
  expect(JSON.stringify(data.ai)).not.toMatch(/preset|api.key|C:\\\\llm|--ctx-size/);
  await page.getByRole('button',{name:'Local AI',exact:true}).click();const panel=page.locator('.local-ai-section');
  await expect(panel.locator('.ai-model')).toHaveCount(3);

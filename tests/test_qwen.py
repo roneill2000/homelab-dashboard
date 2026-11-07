@@ -97,7 +97,7 @@ class QwenTests(unittest.TestCase):
         self.assertIn('A310 answered',state['fallback'])
 
     def test_every_model_choice_is_validated_and_labelled(self):
-        for good in ('a310','a310-12b','auto','pc','pc:gemma-4-26b-a4b','pc:qwen3.6-35b-moe'):
+        for good in ('a310','a310-12b','auto','pc','pc:gemma-4-26b-a4b','pc:qwen3.8-27b-uncensored'):
             self.assertTrue(q.TARGET_RE.match(good),good)
         for bad in ('gpu','pc:','pc:../etc','pc:A B','a310;rm'):
             self.assertIsNone(q.TARGET_RE.match(bad),bad)
