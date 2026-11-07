@@ -89,7 +89,7 @@ def context(storage, now):
 
 # Per model family, measured 30 Oct 2026 (/mnt/share/model-validation, Ask A/B on the 10 eval questions): Google's
 # values for Gemma (A310 and PC), Qwen's thinking-mode values for Qwen, greedy for Strata's 2-bit Swift quant.
-SAMPLING = {'gemma': dict(temperature=1.0, top_p=0.95, top_k=64), 'qwen': dict(temperature=1.0, top_p=0.95, top_k=20),
+SAMPLING = {'gemma': dict(temperature=1.0, top_p=0.95, top_k=64), 'qwen': dict(temperature=0.6, top_p=0.95, top_k=20),  # 7 Nov: Cold Fusion maths 12/12 at 0.6 vs 10/12 at 1.0
             'strata': {}}  # 1 Nov: Strata applies the model card (thinking 1.0/0.95/20); greedy is advised against with thinking
 
 
