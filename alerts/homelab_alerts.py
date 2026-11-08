@@ -476,7 +476,7 @@ def broker_check(ok=None):
 
 
 SPILL_UTIL_PCT = 85   # GPU busy...
-SPILL_POWER_W = 120   # ...but drawing little: a llama model that no longer fits VRAM (Windows moved part of it to RAM;
+SPILL_POWER_W = 100   # ...but drawing little (7 Nov: spill ~85 W; healthy Gemma QAT dips to 117 W, median 220; CF 260+): a llama model that no longer fits VRAM (Windows moved part of it to RAM;
                       # measured ~85 W at 100 % with 1-60 tok/s; normal Cold Fusion/Gemma generation draws far more)
 
 
