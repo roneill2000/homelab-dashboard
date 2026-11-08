@@ -29,7 +29,7 @@ try{
  await page.getByRole('textbox',{name:'Filter services',exact:true}).fill('Open WebUI');await expect(page.locator('.service-card')).toHaveCount(1);
  await expect(page.locator('.service-card .service-link')).toHaveAttribute('href','http://192.168.0.16:3000');
  await expect(page.locator('.service-card').getByRole('img',{name:'Online',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Find a service'}).click();await page.getByRole('textbox',{name:'Search service names and IPs'}).fill('192.168.0.16');
+ await page.getByRole('button',{name:'Find a service'}).click();await page.getByRole('textbox',{name:'Search service names, IPs or the web'}).fill('192.168.0.16');
  await expect(page.locator('.command-results a')).toHaveCount(1);await page.keyboard.press('Escape');
  await page.getByRole('button',{name:'Local AI',exact:true}).click();
  let fixture=structuredClone(data);
