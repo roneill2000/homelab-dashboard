@@ -102,7 +102,7 @@ class QwenTests(unittest.TestCase):
         for bad in ('gpu','pc:','pc:../etc','pc:A B','a310;rm'):
             self.assertIsNone(q.TARGET_RE.match(bad),bad)
             self.assertEqual(q.Broker().submit('hi',bad)[0],400)
-        self.assertEqual(q.pc_label('gemma-4-26b-a4b'),'Gemma 4 26B MoE · gaming PC')
+        self.assertEqual(q.pc_label('gemma-4-26b-a4b'),'Gemma 4 26B · gaming PC')
 
     def test_named_pc_model_is_asked_for_by_name(self):
         broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='pc:gemma-4-26b-a4b')
@@ -111,7 +111,7 @@ class QwenTests(unittest.TestCase):
         with patch.object(q,'pc_token',return_value='k') as tok,patch.object(q,'ask_pc',return_value=response) as ask,patch.object(q.r,'fetch',side_effect=[storage(),{}]):
             broker.work(lock)
         tok.assert_called_once_with('gemma-4-26b-a4b');self.assertEqual(ask.call_args.args[2],'gemma-4-26b-a4b')
-        self.assertEqual(broker.state()['model'],'Gemma 4 26B MoE · gaming PC')
+        self.assertEqual(broker.state()['model'],'Gemma 4 26B · gaming PC')
 
     def test_strata_answers_through_the_broker_without_a_router_token(self):
         broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='strata')

@@ -44,8 +44,8 @@ try{
   const p=await open(1440,900,'#/ai',p=>p.route('**/api/storage*',pin));const chat=p.locator('.ai-task--chat');
   // Loaded (featured) or under the collapsed Other models: open that list first so the row is visible either way.
   await p.waitForTimeout(1500);await chat.locator('details.ai-others').evaluate(d=>{d.open=true}).catch(()=>{});
-  await expect(chat.getByRole('heading',{name:'Strata · Qwen3.8 Flash IQ3_XXS'})).toHaveCount(1,{timeout:8000});
-  const row=chat.locator('.ai-model').filter({has:p.getByRole('heading',{name:'Strata · Qwen3.8 Flash IQ3_XXS'})});
+  await expect(chat.getByRole('heading',{name:'Qwen3.8 Flash'})).toHaveCount(1,{timeout:8000});
+  const row=chat.locator('.ai-model').filter({has:p.getByRole('heading',{name:'Qwen3.8 Flash'})});
   const link=row.getByRole('link',{name:/Open chat/});
   if(await link.count())expect(await link.getAttribute('href')).toBe('http://192.168.0.16:3000/?model=qwen3.8-flash-next-iq3_xxs');
   await expect(p.getByRole('group',{name:'GPU engine'})).toHaveCount(0);
@@ -74,7 +74,7 @@ try{
   const now=Math.floor(Date.now()/1000);
   await p.route('**/api/qwen',r=>r.request().method()==='GET'?r.fulfill({json:{status:'complete',model:'Strata · Swift 1.5 IQ3_XXS · gaming PC',id:'f',prompt:'q',answer:'An answer.',performance:{tokens_per_second:40,input_tokens:10,output_tokens:20,generation_seconds:1},total_seconds:3,context_at:now,context_note:'Readings captured',evidence:{observed_at:now,sources:{},not_selected:[],budget_omissions:[]},updated_at:now}}):r.abort());
   await p.reload();await p.waitForTimeout(1500);
-  await expect(p.locator('.qwen-model')).toHaveText('Gemma 4 E4B · A310');
+  await expect(p.locator('.qwen-model')).toHaveText('Gemma 4 E4B · Unraid');
   await expect(p.locator('.qwen-panel')).toContainText('Strata · Swift 1.5 IQ3_XXS · gaming PC');await p.close()});
 
  await test('badges: the warning tone is amber, not the neutral grey',async()=>{

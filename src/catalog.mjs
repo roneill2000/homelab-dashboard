@@ -2,8 +2,8 @@
 // the server (build.mjs writes the ids to catalog.json, which deploy.py ships for /api/widget), so both count the same services.
 export const catalogRows=[
  ['memos','Memos','Notes','https://memos.lan','cloud','book','teal'],
- ['openwebui','Open WebUI','Chat with desktop models','https://ai.lan','ai','terminal','teal'],
- ['strata','Strata','Qwen 3.8-Flash-Next inference','https://ai.lan','ai','stacks','indigo'],
+ ['openwebui','Open WebUI','Chat with every local model','https://ai.lan','ai','terminal','teal'],
+ ['strata','Strata','Qwen3.8 Flash chat page · web search','https://strata.lan','ai','stacks','indigo'],
  ['hermes','Hermes','Homelab agent · local models','https://hermes.lan','ai','agent','purple'],
   ['pve','Proxmox','Virtual machines & containers','https://proxmox.lan','infra','server','orange'],['unraid','Unraid','Storage & Docker','https://nas.lan','infra','layers','pink'],['scrutiny','Scrutiny','Drive health & temperatures','https://scrutiny.lan','infra','disk','blue'],['syslog','System logs','Central event monitor','https://logs.lan','infra','activity','amber'],
  ['router','Flint 3','Wi-Fi 7 & routing','http://192.168.0.1','network','wifi','indigo'],['pihole11','Pi-hole primary','DNS filtering · .11','https://pihole.lan/admin','network','shield','pink'],['pihole10','Pi-hole replica','DNS filtering · .10','https://pihole2.lan/admin','network','shield','pink'],['openspeedtest','LAN speed test','Test your local connection','https://lanspeed.lan','network','activity','cyan'],['speedtest','Speedtest Tracker','Internet speed history','https://speedtest.lan','network','activity','purple'],['netalertx','NetAlertX','Devices on your network','https://netalertx.lan','network','network','green'],['kuma','Uptime Kuma','Service availability','https://kuma.lan','network','activity','teal'],['wireguard_ssh','VPN host','Host presence · .30; logs','http://192.168.0.3:8999','network','shield','pink'],
