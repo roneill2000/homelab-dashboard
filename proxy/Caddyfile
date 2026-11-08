@@ -12,13 +12,6 @@ proxmox.lan {
 		}
 	}
 }
-kasm.lan {
-	reverse_proxy https://192.168.0.15:443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
-	}
-}
 nas.lan {
 	reverse_proxy 192.168.0.4:80
 }
@@ -49,8 +42,16 @@ jellyfin.lan {
 ai.lan {
 	reverse_proxy 192.168.0.16:3000
 }
-opencode.lan {
-	reverse_proxy 192.168.0.19:4096
+strata.lan {
+	reverse_proxy 192.168.0.2:8088
+}
+hermes.lan {
+	reverse_proxy 192.168.0.21:8787 {
+		flush_interval -1
+	}
+}
+search.lan {
+	reverse_proxy 192.168.0.13:8888
 }
 memos.lan {
 	reverse_proxy 192.168.0.18:5230
@@ -96,4 +97,9 @@ http://:8096 {
 }
 http://:8080 {
 	reverse_proxy 192.168.0.6:8080
+}
+http://proxy.lan {
+	root * /srv/homelab-ca
+	header /homelab-ca.crt Content-Type application/x-x509-ca-cert
+	file_server
 }
