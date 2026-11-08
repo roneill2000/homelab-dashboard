@@ -131,7 +131,7 @@ def pc_token(model=PC_MODEL):
 def ask_pc(token, body, model=PC_MODEL, api=PC_API, timeout=300):
     headers={'Content-Type':'application/json'}
     if token:headers['Authorization']='Bearer '+token
-    req=urllib.request.Request(api+'/v1/chat/completions',data=json.dumps(dict(body,model=model,max_tokens=6000)).encode(),headers=headers)
+    req=urllib.request.Request(api+'/v1/chat/completions',data=json.dumps(dict(body,model=model,max_tokens=10000)).encode(),headers=headers)
     with urllib.request.urlopen(req,timeout=timeout) as resp:return json.load(resp)
 
 
