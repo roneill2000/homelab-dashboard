@@ -192,6 +192,12 @@ class EnsureTests(unittest.TestCase):
         # Already loaded: nothing to load, so no refusal.
         self.assertEqual(self.run_ensure('strata', {'strata': True}, False, game=True), [])
 
+    def test_only_known_clients_may_use_the_broker(self):
+        for ip in ('127.0.0.1', '192.168.0.16', '192.168.0.21', '192.168.0.20', '192.168.0.4', '::ffff:192.168.0.3'):
+            self.assertTrue(g.client_allowed(ip), ip)
+        for ip in ('192.168.0.55', '192.168.0.12', '10.0.0.5', '', None):
+            self.assertFalse(g.client_allowed(ip), ip)
+
     def test_game_detection_is_a_refused_llama_port(self):
         with patch.object(g.ai_monitor.socket, 'create_connection', side_effect=ConnectionRefusedError):
             self.assertTrue(g.game_running())

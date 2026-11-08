@@ -50,6 +50,14 @@ HOSTS = {'192.168.0.2', '127.0.0.1', 'localhost'}
 # Strata's own chat page, served through Caddy (strata.lan -> here, so opening it also frees the GPU of llama models).
 # Its page may call back to itself, so its own origin is the one browser origin accepted.
 PAGES = {'strata.lan'}
+# Only these machines may use the broker (7 Nov 2026 audit: any phone/TV/IoT device on the main Wi-Fi could otherwise
+# drive the GPU with a plain script, which sends no Origin). Dashboard itself, Proxmox (alerts, benchmarks), Unraid
+# (Ask box / nightly), Open WebUI, Caddy (strata.lan), Hermes.
+CLIENTS = {'127.0.0.1', '192.168.0.2', '192.168.0.3', '192.168.0.4', '192.168.0.16', '192.168.0.20', '192.168.0.21'}
+
+
+def client_allowed(address):
+    return (address or '').removeprefix('::ffff:') in CLIENTS
 
 
 class GamePaused(RuntimeError):
@@ -256,6 +264,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def forward(self):
         engine, (host, port) = self.server.engine, self.server.upstream
+        if not client_allowed(self.client_address[0]):
+            return self.fail(403, 'This machine may not use the GPU broker')
         problem = refuse(self.command, self.path, self.headers)
         if problem:
             return self.fail(*problem)
