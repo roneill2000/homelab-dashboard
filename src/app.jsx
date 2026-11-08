@@ -206,7 +206,8 @@ const gpuLabels={compute_pct:'Compute',render_pct:'Render',video_pct:'Video',cop
 const gpuColors=['var(--md-chart-1)','var(--md-chart-3)','var(--md-chart-5)','var(--md-chart-4)','var(--md-chart-2)'];
 const STRATA_MODEL='qwen3.8-flash-next-iq3_xxs',CODER_MODEL='qwen3.8-flash-next-coder-iq1_m';
 const modelProfiles={
- 'gemma-4-26b-a4b':{role:'Chat',speed:168.3}, // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
+ 'gemma-4-26b-a4b':{role:'Chat · reads images',speed:215}, // 7 Nov 2026: QAT UD-Q4_K_XL, 1 slot: 210-222 tok/s short answers (was Q3_K_XL 168.3, 22 Oct)
+ 'qwen3.8-27b-uncensored-fast':{role:'Uncensored · quicker, 45k context',speed:90}, // 7 Nov 2026: Cold Fusion + MTP (2 drafts), prose 89-93, code 108-115 tok/s // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
  [STRATA_MODEL]:{role:'Strata · general reasoning',speed:69.1}, // 1 Nov 2026: Qwen3.8-Flash-Next IQ3_XXS (ISTA-DASLab GSQ-RCO) replaced Swift 1.5: same quality (strata-bench 28/29, hard v3 44/50 vs 43/50), median 69 tok/s writing, ~295 tok/s prompt reading, resident experts + 64k
  [CODER_MODEL]:{role:'Strata · coding (Hermes)',speed:108.5}, // 1 Nov 2026: Qwen3.8-Flash-Next Coder IQ1_M (half the experts at ~3.5 bit, all in RAM): 108 tok/s writing, ~2,600 tok/s prompt reading, 25k-token prompt in 6.8 s; strata-bench 28/29, v3 43/50; --kv-grow + 128k context
  'qwen3.8-27b-uncensored':{role:'Uncensored · Cold Fusion',speed:53.5} // 7 Nov 2026: Cold Fusion 735-882 UD-IQ4_XS (own quant), 64k q8/q4 + ngram; replaced Ara v5 and the stock 27B
@@ -248,7 +249,7 @@ function PcPowerControl({pc,ask,notify,compact=false}){
   <span className={'pc-dot '+(online?'on':known?'off':'unknown')}/><span className="pc-label"><strong>Gaming PC</strong><small>{online?'Online':known?'Offline or asleep':'Checking…'}</small></span>
   {online?<button className="m3-btn m3-btn--tonal m3-state secondary-button" onClick={askSleep}><Icon name="moon" size={16}/>Sleep PC</button>
    :<button className="m3-btn m3-btn--tonal m3-state secondary-button" disabled={sending||!known} onClick={wake}><Icon name="power_settings_new" size={16}/>{sending?'Sending…':'Wake PC'}</button>}</div>}
-function LocalAI({ai,gpu,compact=false,onOpen,power,onNavigate}){
+function LocalAI({ai,gpu,live:liveFeed,compact=false,onOpen,power,onNavigate}){
  // Strata is a second engine on the same GPU; the GPU broker loads whichever engine a chat asks for, so it is listed as one more model.
  const strata=ai?.strata||{},strataLive=sourceFresh(strata);
  const web=ai?.webui||{},pc=ai?.desktop||{},live=sourceFresh(pc),webLive=sourceFresh(web);
@@ -260,7 +261,7 @@ function LocalAI({ai,gpu,compact=false,onOpen,power,onNavigate}){
  const labels={loaded:'Loaded',unloaded:'Loads on demand',loading:'Loading',unloading:'Unloading',sleeping:'Idle · unloaded',failed:'Failed',unknown:'Unknown'};
  const loaded=items.filter(m=>fresh(m)&&m.state==='loaded'),others=items.filter(m=>!(fresh(m)&&m.state==='loaded'));
  const chat=id=>`http://192.168.0.16:3000/?model=${encodeURIComponent(id)}`;
- const speed=m=>{const profile=modelProfiles[m.id];const isLiveGen=pc?.is_active&&pc?.active_model===m.id&&valid(pc?.active_speed);return isLiveGen?`${Number(pc.active_speed).toFixed(1)} tok/s ${pc?.is_recent?'recent':'live'}`:valid(profile?.speed)?`${profile.speed.toFixed(1)} tok/s recorded`:null};
+ const speed=m=>{const profile=modelProfiles[m.id];const g=liveFeed&&'is_active' in liveFeed?liveFeed:pc;/* the 2 s live feed beats the 10 s storage snapshot (7 Nov) */const isLiveGen=g?.is_active&&g?.active_model===m.id&&valid(g?.active_speed);return isLiveGen?`${Number(g.active_speed).toFixed(1)} tok/s ${g?.is_recent?'recent':'live'}`:valid(profile?.speed)?`${profile.speed.toFixed(1)} tok/s recorded`:null};
  const facts=m=>[speed(m),valid(m.context_tokens)?`${num(m.context_tokens)} tokens context${!fresh(m)?' · last seen':''}`:null].filter(Boolean).join(' · ');
  const modelRow=m=><article className="m3-card panel ai-model ai-model--row" key={m.id}><div className="ai-model-title"><div><h3>{PC_MODEL_NAMES[m.id]||m.id}</h3><p className="ai-role">{[modelProfiles[m.id]?.role,facts(m)].filter(Boolean).join(' · ')}</p></div><Badge state={fresh(m)&&m.state==='failed'?false:null} label={fresh(m)?(labels[m.state]||'Unknown'):'Unavailable'}/></div>
   {canChat(m)?<a className="m3-btn m3-btn--text m3-state text-button" href={chat(m.id)} target="_blank" rel="noreferrer">Open chat <Icon name="external" size={16}/></a>:<button className="m3-btn m3-btn--text m3-state text-button" disabled>{fresh(m)?'Web UI unavailable':'PC unavailable'}</button>}</article>;
@@ -960,7 +961,7 @@ function App(){
  {/* 5. Ask AI: optional entry point, last so a long answer never pushes the controls and activity down. */}
  <AskQwen gpu={storage?.gpu} ai={storage?.ai} slim/>
  </>}
-{view==='ai'&&<><LocalAI ai={storage?.ai} gpu={storage?.gpu} onOpen={()=>navigate('overview')} power={power} onNavigate={navigate}/><PcGpuPanel live={aiLive}/><AiHistoryPanel history={storage?.ai_history}/><GpuPanel gpu={storage?.gpu} ranges={ranges}/></>}
+{view==='ai'&&<><LocalAI ai={storage?.ai} gpu={storage?.gpu} live={aiLive} onOpen={()=>navigate('overview')} power={power} onNavigate={navigate}/><PcGpuPanel live={aiLive}/><AiHistoryPanel history={storage?.ai_history}/><GpuPanel gpu={storage?.gpu} ranges={ranges}/></>}
   {view==='updates'&&<UpdatesPanel notify={notify}/>}
  {storageError&&['storage','media','ai','network','overview'].includes(view)&&view!=='overview'&&<div className="notice warning" role="alert">Disk and network readings are unavailable right now. Retrying every 10 seconds.</div>}
  {fleetError&&!fleet&&['fleet','infra'].includes(view)&&<div className="notice warning" role="alert">Host and backup status is unavailable right now. Retrying every minute.</div>}
