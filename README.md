@@ -129,6 +129,7 @@ node showcase/record-motion.mjs    # desktop and phone clips
 |---|---|
 | `src/` | React app and styles (bundled by `build.mjs` into `index.html`) |
 | `backend/` | Python modules the dashboard host runs: monitors, proxies, the GPU broker, the server patches |
+| `docs/` | Design notes; **`docs/PORTING.md`** explains how to adapt this repo to another homelab (for people and their coding agents) |
 | `scripts/` | Tools run by hand: `deploy.py`, `preview.py`, installers and one-off configurators |
 | `tests/`, `checks/` | Python unit tests and Playwright check suites |
 | `nightly/`, `alerts/`, `updates/`, `pc/`, `systemd/`, ... | Services that run on other hosts, and their installers |
