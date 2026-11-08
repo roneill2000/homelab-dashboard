@@ -368,7 +368,8 @@ def strata_post(path, port=8088):
         return response.status
 
 
-def wait_strata(loaded, timeout=SWITCH_TIMEOUT, sleep=time.sleep, port=8088):
+def wait_strata(loaded, timeout=SWITCH_TIMEOUT, sleep=time.sleep, port=8088, every=0.5):
+    # every: /health is a cheap local call; the old 5 s poll left each GPU switch idle for up to 5 s per wait (8 Nov 2026)
     until = time.time() + timeout
     while time.time() < until:
         try:
@@ -376,7 +377,7 @@ def wait_strata(loaded, timeout=SWITCH_TIMEOUT, sleep=time.sleep, port=8088):
                 return True
         except Exception:
             pass
-        sleep(5)
+        sleep(every)
     return False
 
 
