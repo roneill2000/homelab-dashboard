@@ -57,7 +57,7 @@ Pull from these, in this order. Save raw results under `diagrams/raw/` (gitignor
 
 ## Step 2: starting facts to verify
 
-**Network:** GL.iNet Flint 3 (GL-BE9300) router .1, Comcast 2.5 Gb. WireGuard LXC 117 `wgvpn` at .30 (UDP 500), VPN range 10.0.0.0/24. Pi-hole primary .11 (LXC 106, hostname still `pihole-secondary`), replica .10 (Orange Pi), synced by nebula-sync. Separate IoT and guest networks on the router.
+**Network:** GL.iNet Flint 3 (GL-BE9300) router .1, Comcast 2.5 Gb. WireGuard LXC 117 `wgvpn` at .30 (UDP 500), VPN range 10.0.0.0/24. Pi-hole primary .11 (LXC 106, container hostname `pihole-primary` after the 9 Nov rename), replica .10 (Orange Pi), synced by nebula-sync. Separate IoT and guest networks on the router.
 
 **Proxmox (.3, N100, PVE 9.2):** LXCs 102 utilities (.13: arr stack, SABnzbd, FileBrowser, NetAlertX), 103 kasm (.15, usually stopped), 104 homepage (.2), 105 speedtest (.14), 106 pihole (.11), 111 guacamole (.6), 112 open-webui (.16), 113 memos (.18), 114 opencode (.19), 117 wgvpn (.30, WireGuard, UDP 500). Stopped VMs 100, 101, 109, 110 and the retired VM 107 (rollback copy of 117): show them grey, labelled stopped.
 

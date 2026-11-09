@@ -6,7 +6,7 @@ rsyslog on Proxmox receives UDP 514 and writes one file per sender to `/var/log/
 | File | Source |
 | --- | --- |
 | `orangepi.log` (alias `pi-ryan.log`) | Orange Pi .10: Pi-hole replica, Uptime Kuma, nebula-sync |
-| `pihole-primary.log` | LXC 106 .11, the primary Pi-hole (hostname still `pihole-secondary`) |
+| `pihole-primary.log` | LXC 106 .11, the primary Pi-hole (container hostname `pihole-primary` since 9 Nov) |
 | `proxmox.log` | Proxmox's own journal, notice and above (`11-local.conf`) |
 | `<hostname>.log` | everything else, by lowercase hostname |
 

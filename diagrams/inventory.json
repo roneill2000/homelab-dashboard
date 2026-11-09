@@ -95,7 +95,7 @@
     {
       "id": "lxc-106",
       "host": "proxmox",
-      "name": "pihole-secondary",
+      "name": "pihole-primary",
       "ip": "192.168.0.11",
       "kind": "lxc",
       "ports": [
