@@ -544,6 +544,29 @@ WG_FIXTURE = (
 )
 
 
+class TestPiWebui(unittest.TestCase):
+    PI_FIXTURE = (
+        "def poll_network_and_matrix():\n"
+        "    port_targets = {'hermes': ('192.168.0.21', 8787), 'searxng': ('192.168.0.13', 8888)}\n"
+        "    known = {21: ('Hermes', 'LXC 116', 'https://hermes.lan', checks.get('hermes', False))}\n"
+        "    for i in [21]:\n"
+        "        pass\n"
+    )
+
+    def test_pi_probe_added(self):
+        from backend_patch import patch_pi_webui
+        out = patch_pi_webui(self.PI_FIXTURE)
+        self.assertIn("'pi': ('192.168.0.21', 8787)", out)
+        self.assertIn("('pi', 'LXC 116', 'http://192.168.0.21:8787', checks.get('pi', False))", out)
+        self.assertIn("22", out)  # new services row keyed above hermes' 21
+        self.assertEqual(out, patch_pi_webui(out))  # idempotent
+
+    def test_unknown_probe_shape_raises(self):
+        from backend_patch import patch_pi_webui
+        with self.assertRaises(AssertionError):
+            patch_pi_webui("def poll_network_and_matrix():\n    checks = {}\n")
+
+
 class TestWireGuardLxc117(unittest.TestCase):
     def test_probe_follows_lxc_117(self):
         from backend_patch import patch_wireguard_lxc117

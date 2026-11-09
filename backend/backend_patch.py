@@ -459,6 +459,45 @@ def patch_opencode(source):
     return ''.join(lines)
 
 
+def patch_pi_webui(source):
+    """Add the pi coding agent web UI (LXC 116, :8787, added 9 Nov 2026) to the
+    TCP monitor, services list and host matrix, mirroring patch_opencode's
+    Hermes/SearXNG rows. pi-web-ui listens on 0.0.0.0:8787 with token auth."""
+    tree = ast.parse(source)
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
+    found = set()
+    new_key = None
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name == 'port_targets':
+                keys = [getattr(k, 'value', None) for k in node.value.keys]
+                if 'pi' not in keys:
+                    node.value.keys.append(ast.Constant('pi'))
+                    node.value.values.append(expression("('192.168.0.21', 8787)"))
+                found.add(name)
+            elif name == 'known':
+                keys = [getattr(k, 'value', None) for k in node.value.keys]
+                have_pi = any(
+                    isinstance(v, ast.Tuple) and v.elts and getattr(v.elts[0], 'value', None) == 'pi'
+                    for v in node.value.values)
+                if not have_pi:
+                    new_key = max((k for k in keys if isinstance(k, int)), default=0) + 1
+                    node.value.keys.append(ast.Constant(new_key))
+                    node.value.values.append(expression("('pi', 'LXC 116', 'http://192.168.0.21:8787', checks.get('pi', False))"))
+                found.add(name)
+        if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
+            nums = [v.value for v in node.iter.elts if isinstance(v, ast.Constant)]
+            if new_key is not None and new_key not in nums:
+                node.iter.elts.append(ast.Constant(new_key))
+                node.iter.elts.sort(key=lambda v: v.value if isinstance(v, ast.Constant) else 0)
+            found.add('matrix')
+    assert found == {'port_targets', 'known', 'matrix'}, found
+    lines = source.splitlines(keepends=True)
+    lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn))+'\n']
+    return ''.join(lines)
+
+
 def patch_speedtest_latest_completed(source):
     """Show the newest *completed* Speedtest Tracker result; one failed run (e.g. Ookla NoServersException) used to blank the card."""
     import re
