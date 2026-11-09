@@ -35,7 +35,7 @@ PC_MODEL = 'qwen3.8-27b-uncensored'  # Cold Fusion since 7 Nov 2026 (stock 27B r
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Cold Fusion 27B · gaming PC'
 A310_LABEL = 'Gemma 4 E4B · Unraid'
-PC_NAMES = {'qwen3.8-27b-uncensored': 'Cold Fusion 27B', 'qwen3.8-27b-uncensored-fast': 'Cold Fusion 27B Fast', 'gemma-4-26b-a4b': 'Gemma 4 26B'}
+PC_NAMES = {'qwen3.8-27b': 'Qwen3.8 27B', 'qwen3.8-27b-uncensored': 'Cold Fusion 27B', 'qwen3.8-27b-uncensored-fast': 'Cold Fusion 27B Fast', 'gemma-4-26b-a4b': 'Gemma 4 26B'}
 # Model choices: 'a310' (Gemma 4 E4B; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
 # 'auto' (27B if the PC is on),
 # 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves, or 'strata'.
