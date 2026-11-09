@@ -558,7 +558,7 @@ class TestPiWebui(unittest.TestCase):
         from backend_patch import patch_pi_webui
         out = patch_pi_webui(self.PI_FIXTURE)
         self.assertIn("'pi': ('192.168.0.21', 8788)", out)
-        self.assertIn("('pi', 'LXC 116', 'http://192.168.0.21:8788', checks.get('pi', False))", out)
+        self.assertIn("('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))", out)
         self.assertIn("22", out)  # new services row keyed above hermes' 21
         self.assertIn("'192.168.0.21' if i == 22", out)  # row key renders on .21, Hermes' octet
         self.assertEqual(out, patch_pi_webui(out))  # idempotent

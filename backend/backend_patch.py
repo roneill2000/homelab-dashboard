@@ -487,11 +487,11 @@ def patch_pi_webui(source):
                 if not have_pi:
                     new_key = max((k for k in keys if isinstance(k, int)), default=0) + 1
                     node.value.keys.append(ast.Constant(new_key))
-                    node.value.values.append(expression("('pi', 'LXC 116', 'http://192.168.0.21:8788', checks.get('pi', False))"))
+                    node.value.values.append(expression("('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))"))
                 else:
                     i = next(i for i, v in enumerate(node.value.values)
                              if isinstance(v, ast.Tuple) and getattr(v.elts[0], 'value', None) == 'pi')
-                    node.value.values[i] = expression("('pi', 'LXC 116', 'http://192.168.0.21:8788', checks.get('pi', False))")
+                    node.value.values[i] = expression("('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))")
                     new_key = getattr(node.value.keys[i], 'value', None)
                 found.add(name)
         if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
