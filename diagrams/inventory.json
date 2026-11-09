@@ -149,16 +149,24 @@
       "status": "running"
     },
     {
-      "id": "vm-107",
+      "id": "lxc-117",
       "host": "proxmox",
-      "name": "Wireguard",
+      "name": "wgvpn",
       "ip": "192.168.0.30",
-      "kind": "vm",
+      "kind": "lxc",
       "ports": [
-        443,
         500
       ],
       "status": "running"
+    },
+    {
+      "id": "vm-107",
+      "host": "proxmox",
+      "name": "Wireguard (retired; rollback copy of LXC 117)",
+      "ip": "192.168.0.30",
+      "kind": "vm",
+      "ports": [],
+      "status": "stopped"
     },
     {
       "id": "vm-100",
@@ -346,7 +354,7 @@
       "verified": true
     },
     {
-      "from": "vm-107",
+      "from": "lxc-117",
       "to": "router",
       "what": "WireGuard",
       "verified": true

@@ -1118,3 +1118,19 @@ def patch_widget_more(source):
                             "'dns': widget_dns, 'status': 'attention' if problems else 'all_up',") + '\n' + marker + '\n'
     compile(source, '<dashboard>', 'exec')
     return source
+
+
+def patch_wireguard_lxc117(source):
+    """WireGuard moved from VM 107 to LXC 117 (Nov 2026). The service probe follows the container, and VM 107 stays accepted while it exists as the stopped rollback copy."""
+    marker = '# HOMELAB_WG_LXC117_V1'
+    if marker in source:
+        return source
+    old = "wg_vm_up = any((g.get('vmid') == 107 and g.get('online')"
+    new = "wg_vm_up = any((g.get('vmid') in (117, 107) and g.get('online')"
+    if source.count(old) == 1:
+        source = source.replace(old, new, 1)
+    elif new not in source:
+        raise ValueError('wireguard probe shape changed; LXC 117 probe not applied')
+    source = source.replace("('WireGuard Gateway', 'VM 107',", "('WireGuard Gateway', 'LXC 117',")
+    compile(source, '<dashboard>', 'exec')
+    return source + '\n' + marker + '\n'

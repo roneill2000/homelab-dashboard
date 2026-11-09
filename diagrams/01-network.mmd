@@ -29,7 +29,7 @@ flowchart TD
         
         subgraph PVE_HOST["Proxmox VE 9.2 (Intel N100) · 192.168.0.3"]
             PVE["Proxmox Host<br/>192.168.0.3 · Hypervisor"]
-            WG_VM["WireGuard (VM 107)<br/>192.168.0.30 · VPN Gateway"]
+            WG_VM["WireGuard (LXC 117)<br/>192.168.0.30:500 · VPN Gateway"]
             PIHOLE_PRI["Pi-hole Primary (LXC 106)<br/>192.168.0.11:53 · DNS Master"]
         end
 

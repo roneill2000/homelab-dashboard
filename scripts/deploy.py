@@ -44,6 +44,7 @@ updated = patch_namespace['patch_widget_cloud'](updated)
 updated = patch_namespace['patch_widget_dns'](updated)
 updated = patch_namespace['patch_widget_strata'](updated)
 updated = patch_namespace['patch_widget_more'](updated)
+updated = patch_namespace['patch_wireguard_lxc117'](updated)
 marker = '# HOMELAB_STORAGE_V2'
 if marker not in updated:
     updated = updated.replace('class DashboardHandler(', 'import storage_monitor\nstorage_monitor.start()\n\n'+marker+'\nclass DashboardHandler(', 1)

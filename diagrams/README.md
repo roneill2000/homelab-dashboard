@@ -9,7 +9,7 @@ Generated on **2026-10-22** from read-only inspection of Proxmox VE (`192.168.0.
 ## 1. Diagrams Overview
 
 ### 01 · Network Topology & Routing (`01-network.svg`)
-Shows the physical infrastructure, WAN edge (Comcast 2.5 Gbps), router subnets (LAN, isolated IoT, isolated Guest), WireGuard external ingress via VM 107, and primary/secondary DNS paths with `nebula-sync`.
+Shows the physical infrastructure, WAN edge (Comcast 2.5 Gbps), router subnets (LAN, isolated IoT, isolated Guest), WireGuard external ingress via LXC 117 (`wgvpn`, UDP 500), and primary/secondary DNS paths with `nebula-sync`.
 
 ![Network Topology](01-network.svg)
 

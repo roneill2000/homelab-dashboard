@@ -5,7 +5,7 @@ All post to the same private ntfy.sh topic. Before adding an alert, check this l
 | Sender | Where | What it alerts on |
 | --- | --- | --- |
 | Proxmox notification system | `/etc/pve/notifications.cfg`, webhook target `Ntfy`, matcher `ntfy-matcher` (mode all) | Every Proxmox notification: backup job results, replication, package updates, fencing |
-| homelab-health-watchdog | Proxmox `/usr/local/bin/homelab-health-watchdog.sh`, `homelab-watchdog.timer` every 3 min | Primary Pi-hole DNS (.11), secondary Pi-hole DNS on the Orange Pi (.10, also means Pi unreachable), DuckDNS mismatch, WireGuard VM 107, Proxmox root disk ≥85% |
+| homelab-health-watchdog | Proxmox `/usr/local/bin/homelab-health-watchdog.sh`, `homelab-watchdog.timer` every 3 min | Primary Pi-hole DNS (.11), secondary Pi-hole DNS on the Orange Pi (.10, also means Pi unreachable), DuckDNS mismatch, WireGuard server (LXC 117, ping .30), Proxmox root disk ≥85% |
 | smart-notify | Proxmox `/usr/local/bin/smart-notify.sh` | Proxmox SMART warnings |
 | fix-unraid-mount | Proxmox `/usr/local/bin/fix-unraid-mount.sh`, cron every 5 min | Proxmox → Unraid backup mount went stale and was remounted |
 | Unraid notifications | Unraid `/boot/config/plugins/dynamix/notifications/agents/ntfy.sh` (normal, warning, alert on) | Array and parity events, disk usage warning 70% / critical 90%, disk temperature hot 60 °C / max 65 °C, Docker update notices, Unraid notices |

@@ -57,9 +57,9 @@ Pull from these, in this order. Save raw results under `diagrams/raw/` (gitignor
 
 ## Step 2: starting facts to verify
 
-**Network:** GL.iNet Flint 3 (GL-BE9300) router .1, Comcast 2.5 Gb. WireGuard VM 107 at .30, VPN range 10.0.0.0/24. Pi-hole primary .11 (LXC 106, hostname still `pihole-secondary`), replica .10 (Orange Pi), synced by nebula-sync. Separate IoT and guest networks on the router.
+**Network:** GL.iNet Flint 3 (GL-BE9300) router .1, Comcast 2.5 Gb. WireGuard LXC 117 `wgvpn` at .30 (UDP 500), VPN range 10.0.0.0/24. Pi-hole primary .11 (LXC 106, hostname still `pihole-secondary`), replica .10 (Orange Pi), synced by nebula-sync. Separate IoT and guest networks on the router.
 
-**Proxmox (.3, N100, PVE 9.2):** LXCs 102 utilities (.13: arr stack, SABnzbd, FileBrowser, NetAlertX), 103 kasm (.15, usually stopped), 104 homepage (.2), 105 speedtest (.14), 106 pihole (.11), 111 guacamole (.6), 112 open-webui (.16), 113 memos (.18), 114 opencode (.19). VM 107 WireGuard. Stopped VMs 100, 101, 109, 110: show them grey, labelled stopped.
+**Proxmox (.3, N100, PVE 9.2):** LXCs 102 utilities (.13: arr stack, SABnzbd, FileBrowser, NetAlertX), 103 kasm (.15, usually stopped), 104 homepage (.2), 105 speedtest (.14), 106 pihole (.11), 111 guacamole (.6), 112 open-webui (.16), 113 memos (.18), 114 opencode (.19), 117 wgvpn (.30, WireGuard, UDP 500). Stopped VMs 100, 101, 109, 110 and the retired VM 107 (rollback copy of 117): show them grey, labelled stopped.
 
 **Unraid (.4, i7-7700T, 7.3.2):** array ~4 TB (68% used), 256 GB cache. Arc A310 (Qwen3.5-4B for Ask Qwen and the nightly review, Jellyfin transcoding). Docker: Jellyfin (.17), Minecraft (.25), Audiobookshelf, Glances, Scrutiny, unraid-restic, zurg (stopped on purpose).
 
@@ -71,7 +71,7 @@ Pull from these, in this order. Save raw results under `diagrams/raw/` (gitignor
 
 ## Step 3: draw (about 30 min)
 
-1. **01-network:** router at top; LAN, IoT and guest networks as subgraphs; each physical box with its IP; WireGuard path from phone/laptop → router → VM 107 → LAN; DNS path client → Pi-hole .11 / .10 → upstream.
+1. **01-network:** router at top; LAN, IoT and guest networks as subgraphs; each physical box with its IP; WireGuard path from phone/laptop → router → LXC 117 wgvpn → LAN; DNS path client → Pi-hole .11 / .10 → upstream.
 2. **02-services:** one subgraph per host; every running guest or Docker app with IP and main port; stopped ones grey and dashed.
 3. **03-data-backup:** disks and shares; SMB/CIFS mounts (Proxmox `/mnt/UNRAID`, FileBrowser); backup jobs with time and retention; Google Drive as an external node.
 4. **04-ops:** Homepage data sources; syslog flow; every ntfy sender → ntfy.sh → phone; AI: Homepage Ask Qwen → A310, Open WebUI/OpenCode → gaming PC.

@@ -534,3 +534,25 @@ class OpenCodeRemovalTests(unittest.TestCase):
         self.assertIn("21: ('Hermes', 'LXC 116', 'https://hermes.lan'", out)
         self.assertIn("for i in [2, 21]", out)
         self.assertEqual(out, patch_opencode(out))  # idempotent
+
+
+WG_FIXTURE = (
+    "def poll_network_and_matrix():\n"
+    "    known = {30: ('WireGuard Gateway', 'VM 107', 'http://192.168.0.3:8999', checks.get('wireguard_ssh', False))}\n"
+    "    wg_vm_up = any((g.get('vmid') == 107 and g.get('online') for g in TELEMETRY['pve'].get('guests', [])))\n"
+    "    checks['wireguard_ssh'] = bool(wg_vm_up or '192.168.0.30' in active_ips)\n"
+)
+
+
+class TestWireGuardLxc117(unittest.TestCase):
+    def test_probe_follows_lxc_117(self):
+        from backend_patch import patch_wireguard_lxc117
+        out = patch_wireguard_lxc117(WG_FIXTURE)
+        self.assertIn("g.get('vmid') in (117, 107)", out)
+        self.assertIn("('WireGuard Gateway', 'LXC 117',", out)
+        self.assertEqual(out, patch_wireguard_lxc117(out))  # idempotent
+
+    def test_unknown_probe_shape_raises(self):
+        from backend_patch import patch_wireguard_lxc117
+        with self.assertRaises(ValueError):
+            patch_wireguard_lxc117("checks = {}\n")
