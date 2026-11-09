@@ -412,9 +412,10 @@ def patch_strata(source):
 
 
 def patch_opencode(source):
-    """Add LXC 116's Hermes WebUI (:8787) to the TCP monitor and host inventory, like patch_memos. OpenCode (:4096) was removed
-    and OpenHands (LXC 114, :4097) retired on 2 Nov 2026: earlier deploys added them to the installed file, so their check,
-    row and host-matrix entry are dropped here. The name stays because deploy.py calls it."""
+    """Retired agents' probes. OpenCode (:4096) was removed and OpenHands (LXC 114, :4097) retired on 2 Nov 2026; Hermes
+    (LXC 116 WebUI :8787, row .21) was retired on 9 Nov 2026 for pi (patch_pi_webui adds pi's row, which renders on .21).
+    Earlier deploys added them to the installed file, so their checks, rows and host-matrix entries are dropped here. Also
+    adds the SearXNG probe. The name stays because deploy.py calls it."""
     tree = ast.parse(source)
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
     found = set()
@@ -423,35 +424,26 @@ def patch_opencode(source):
             name = node.targets[0].id
             if name == 'port_targets':
                 keys = [getattr(k, 'value', None) for k in node.value.keys]
-                for gone in ('opencode', 'openhands'):  # retired 2 Nov 2026; earlier deploys added them to the installed file
+                for gone in ('opencode', 'openhands', 'hermes'):  # retired 2 and 9 Nov 2026; earlier deploys added them
                     keys = [getattr(k, 'value', None) for k in node.value.keys]
                     if gone in keys:
                         i = keys.index(gone)
                         del node.value.keys[i], node.value.values[i]
                 # searxng: LXC 102 container behind search.lan (8 Nov 2026, Hermes added it to the installed file by hand)
-                for key, target in (('hermes', "('192.168.0.21', 8787)"), ('searxng', "('192.168.0.13', 8888)")):
+                for key, target in (('searxng', "('192.168.0.13', 8888)"),):
                     if key not in [getattr(k, 'value', None) for k in node.value.keys]:
                         node.value.keys.append(ast.Constant(key))
                         node.value.values.append(expression(target))
                 found.add(name)
             elif name == 'known':
-                row = expression("('Hermes', 'LXC 116', 'https://hermes.lan', checks.get('hermes', False))")
-                keys = [getattr(k, 'value', None) for k in node.value.keys]
-                if 19 in keys:
-                    i = keys.index(19)
-                    del node.value.keys[i], node.value.values[i]
+                for gone in (19, 21):  # OpenHands .19, Hermes .21 (pi's row has its own key)
                     keys = [getattr(k, 'value', None) for k in node.value.keys]
-                if 21 in keys:
-                    node.value.values[keys.index(21)] = row
-                else:
-                    node.value.keys.append(ast.Constant(21))
-                    node.value.values.append(row)
+                    if gone in keys:
+                        i = keys.index(gone)
+                        del node.value.keys[i], node.value.values[i]
                 found.add(name)
         if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
-            node.iter.elts = [v for v in node.iter.elts if getattr(v, 'value', None) != 19]
-            if 21 not in [getattr(v, 'value', None) for v in node.iter.elts]:
-                node.iter.elts.append(ast.Constant(21))
-                node.iter.elts.sort(key=lambda v: v.value)
+            node.iter.elts = [v for v in node.iter.elts if getattr(v, 'value', None) not in (19, 21)]
             found.add('matrix')
     assert found == {'port_targets', 'known', 'matrix'}, found
     lines = source.splitlines(keepends=True)
@@ -463,8 +455,8 @@ def patch_pi_webui(source):
     """Add Pi Pocket, the pi coding agent web app (LXC 116, :8790, https://pi.lan,
     9 Nov 2026), to the TCP monitor, services list and host matrix, mirroring
     patch_opencode's Hermes/SearXNG rows. Replaces the removed third-party
-    pi-web-ui (:8788); an old :8788 probe is rewritten in place. Token auth;
-    8787 stays Hermes WebUI's port. Idempotent."""
+    pi-web-ui (:8788); an old :8788 probe is rewritten in place. Token auth.
+    Hermes (:8787, row .21) was retired 9 Nov 2026 (patch_opencode). Idempotent."""
     tree = ast.parse(source)
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
     found = set()
@@ -500,7 +492,7 @@ def patch_pi_webui(source):
             if new_key is not None and new_key not in nums:
                 node.iter.elts.append(ast.Constant(new_key))
                 node.iter.elts.sort(key=lambda v: v.value if isinstance(v, ast.Constant) else 0)
-            # pi (LXC 116) shares Hermes' octet .21; its row key is not its address.
+            # pi (LXC 116, .21) keeps the row key it got next to Hermes' old .21 row; its key is not its address.
             for stmt in node.body:
                 if (isinstance(stmt, ast.Assign) and isinstance(stmt.targets[0], ast.Name)
                         and stmt.targets[0].id == 'ip' and isinstance(stmt.value, ast.JoinedStr)):

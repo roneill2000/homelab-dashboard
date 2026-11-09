@@ -452,8 +452,8 @@ def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_
                           'The gaming PC is awake but Strata (:8088) does not answer. On the PC: Start-ScheduledTask Strata.', 3)
     up = coder_ok() if coder_ok else http_ok(f'http://{PC}:8089/health')
     out['strata-coder-down'] = (not up, 'Strata Coder is not running',
-                                'The gaming PC is awake but the Coder server (:8089, Hermes default model) does not answer; '
-                                'Hermes requests hang. On the PC: Start-ScheduledTask Strata-Coder.', 3)
+                                'The gaming PC is awake but the Coder server (:8089, the default model of pi) does not answer; '
+                                'pi requests hang. On the PC: Start-ScheduledTask Strata-Coder.', 3)
     up = llama_ok() if llama_ok else http_ok(f'http://{PC}:8080/health')
     if up:
         out['llama-down'] = (False, 'llama-server is not running', '', 3)
@@ -471,7 +471,7 @@ def broker_check(ok=None):
     itself). systemd's Restart=on-failure covers a crash, not a hang."""
     up = ok() if ok else http_ok('http://192.168.0.2:8000/health', timeout=6)
     return {'broker-down': (not up, 'GPU broker is not answering',
-                            'Every local-AI client (Open WebUI, Hermes, Ask box) uses http://192.168.0.2:8000. '
+                            'Every local-AI client (Open WebUI, pi, Ask box) uses http://192.168.0.2:8000. '
                             'On LXC 104: systemctl restart homelab-gpu-broker; journalctl -u homelab-gpu-broker.', 4)}
 
 

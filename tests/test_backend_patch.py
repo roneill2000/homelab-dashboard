@@ -516,23 +516,22 @@ if __name__ == '__main__':
 
 
 class OpenCodeRemovalTests(unittest.TestCase):
-    """OpenCode was removed and OpenHands retired 2 Nov 2026 (Hermes, LXC 116, replaces them): a backend that earlier
-    deploys gave 'opencode'/'openhands' checks and a .19 row loses them and gains Hermes."""
+    """OpenCode was removed and OpenHands retired 2 Nov 2026, Hermes retired 9 Nov 2026 (pi replaces them): a backend that
+    earlier deploys gave 'opencode'/'openhands'/'hermes' checks and .19/.21 rows loses them; pi's row stays."""
 
-    def test_patch_swaps_openhands_for_hermes(self):
+    def test_patch_drops_retired_agents(self):
         src = ("def poll_network_and_matrix():\n"
-               "    port_targets = {'router': ('192.168.0.1', 80), 'opencode': ('192.168.0.19', 4096), 'openhands': ('192.168.0.19', 4097)}\n"
-               "    known = {19: ('OpenHands', 'LXC 114', 'x', False)}\n"
-               "    for i in [2, 19]:\n"
+               "    port_targets = {'router': ('192.168.0.1', 80), 'opencode': ('192.168.0.19', 4096), 'openhands': ('192.168.0.19', 4097), 'hermes': ('192.168.0.21', 8787), 'pi': ('192.168.0.21', 8790)}\n"
+               "    known = {19: ('OpenHands', 'LXC 114', 'x', False), 21: ('Hermes', 'LXC 116', 'https://hermes.lan', False), 22: ('pi', 'LXC 116', 'https://pi.lan', False)}\n"
+               "    for i in [2, 19, 21, 22]:\n"
                "        pass\n")
         from backend_patch import patch_opencode
         out = patch_opencode(src)
-        self.assertNotIn("'opencode'", out)
-        self.assertNotIn("'openhands'", out)
-        self.assertNotIn("OpenHands", out)
-        self.assertIn("'hermes': ('192.168.0.21', 8787)", out)
-        self.assertIn("21: ('Hermes', 'LXC 116', 'https://hermes.lan'", out)
-        self.assertIn("for i in [2, 21]", out)
+        for gone in ("'opencode'", "'openhands'", "OpenHands", "'hermes'", "Hermes"):
+            self.assertNotIn(gone, out)
+        self.assertIn("'searxng': ('192.168.0.13', 8888)", out)
+        self.assertIn("22: ('pi', 'LXC 116', 'https://pi.lan'", out)
+        self.assertIn("for i in [2, 22]", out)
         self.assertEqual(out, patch_opencode(out))  # idempotent
 
 

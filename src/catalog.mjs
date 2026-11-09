@@ -4,7 +4,6 @@ export const catalogRows=[
  ['memos','Memos','Notes','https://memos.lan','cloud','book','cyan'],
  ['openwebui','Open WebUI','Chat with every local model','https://ai.lan','ai','terminal','indigo'],
  ['strata','Strata','Qwen3.8 Flash chat page · web search','https://strata.lan','ai','stacks','indigo'],
- ['hermes','Hermes','Homelab agent · local models','https://hermes.lan','ai','agent','indigo'],
  ['pi','Pi Pocket','Pi coding agent · sessions in the browser','https://pi.lan','ai','terminal','indigo'],
  ['searxng','SearXNG','Private meta-search · Brave Google Bing Yahoo','https://search.lan','cloud','search','cyan'],
   ['pve','Proxmox','Virtual machines & containers','https://proxmox.lan','infra','server','orange'],['unraid','Unraid','Storage & Docker','https://nas.lan','infra','layers','orange'],['scrutiny','Scrutiny','Drive health & temperatures','https://scrutiny.lan','infra','disk','orange'],['syslog','System logs','Central event monitor','https://logs.lan','infra','activity','orange'],

@@ -140,11 +140,12 @@
     {
       "id": "lxc-116",
       "host": "proxmox",
-      "name": "hermes",
+      "name": "agents (pi, Pi Pocket, Paseo)",
       "ip": "192.168.0.21",
       "kind": "lxc",
       "ports": [
-        8787
+        6767,
+        8790
       ],
       "status": "running"
     },
