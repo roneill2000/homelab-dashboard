@@ -460,56 +460,45 @@ def patch_opencode(source):
 
 
 def patch_pi_webui(source):
-    """Add the pi coding agent web UI (LXC 116, :8788, added 9 Nov 2026) to the
-    TCP monitor, services list and host matrix, mirroring patch_opencode's
-    Hermes/SearXNG rows. pi-web-ui listens on 0.0.0.0:8788 with token auth
-    (8787 stays Hermes WebUI's port)."""
+    """Retire the pi web-UI rows (third-party cockpit removed 9 Nov 2026): strip
+    the pi port probe, the services row and its matrix key/octet-override.
+    Idempotent: the baseline is untouched once pi is gone."""
     tree = ast.parse(source)
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
     found = set()
-    new_key = None
+    removed_key = None
     for node in ast.walk(fn):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
             if name == 'port_targets':
                 keys = [getattr(k, 'value', None) for k in node.value.keys]
-                if 'pi' not in keys:
-                    node.value.keys.append(ast.Constant('pi'))
-                    node.value.values.append(expression("('192.168.0.21', 8788)"))
-                else:
-                    node.value.values[keys.index('pi')] = expression("('192.168.0.21', 8788)")
+                if 'pi' in keys:
+                    i = keys.index('pi')
+                    node.value.keys.pop(i)
+                    node.value.values.pop(i)
                 found.add(name)
             elif name == 'known':
-                keys = [getattr(k, 'value', None) for k in node.value.keys]
-                have_pi = any(
-                    isinstance(v, ast.Tuple) and v.elts and getattr(v.elts[0], 'value', None) == 'pi'
-                    for v in node.value.values)
-                if not have_pi:
-                    new_key = max((k for k in keys if isinstance(k, int)), default=0) + 1
-                    node.value.keys.append(ast.Constant(new_key))
-                    node.value.values.append(expression("('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))"))
-                else:
-                    i = next(i for i, v in enumerate(node.value.values)
-                             if isinstance(v, ast.Tuple) and getattr(v.elts[0], 'value', None) == 'pi')
-                    node.value.values[i] = expression("('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))")
-                    new_key = getattr(node.value.keys[i], 'value', None)
+                i = next((i for i, v in enumerate(node.value.values)
+                          if isinstance(v, ast.Tuple) and v.elts and getattr(v.elts[0], 'value', None) == 'pi'), None)
+                if i is not None:
+                    removed_key = getattr(node.value.keys[i], 'value', None)
+                    node.value.keys.pop(i)
+                    node.value.values.pop(i)
                 found.add(name)
         if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
-            nums = [v.value for v in node.iter.elts if isinstance(v, ast.Constant)]
-            if new_key is not None and new_key not in nums:
-                node.iter.elts.append(ast.Constant(new_key))
-                node.iter.elts.sort(key=lambda v: v.value if isinstance(v, ast.Constant) else 0)
-            # pi (LXC 116) shares Hermes' octet .21; its row key is not its address.
-            for stmt in node.body:
-                if (isinstance(stmt, ast.Assign) and isinstance(stmt.targets[0], ast.Name)
-                        and stmt.targets[0].id == 'ip' and isinstance(stmt.value, ast.JoinedStr)):
-                    if new_key is not None:
-                        stmt.value = ast.IfExp(
-                            test=ast.Compare(left=ast.Name(id='i'), ops=[ast.Eq()],
-                                             comparators=[ast.Constant(new_key)]),
-                            body=ast.Constant('192.168.0.21'), orelse=stmt.value)
-                        stmt.value = ast.fix_missing_locations(stmt.value)
             found.add('matrix')
+            if removed_key is not None:
+                node.iter.elts = [e for e in node.iter.elts
+                                  if not (isinstance(e, ast.Constant) and e.value == removed_key)]
+                for stmt in node.body:
+                    if (isinstance(stmt, ast.Assign) and isinstance(stmt.targets[0], ast.Name)
+                            and stmt.targets[0].id == 'ip' and isinstance(stmt.value, ast.IfExp)):
+                        test = stmt.value.test
+                        if (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name) and test.left.id == 'i'
+                                and isinstance(test.comparators[0], ast.Constant)
+                                and test.comparators[0].value == removed_key):
+                            stmt.value = stmt.value.orelse
+                            stmt.value = ast.fix_missing_locations(stmt.value)
     assert found == {'port_targets', 'known', 'matrix'}, found
     lines = source.splitlines(keepends=True)
     lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn))+'\n']
