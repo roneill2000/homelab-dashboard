@@ -554,25 +554,23 @@ class TestPiWebui(unittest.TestCase):
         "        pass\n"
     )
 
-    def test_pi_probe_removed(self):
+    def test_pi_probe_added(self):
         from backend_patch import patch_pi_webui
-        pi_fixture = (
-            self.PI_FIXTURE
-            .replace("port_targets = {'hermes'", "port_targets = {'pi': ('192.168.0.21', 8788), 'hermes'")
-            .replace("known = {21: ('Hermes', 'LXC 116', 'https://hermes.lan', checks.get('hermes', False))}",
-                     "known = {21: ('Hermes', 'LXC 116', 'https://hermes.lan', checks.get('hermes', False)), "
-                     "22: ('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))}")
-            .replace("for i in [21]:", "for i in [21, 22]:")
-            .replace("ip = f'192.168.0.{i}'", "ip = '192.168.0.21' if i == 22 else f'192.168.0.{i}'")
-        )
-        out = patch_pi_webui(pi_fixture)
-        self.assertNotIn("'pi'", out)
-        self.assertNotIn('pi.lan', out)
-        self.assertNotIn('8788', out)
-        self.assertNotIn('22', out)
-        self.assertIn("'hermes': ('192.168.0.21', 8787)", out)  # baseline untouched
-        self.assertIn("ip = f'192.168.0.{i}'", out)
+        out = patch_pi_webui(self.PI_FIXTURE)
+        self.assertIn("'pi': ('192.168.0.21', 8790)", out)
+        self.assertIn("('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))", out)
+        self.assertIn("22", out)  # new services row keyed above hermes' 21
+        self.assertIn("'192.168.0.21' if i == 22", out)  # row key renders on .21, Hermes' octet
         self.assertEqual(out, patch_pi_webui(out))  # idempotent
+
+    def test_old_pi_web_ui_port_rewritten(self):
+        from backend_patch import patch_pi_webui
+        old = (self.PI_FIXTURE
+               .replace("port_targets = {'hermes'", "port_targets = {'pi': ('192.168.0.21', 8788), 'hermes'"))
+        out = patch_pi_webui(old)
+        self.assertIn("'pi': ('192.168.0.21', 8790)", out)
+        self.assertNotIn('8788', out)
+        self.assertEqual(out, patch_pi_webui(out))
 
     def test_unknown_probe_shape_raises(self):
         from backend_patch import patch_pi_webui
