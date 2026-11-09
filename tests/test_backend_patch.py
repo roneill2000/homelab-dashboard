@@ -551,7 +551,7 @@ class TestPiWebui(unittest.TestCase):
         "    known = {21: ('Hermes', 'LXC 116', 'https://hermes.lan', checks.get('hermes', False))}\n"
         "    for i in [21]:\n"
         "        ip = f'192.168.0.{i}'\n"
-        "        pass\n"
+        "        matrix.append({'octet': f'.{i}', 'ip': ip})\n"
     )
 
     def test_pi_probe_added(self):
@@ -561,6 +561,7 @@ class TestPiWebui(unittest.TestCase):
         self.assertIn("('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))", out)
         self.assertIn("22", out)  # new services row keyed above hermes' 21
         self.assertIn("'192.168.0.21' if i == 22", out)  # row key renders on .21, Hermes' octet
+        self.assertIn("'octet': f\".{ip.rsplit('.', 1)[1]}\"", out)  # label from the address, not the key
         self.assertEqual(out, patch_pi_webui(out))  # idempotent
 
     def test_old_pi_web_ui_port_rewritten(self):

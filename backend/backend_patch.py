@@ -510,6 +510,12 @@ def patch_pi_webui(source):
                                              comparators=[ast.Constant(new_key)]),
                             body=ast.Constant('192.168.0.21'), orelse=stmt.value)
                         stmt.value = ast.fix_missing_locations(stmt.value)
+            # Label each row by its address, not its key: pi's key is not its octet.
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Dict):
+                    for k_i, k in enumerate(sub.keys):
+                        if getattr(k, 'value', None) == 'octet':
+                            sub.values[k_i] = expression("f\".{ip.rsplit('.', 1)[1]}\"")
             found.add('matrix')
     assert found == {'port_targets', 'known', 'matrix'}, found
     lines = source.splitlines(keepends=True)
