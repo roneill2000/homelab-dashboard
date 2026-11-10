@@ -158,6 +158,18 @@ class UrlRules(unittest.TestCase):
                 lib.safe_url('https://gone.example/f.mkv')
         self.assertIn('does not resolve', str(caught.exception))
 
+    def test_unresolved_host_is_refused_by_name(self):
+        # The worker resolves with the network's own resolver (a Pi hole). A host it cannot
+        # place is refused with a message that says so, rather than started and failed later.
+        lib._DNS_CACHE.clear()
+        try:
+            with patch.object(lib, '_lookup', side_effect=OSError):
+                with self.assertRaises(lib.BadDownload) as ctx:
+                    lib.safe_url('https://no-such-host.invalid/x.mkv')
+            self.assertIn('does not resolve', str(ctx.exception))
+        finally:
+            lib._DNS_CACHE.clear()
+
     def test_lookups_are_timed_out_and_cached(self):
         seen = {}
 
