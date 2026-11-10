@@ -392,6 +392,21 @@ class DebridTests(unittest.TestCase):
         self.assertEqual(self.read_state(), [])
         self.assertEqual(dp.debrid_status()['downloads'], [])
 
+    def test_clear_keeps_a_finished_row_whose_library_scan_has_not_run(self):
+        # The state file is the scan queue: clearing an unscanned finished row would mean Jellyfin
+        # is never asked about that file.
+        self.write_state([self.row('done.mkv', 'finished', int(time.time()) - 600, scanned=False),
+                          self.row('old.mkv', 'finished', int(time.time()) - 86400)])
+        with patch.object(dp, '_download_rpc', side_effect=AssertionError('clear must not call the worker')):
+            handled, codes, body = call('/api/debrid', OK, {'clear': True})
+        self.assertEqual((handled, codes, body['cleared'], body['kept']), (True, [200], 1, 1))
+        self.assertEqual([r['name'] for r in self.read_state()], ['done.mkv'])
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer={'ok': True, 'jobs': []})), \
+             patch.object(dp, '_jellyfin_scan', return_value=True) as scan:
+            dp._debrid_tick()
+        scan.assert_called_once()
+        self.assertTrue(self.read_state()[0]['scanned'])
+
     def test_clear_needs_the_action_header(self):
         self.write_state([self.row('a.mkv', 'finished', int(time.time()))])
         with patch.object(dp, '_download_rpc', side_effect=AssertionError('must not reach the worker')):
