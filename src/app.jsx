@@ -209,10 +209,10 @@ const webSearchUrl=q=>`https://search.lan/search?q=${encodeURIComponent(q.trim()
 const STRATA_MODEL='qwen3.8-flash-next-iq3_xxs',CODER_MODEL='qwen3.8-flash-next-coder-iq1_m';
 const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat · reads images',speed:215}, // 7 Nov 2026: QAT UD-Q4_K_XL, 1 slot: 210-222 tok/s short answers (was Q3_K_XL 168.3, 22 Oct)
- 'qwen3.8-27b':{role:'Coding · stock Qwen3.8 27B, 64k + MTP',speed:115}, // 9 Nov 2026: Unsloth UD-Q3_K_XL + MTP (2 drafts), 64k q8/q4: prose 92, code 108-115 tok/s, 59.5k prompt 1,340 tok/s, VRAM ~15.3 GB (IQ4_XS + MTP spills at 64k)
+ 'qwen3.8-27b':{role:'Coding · pi default, 64k + MTP',speed:115}, // 9 Nov 2026: Unsloth UD-Q3_K_XL + MTP (2 drafts), 64k q8/q4: prose 92, code 108-115 tok/s, 59.5k prompt 1,340 tok/s, VRAM ~15.3 GB (IQ4_XS + MTP spills at 64k)
  'qwen3.8-27b-uncensored-fast':{role:'Uncensored · quicker, 45k context',speed:90}, // 7 Nov 2026: Cold Fusion + MTP (2 drafts), prose 89-93, code 108-115 tok/s // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
  [STRATA_MODEL]:{role:'Strata · general reasoning',speed:69.1}, // 1 Nov 2026: Qwen3.8-Flash-Next IQ3_XXS (ISTA-DASLab GSQ-RCO) replaced Swift 1.5: same quality (strata-bench 28/29, hard v3 44/50 vs 43/50), median 69 tok/s writing, ~295 tok/s prompt reading, resident experts + 64k
- [CODER_MODEL]:{role:'Strata · coding (pi)',speed:108.5}, // 1 Nov 2026: Qwen3.8-Flash-Next Coder IQ1_M (half the experts at ~3.5 bit, all in RAM): 108 tok/s writing, ~2,600 tok/s prompt reading, 25k-token prompt in 6.8 s; strata-bench 28/29, v3 43/50; --kv-grow + 128k context
+ [CODER_MODEL]:{role:'Strata · coding, 262k context',speed:108.5}, // 1 Nov 2026: Qwen3.8-Flash-Next Coder IQ1_M (half the experts at ~3.5 bit, all in RAM): 108 tok/s writing, ~2,600 tok/s prompt reading, 25k-token prompt in 6.8 s; strata-bench 28/29, v3 43/50; --kv-grow + 128k context
  'qwen3.8-27b-uncensored':{role:'Uncensored · Cold Fusion',speed:53.5} // 7 Nov 2026: Cold Fusion 735-882 UD-IQ4_XS (own quant), 64k q8/q4 + ngram; replaced Ara v5 and the stock 27B
 };
 function inlineMd(text,key){
