@@ -71,8 +71,10 @@ if ! systemd-run --unit "$UNIT" --collect --setenv=UNIT="$UNIT" --setenv=DEST="$
   mkdir -p "$DEST"
   cd "$DEST"
   # wget -c resumes a partial file; --limit-rate caps the speed. No pipe: a pipe hides wget exit code.
-  wget -c --server-response --limit-rate="${RATE}m" --tries=20 --timeout=60 --progress=dot:mega -O "$NAME.part" "$URL"
-  rc=$?   # always a number: no guard needed here
+  # The unit runs under bash -e, which would exit on a failed wget before rc is read, so the
+  # failed/stopped records below were never written (the job then read as interrupted).
+  rc=0
+  wget -c --server-response --limit-rate="${RATE}m" --tries=20 --timeout=60 --progress=dot:mega -O "$NAME.part" "$URL" || rc=$?
   if [ "$rc" -eq 0 ] && [ -s "$NAME.part" ]; then
     mv -f "$NAME.part" "$NAME"
     echo "DONE $DEST/$NAME"
