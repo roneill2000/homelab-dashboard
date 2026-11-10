@@ -616,28 +616,22 @@ def stop_debrid(name):
 def clear_debrid() -> dict:
     """Empty the homepage list on purpose (Clear in the panel).
 
-    Only rows leave the state file, and a finished row still waiting for its Jellyfin scan is kept
-    (the tick scans it, then Clear or aging removes it). Nothing on the share is touched, and the worker's job records
-    and logs on the n100 stay, so homelab-download status still lists what ran. Raises ValueError
-    while a download is still running: an active row is not history, and clearing it would orphan a
-    running job.
+    Finished, failed and stopped rows leave the state file. Two kinds stay: a running download (its
+    row is how you watch it, and dropping it would orphan the job) and a whole file Jellyfin has not
+    been asked about yet (the state file is the tick's scan queue). Nothing on the share is touched,
+    and the worker's job records and logs on the n100 stay, so homelab-download status still lists
+    what ran.
     """
     with _STATE_LOCK:
         state = _load_state()
-        running = [d for d in state['downloads'] if d.get('state') == 'downloading']
-        if running:
-            raise ValueError('%s is still downloading: stop it first, then clear the list' % running[0]['name'])
-        # A whole file Jellyfin has not been asked about yet stays: the state file is the tick's scan
-        # queue, so clearing that row would mean the library never hears about the file.
-        pending = [d for d in state['downloads'] if d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned')]
-        cleared = len(state['downloads']) - len(pending)
-        state['downloads'] = pending
+        keep = [d for d in state['downloads'] if d.get('state') == 'downloading'
+                or (d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned'))]
+        cleared = len(state['downloads']) - len(keep)
+        state['downloads'] = keep
         _save_state(state)
-    message = 'cleared %d download%s from the list' % (cleared, '' if cleared == 1 else 's')
-    if pending:
-        message += '; kept %d waiting for the library scan' % len(pending)
-    return {'ok': True, 'cleared': cleared, 'kept': len(pending), 'message': message}
-
+    message = 'Cleared %d download%s.' % (cleared, '' if cleared == 1 else 's')
+    message += (' Kept %d still downloading or waiting for Jellyfin.' % len(keep)) if keep else ' The files stay on the share.'
+    return {'ok': True, 'cleared': cleared, 'kept': len(keep), 'message': message}
 
 def debrid_status():
     with _STATE_LOCK:

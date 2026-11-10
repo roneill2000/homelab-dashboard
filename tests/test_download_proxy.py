@@ -374,14 +374,14 @@ class DebridTests(unittest.TestCase):
             dp._debrid_tick()
         self.assertEqual([r['name'] for r in self.read_state()], ['odd.mkv'])
 
-    def test_clear_refuses_while_a_download_is_running(self):
+    def test_clear_keeps_a_running_download_and_clears_the_rest(self):
         self.write_state([self.row('a.mkv', 'finished', int(time.time()) - 3600),
                           self.row('b.mkv', 'downloading', int(time.time()), scanned=False)])
         with patch.object(dp, '_download_rpc', side_effect=AssertionError('clear must not call the worker')):
             handled, codes, body = call('/api/debrid', OK, {'clear': True})
-        self.assertEqual((handled, codes), (True, [400]))
-        self.assertIn('still downloading', body['error'])
-        self.assertEqual([r['name'] for r in self.read_state()], ['a.mkv', 'b.mkv'])
+        self.assertEqual((handled, codes, body['cleared'], body['kept']), (True, [200], 1, 1))
+        self.assertEqual([r['name'] for r in self.read_state()], ['b.mkv'])
+        self.assertTrue(body['message'][0].isupper())
 
     def test_clear_empties_the_rows_without_touching_the_worker(self):
         self.write_state([self.row('a.mkv', 'finished', int(time.time()) - 86400),
