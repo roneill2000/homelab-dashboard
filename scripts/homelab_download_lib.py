@@ -40,8 +40,11 @@ VERSION = 1
 STATES = ('downloading', 'finished', 'failed', 'stopped', 'interrupted', 'present', 'missing', 'unknown')
 TERMINAL_SCANNABLE = ('finished', 'present')
 
+# --file-allocation=none: aria2c otherwise reserves the whole target size up front, so a 34 GB
+# download reads as 34 GB on disk seconds after it starts, and the size says nothing about how far
+# it got. It also avoids writing that phantom size across the CIFS mount.
 ARIA2_FLAGS = ('-x16', '-s16', '-k1M', '--continue=true', '--auto-file-renaming=false',
-               '--allow-overwrite=true', '--summary-interval=10')
+               '--allow-overwrite=true', '--file-allocation=none', '--summary-interval=10')
 # Both sides check this list: the dashboard rejects a non-media link early, the worker has the final
 # word on .3. tests/test_debrid_parity.py fails if one side changes it alone.
 MEDIA_EXT = {'.mkv', '.mp4', '.m4v', '.mov', '.avi', '.wmv', '.flv', '.webm', '.m4a', '.mp3', '.flac', '.epub'}
@@ -50,6 +53,25 @@ MEDIA_EXT = {'.mkv', '.mp4', '.m4v', '.mov', '.avi', '.wmv', '.flv', '.webm', '.
 # hidden or option-looking name, a known media extension.
 NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 SHOW_DIR_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+class _Tee:
+    """Write to two streams, so one log line reaches both the unit's file and the journal."""
+
+    def __init__(self, streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+    def isatty(self):
+        return False
 
 
 class BadDownload(ValueError):
@@ -294,6 +316,41 @@ def unit_active(unit: str) -> str:
     return out or 'unknown'
 
 
+def systemctl_units() -> list[str]:
+    """dl-* units systemd knows about, running or not. A download can be listed without a log."""
+    try:
+        out = subprocess.run(['systemctl', 'list-units', '--all', '--no-legend', '--plain',
+                              UNIT_PREFIX + '*.service'], capture_output=True, text=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    names = []
+    for line in out.splitlines():
+        first = line.split(' ', 1)[0].strip()
+        if first.endswith('.service'):
+            names.append(first[:-len('.service')])
+    return names
+
+
+def journal_lines(unit: str) -> list[str]:
+    """systemd's own copy of one unit's output, for units that have no log file of their own.
+
+    Downloads started before run() began writing a log only exist in the journal, and their
+    aria2c summary lines are still there, so an in-flight row keeps showing real progress.
+    """
+    try:
+        unit = safe_unit(unit)
+    except BadDownload:
+        return []
+    try:
+        out = subprocess.run(['journalctl', '-u', unit, '--no-pager', '-o', 'cat', '--lines=200'],
+                             capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if out.returncode != 0:
+        return []
+    return [line.strip() for line in out.stdout.splitlines() if line.strip()]
+
+
 def decide_state(job: dict | None, active: str, has_file: bool, ctl: bool) -> str:
     """The state machine, kept as a pure function so the rules can be tested.
 
@@ -332,13 +389,20 @@ def job_state(unit: str, dest: str | None = None, name: str | None = None) -> di
     if active in ('active', 'activating', 'deactivating'):
         # A running unit is downloading, record or not: the old shell script left no record either.
         out['state'] = 'downloading'
+        prog = progress_for(unit)
+        out.update(prog)
         if dest and name:
             has_file, size, ctl = file_state(dest, name)
-            out['bytes'] = size
-            partial = dest + '/' + name + '.part'
-            if not size and os.path.exists(partial):
-                out['bytes'] = os.path.getsize(partial)
-        out.update(progress_for(unit))
+            if ctl:
+                # The aria2 control file says data is still missing, and the size on disk then
+                # counts reserved space, not progress: only this unit's summaries say how far it got.
+                out['bytes'] = int(prog.get('done_bytes') or 0)
+                out['ctl'] = True
+            else:
+                out['bytes'] = size
+                partial = dest + '/' + name + '.part'
+                if not size and os.path.exists(partial):
+                    out['bytes'] = os.path.getsize(partial)
         return out
     if not dest or not name:
         out['state'] = 'unknown'
@@ -349,20 +413,26 @@ def job_state(unit: str, dest: str | None = None, name: str | None = None) -> di
         return out
     has_file, size, ctl = file_state(dest, name)
     out['state'] = decide_state(job, active, has_file, ctl)
-    out['bytes'] = size
     out['ctl'] = ctl
-    partial = dest + '/' + name + '.part'
-    if not size and os.path.exists(partial):
-        # A rate-limited download lives in <name>.part until it is whole: its size is how far it got,
-        # true whether the job is running, stopped on purpose, or failed.
-        out['bytes'] = os.path.getsize(partial)
+    prog = {}
+    if out['state'] in ('downloading', 'stopped', 'failed', 'interrupted'):
+        # How far it got, read from this unit's own log (aria2c summaries, else wget progress rows).
+        prog = progress_for(unit)
+        out.update(prog)
+    if ctl:
+        # Not progress: see the running branch, same rule for a stopped or interrupted aria2c job.
+        out['bytes'] = int(prog.get('done_bytes') or 0)
+    else:
+        out['bytes'] = size
+        partial = dest + '/' + name + '.part'
+        if not size and os.path.exists(partial):
+            # A rate-limited download lives in <name>.part until it is whole: its size is how far it got,
+            # true whether the job is running, stopped on purpose, or failed.
+            out['bytes'] = os.path.getsize(partial)
     if (job or {}).get('error'):
         out['error'] = job['error']
     elif out['state'] in ('failed', 'interrupted') and (job or {}).get('rc') is not None:
         out['error'] = 'aria2c exited with code %s' % job['rc']
-    if out['state'] in ('downloading', 'stopped', 'failed', 'interrupted'):
-        # How far it got, read from this unit's own log (aria2c summaries, else wget progress rows).
-        out.update(progress_for(unit))
     return out
 
 
@@ -397,15 +467,17 @@ def log_lines(unit: str) -> list[str]:
         return []
     try:
         with open(os.path.join(LOG_DIR, unit + '.log'), encoding='utf-8', errors='replace') as f:
-            return [line.strip() for line in f if line.strip()]
+            lines = [line.strip() for line in f if line.strip()]
     except OSError:
-        return []
+        lines = []
+    if lines:
+        return lines
+    return journal_lines(unit)
 
 
 def progress_for(unit: str) -> dict:
     """Downloaded/total/speed from the log: aria2c's summary lines, else wget's progress rows."""
     lines = log_lines(unit)
-    path = os.path.join(LOG_DIR, safe_unit(unit)) if False else None
     out: dict = {}
     for line in reversed(lines):
         if ARIA2_ERROR.match(line):
@@ -485,10 +557,20 @@ def start_debrid(url, dest, name='') -> dict:
 
 
 def run(unit: str, url, dest, name) -> int:
-    """The worker inside the unit: aria2c at full speed, then its exit record."""
+    """The worker inside the unit: aria2c at full speed, then its exit record.
+
+    run() opens this unit's own log under LOG_DIR and sends progress there as well as to the
+    journal. Before, only the shell front end created that file, so a download started by the
+    dashboard had no log to read: homelab-download status skipped it, and no progress existed.
+    """
+    unit = safe_unit(unit)
     url = safe_url(url)
     dest = safe_dest(dest)
     name = media_name(name)
+    os.makedirs(LOG_DIR, exist_ok=True)
+    handle = open(os.path.join(LOG_DIR, unit + '.log'), 'a', encoding='utf-8', buffering=1)
+    sys.stdout = _Tee((sys.__stdout__, handle))
+    sys.stderr = sys.stdout
     for _ in range(60):
         if mount_ok():
             break
@@ -507,7 +589,9 @@ def run(unit: str, url, dest, name) -> int:
     write_job(unit, state='running', dest=dest, name=name, started=time.time(), error=None)
     print(f'start aria2c -> {dest}/{name}', flush=True)
     argv = ['aria2c', *ARIA2_FLAGS, '--out=' + name, '-d', dest, url]
-    rc = subprocess.run(argv).returncode
+    # aria2c writes its own progress and summaries to the unit's log file (fd level, so no reader
+    # thread is needed); the prints above go to that file and to the journal.
+    rc = subprocess.run(argv, stdout=handle, stderr=subprocess.STDOUT).returncode
 
     has_file, size, ctl = file_state(dest, name)
     if rc == 0 and has_file and not ctl:
@@ -542,11 +626,35 @@ def fmt_bytes(n) -> str:
     return '%d B' % n
 
 
-def running_for(path: str) -> str:
-    secs = max(0, int(time.time() - os.path.getctime(path)))
+def duration(secs: int) -> str:
     if secs >= 3600:
         return '%dh%02dm' % (secs // 3600, (secs % 3600) // 60)
     return '%dm' % (secs // 60)
+
+
+def running_for(path: str) -> str:
+    return duration(max(0, int(time.time() - os.path.getctime(path))))
+
+
+def running_age(job: dict | None, path: str | None, unit: str | None = None) -> str:
+    """How long a download has been going: its log file's age, else its job record.
+
+    A download the dashboard started has a job record from its first second (with a started field),
+    and its log opens inside the unit, so either one answers this. The wget path records no started
+    field, so the record file's own age is the next best start. An empty string means nothing to say.
+    """
+    if path:
+        return running_for(path)
+    started = (job or {}).get('started')
+    if started:
+        return duration(max(0, int(time.time() - float(started))))
+    if not unit:
+        return ''
+    try:
+        return running_for(job_path(unit))
+    except (OSError, BadDownload):
+        return ''
+
 
 
 def legacy_state(unit: str, lines: list[str]) -> str:
@@ -561,23 +669,65 @@ def legacy_state(unit: str, lines: list[str]) -> str:
     return 'unknown'
 
 
-def status_lines() -> list[str]:
-    """One line per download, newest first: unit, state, then aria2c progress."""
-    out = []
+def status_sources() -> list[tuple[str, str | None]]:
+    """Every download still known: (unit, its own log file path, or None).
+
+    The union of three sources: log files (always there once run() opened one), job records, and
+    the dl-* units systemd knows about. Listing only log files hid every download the dashboard
+    started, which is why homelab-download status skipped them. Newest first, by the newest stamp
+    we can see for that unit.
+    """
+    stamp: dict[str, float] = {}
+    paths: dict[str, str | None] = {}
     try:
         names = os.listdir(LOG_DIR)
     except OSError:
-        return out
-    for base in sorted(names, key=lambda b: os.path.getmtime(os.path.join(LOG_DIR, b)), reverse=True):
+        names = []
+    for base in names:
         if not base.endswith('.log'):
             continue
-        path = os.path.join(LOG_DIR, base)
-        unit = unit_from_log(base)
         try:
-            with open(path, encoding='utf-8', errors='replace') as f:
-                lines = [line.strip() for line in f if line.strip()]
+            unit = safe_unit(unit_from_log(base))
+        except BadDownload:
+            continue
+        path = os.path.join(LOG_DIR, base)
+        try:
+            stamp[unit] = os.path.getmtime(path)
         except OSError:
-            lines = []
+            stamp[unit] = 0.0
+        paths[unit] = path
+    try:
+        records = os.listdir(JOB_DIR)
+    except OSError:
+        records = []
+    for base in records:
+        if not base.endswith('.json'):
+            continue
+        try:
+            unit = safe_unit(base[:-len('.json')])
+        except BadDownload:
+            continue
+        try:
+            seen = os.path.getmtime(os.path.join(JOB_DIR, base))
+        except OSError:
+            seen = 0.0
+        stamp[unit] = max(stamp.get(unit, 0.0), seen)
+        paths.setdefault(unit, None)
+    for candidate in systemctl_units():
+        try:
+            unit = safe_unit(candidate)
+        except BadDownload:
+            continue
+        stamp.setdefault(unit, 0.0)
+        paths.setdefault(unit, None)
+    return [(unit, paths.get(unit)) for unit in sorted(stamp, key=lambda u: stamp[u], reverse=True)]
+
+
+def status_lines() -> list[str]:
+    """One line per download, newest first: unit, state, then progress from its log or journal."""
+    out = []
+    for unit, path in status_sources():
+        lines = log_lines(unit)
         try:
             job = read_job(unit)
         except BadDownload:
@@ -586,7 +736,6 @@ def status_lines() -> list[str]:
             st = job_state(unit, (job or {}).get('dest'), (job or {}).get('name'))
         except BadDownload:
             continue
-        dest, name = (job or {}).get('dest'), (job or {}).get('name')
         word = st['state']
         if job is None and word == 'unknown':
             word = legacy_state(unit, lines)   # units from before job records existed
@@ -594,7 +743,7 @@ def status_lines() -> list[str]:
         if st.get('total_bytes'):
             # How far it got and how fast it was going: true for a running, stopped or failed job too.
             bits.append('downloaded %s of %s (%d%%)' % (
-                fmt_bytes(st.get('done_bytes')), fmt_bytes(st.get('total_bytes')), st.get('pct', 0)))
+                fmt_bytes(st.get('done_bytes')), fmt_bytes(st['total_bytes']), st.get('pct', 0)))
             if st.get('speed_bytes') is not None:
                 bits.append('speed %s/s' % fmt_bytes(st['speed_bytes']))
             if st.get('eta'):
@@ -603,8 +752,9 @@ def status_lines() -> list[str]:
             bits.append('%s on disk' % fmt_bytes(st['bytes']))
         if lines and lines[0].startswith('waiting for'):
             bits.append('(waiting for the Unraid mount)')
-        if word in ('downloading', 'interrupted', 'stopped'):
-            bits.append('running for %s' % running_for(path))
+        age = running_age(job, path, unit)
+        if age and word in ('downloading', 'interrupted', 'stopped'):
+            bits.append('running for %s' % age)
         if st.get('error') and word in ('failed', 'interrupted', 'missing', 'unknown'):
             bits.append(str(st['error'])[:120])
         out.append(' | '.join(bits))

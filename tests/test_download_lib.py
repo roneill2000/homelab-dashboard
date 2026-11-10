@@ -6,6 +6,7 @@ from real logs on .3.
 """
 import json
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -325,7 +326,34 @@ class FileAndJobState(unittest.TestCase):
         with open(os.path.join(self.logs, unit + '.log'), 'w') as f:
             f.write(text)
 
+    def test_a_reserved_partial_file_is_not_reported_as_progress(self):
+        # aria2c used to reserve the whole target size, and the dashboard showed that as bytes:
+        # 34 GB on disk seconds after a download started. While the .aria2 control file is there the
+        # size on disk says nothing, so bytes come from this unit's own summary line.
+        name, unit = self.name, self.unit
+        self.make_file(self.movies, name, b'x' * (34 * 1024 ** 2))
+        with open(os.path.join(self.movies, name + '.aria2'), 'wb') as f:
+            f.write(b'ctl')
+        lib.record_job(unit, 'running', self.movies, name)
+        self.write_log(unit, ARIA2_RUNNING)
+        with patch.object(lib, 'unit_active', return_value='active'):
+            st = lib.job_state(unit, self.movies, name)
+        self.assertEqual((st['state'], st['bytes'], st['total_bytes']),
+                         ('downloading', int(9.5 * 1024 ** 3), 31 * 1024 ** 3))
+        self.assertTrue(st['ctl'])
+
+    def test_no_summary_and_a_partial_file_means_no_bytes_at_all(self):
+        name, unit = self.name, self.unit
+        self.make_file(self.movies, name, b'x' * (34 * 1024 ** 2))
+        with open(os.path.join(self.movies, name + '.aria2'), 'wb') as f:
+            f.write(b'ctl')
+        lib.record_job(unit, 'running', self.movies, name)
+        with patch.object(lib, 'unit_active', return_value='active'), patch.object(lib, 'journal_lines', return_value=[]):
+            st = lib.job_state(unit, self.movies, name)
+        self.assertEqual((st['state'], st.get('bytes'), st.get('total_bytes')), ('downloading', 0, None))
+
     def test_file_state_reports_the_control_file(self):
+
         self.assertEqual(lib.file_state(self.movies, self.name), (False, 0, False))
         self.make_file(self.movies, self.name, b'x' * 1000)
         self.assertEqual(lib.file_state(self.movies, self.name), (True, 1000, False))
@@ -415,7 +443,8 @@ class StatusLines(unittest.TestCase):
             os.makedirs(folder)
         self.patches = [patch.object(lib, 'SHARE_ROOT', root), patch.object(lib, 'LOG_DIR', self.logs),
                         patch.object(lib, 'JOB_DIR', self.jobs), patch.object(lib, 'MOVIES_DIR', self.movies),
-                        patch.object(lib, 'SHOWS_DIR', os.path.join(root, 'Shows'))]
+                        patch.object(lib, 'SHOWS_DIR', os.path.join(root, 'Shows')),
+                        patch.object(lib, 'systemctl_units', return_value=[])]
         for p in self.patches:
             p.start()
         self.addCleanup(lambda: [p.stop() for p in self.patches])
@@ -478,7 +507,30 @@ class StatusLines(unittest.TestCase):
         with patch.object(lib, 'LOG_DIR', os.path.join(self.tmp.name, 'missing-logs')):
             self.assertEqual(lib.status_lines(), [])
 
+    def test_a_download_the_dashboard_started_is_listed_without_a_log_file(self):
+        # The status list used to be built from log files only, so every download started by the
+        # dashboard was invisible there even while its unit was running. Job records and live units
+        # count now too, and the job record answers how long it has been going.
+        name = 'Game.of.Thrones.S01E01.mkv'
+        unit = lib.unit_name(name)
+        with open(os.path.join(self.movies, name), 'wb') as f:
+            f.write(b'x' * 1000)                      # reserved space, not data
+        with open(os.path.join(self.movies, name + '.aria2'), 'wb') as f:
+            f.write(b'ctl')
+        lib.record_job(unit, 'running', self.movies, name)
+        summary = '[#a13493 9.5GiB/31GiB(30%) CN:16 DL:276MiB]'
+        with patch.object(lib, 'unit_active', return_value='active'), \
+             patch.object(lib, 'systemctl_units', return_value=[unit]), \
+             patch.object(lib, 'journal_lines', return_value=[summary]):
+            lines = lib.status_lines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn('DOWNLOADING', lines[0])
+        self.assertIn('downloaded 9.5 GB of 31.0 GB (30%)', lines[0])
+        self.assertIn('running for', lines[0])
+        self.assertNotIn('1000 B on disk', lines[0])
+
     def test_newest_log_comes_first(self):
+
         self.log('dl-old.mkv.log', ARIA2_LOG)
         self.log('dl-new.mkv.log', ARIA2_LOG)
         os.utime(os.path.join(self.logs, 'dl-old.mkv.log'), (1000, 1000))
@@ -554,6 +606,77 @@ class Progress(unittest.TestCase):
 
     def test_wget_progress_needs_its_own_lines(self):
         self.assertEqual(lib.wget_progress(['nothing at all here']), {})
+
+
+    def test_progress_is_read_from_the_journal_when_the_unit_has_no_log(self):
+        # Units started before run() opened its own log exist only in the journal, and their aria2c
+        # summary lines are still there, so a download already running keeps showing real progress.
+        summary = '[#a13493 9.5GiB/31GiB(30%) CN:16 DL:276MiB]'
+        with patch.object(lib, 'journal_lines', return_value=[summary]):
+            out = lib.progress_for('dl-Memento.mkv')
+        self.assertEqual((out['done_bytes'], out['total_bytes'], out['pct']),
+                         (int(9.5 * 1024 ** 3), 31 * 1024 ** 3, 30))
+
+class WorkerRun(unittest.TestCase):
+    """run() is the process inside the systemd unit. It must leave a log of its own: that file is
+    where progress is read from, and a download with no log was invisible to homelab-download status."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = os.path.realpath(self.tmp.name)
+        self.movies = os.path.join(root, 'Movies')
+        self.logs = os.path.join(root, 'logs')
+        self.jobs = os.path.join(root, 'jobs')
+        for folder in (self.movies, self.logs, self.jobs):
+            os.makedirs(folder)
+        self.patches = [patch.object(lib, 'SHARE_ROOT', root),
+                        patch.object(lib, 'MOVIES_DIR', self.movies),
+                        patch.object(lib, 'SHOWS_DIR', os.path.join(root, 'Shows')),
+                        patch.object(lib, 'LOG_DIR', self.logs), patch.object(lib, 'JOB_DIR', self.jobs),
+                        patch.object(lib, 'mount_ok', return_value=True),
+                        patch.object(lib, 'private_host', return_value=False)]
+        for p in self.patches:
+            p.start()
+        self.out, self.err = sys.__stdout__, sys.__stderr__
+        self.addCleanup(lambda: setattr(sys, 'stdout', self.out))
+        self.addCleanup(lambda: setattr(sys, 'stderr', self.err))
+        self.addCleanup(lambda: [p.stop() for p in self.patches])
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_run_leaves_its_own_log_aria2c_progress_and_a_complete_record(self):
+        name, unit = 'Memento.mkv', lib.unit_name('Memento.mkv')
+        seen = {}
+
+        def aria2c(argv, **kwargs):
+            seen['argv'] = list(argv)
+            handle, folder = kwargs.get('stdout'), argv[argv.index('-d') + 1]
+            handle.write('*** Download Progress Summary as of Mon Nov 10 14:37:02 2026 ***\n')
+            handle.write('[#a13493 1.0GiB/1.0GiB(100%) CN:1 DL:1.0GiB]\n')
+            handle.flush()
+            with open(os.path.join(folder, name), 'wb') as f:   # aria2c finished the file
+                f.write(b'x' * 4096)
+
+            class Done:
+                returncode = 0
+            return Done()
+
+        with patch.object(lib.subprocess, 'run', side_effect=aria2c):
+            rc = lib.run(unit, 'https://cdn.example/Memento.mkv', self.movies, name)
+        self.assertEqual(rc, 0)
+        self.assertIn('--file-allocation=none', seen['argv'])   # no reserved size, no phantom 100%
+        with open(os.path.join(self.logs, unit + '.log'), encoding='utf-8') as f:
+            text = f.read()
+        self.assertIn('start aria2c', text)                    # the worker's own prints
+        self.assertIn('CN:1 DL:1.0GiB', text)                  # aria2c's output in the same file
+        self.assertIn('DONE', text)
+        self.assertEqual(lib.read_job(unit)['state'], 'complete')
+        st = lib.job_state(unit, self.movies, name)
+        self.assertEqual((st['state'], st['bytes']), ('finished', 4096))
+
+    def test_a_unit_name_that_is_not_ours_cannot_open_a_log_anywhere(self):
+        with self.assertRaises(lib.BadDownload):
+            lib.run('../escape', 'https://cdn.example/Memento.mkv', self.movies, 'Memento.mkv')
+        self.assertEqual(os.listdir(self.logs), [])
 
 
 class RpcInterface(unittest.TestCase):
