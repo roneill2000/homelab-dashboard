@@ -297,6 +297,48 @@ class DebridTests(unittest.TestCase):
         self.assertEqual(len(out['downloads']), dp._DEBRID_ROWS)
         self.assertEqual(out['downloads'][0]['name'], 'f69.mkv')  # newest first
 
+    def test_the_library_scan_runs_with_the_state_lock_free(self):
+        self.write_state([{'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'kind': 'movie', 'title': 'a',
+                           'season': None, 'episode': None, 'started': 1, 'state': 'downloading', 'scanned': False}])
+        answer = {'ok': True, 'jobs': [{'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'state': 'finished',
+                                       'bytes': 999, 'total_bytes': 999}]}
+
+        def scan():
+            free = dp._STATE_LOCK.acquire(blocking=False)
+            try:
+                if not free:
+                    raise AssertionError('the library scan ran while the state lock was held')
+            finally:
+                if free:
+                    dp._STATE_LOCK.release()
+            return True
+
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer=answer)), \
+             patch.object(dp, '_jellyfin_scan', side_effect=scan):
+            dp._debrid_tick()
+        row = self.read_state()[0]
+        self.assertEqual((row['state'], row['scanned'], row.get('scan_error')), ('finished', True, None))
+
+    def test_no_network_call_sits_inside_the_state_lock(self):
+        # A lock held across a network call freezes the panel and the tick loop for that call's
+        # whole timeout (40 s for a stop, 90 s for a batch check). Every such call must run with the
+        # lock free, so this is checked against the source, not only against behaviour tests.
+        import ast
+        path = os.path.join(os.path.dirname(__file__), '..', 'backend', 'download_proxy.py')
+        with open(path, encoding='utf-8') as handle:
+            tree = ast.parse(handle.read())
+        blocked = {'_download_rpc', '_jellyfin_scan', 'searxng_ground', '_proxmox'}
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.With):
+                continue
+            if not any(ast.unparse(item.context_expr) == '_STATE_LOCK' for item in node.items):
+                continue
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call) and ast.unparse(call.func) in blocked:
+                    offenders.append('%s at line %d' % (ast.unparse(call.func), call.lineno))
+        self.assertEqual(offenders, [], 'network call inside the state lock: %s' % offenders)
+
     # ------------------------------------------------------------------ stop ---
     def test_stop_goes_through_the_worker_and_closes_the_row(self):
         self.write_state([{'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'kind': 'movie', 'title': 'a',
@@ -331,6 +373,45 @@ class DebridTests(unittest.TestCase):
             handled, codes, body = call('/api/debrid', OK, {'stop': 'a.mkv'})
         self.assertEqual(codes, [503])
         self.assertIn('no download', body['error'])
+
+    def test_a_stop_holds_the_state_lock_only_around_the_rows(self):
+        # One Stop waits up to 40 s on the worker. The panel read and the tick loop must not be
+        # blocked for that long, so the lock must be free while the worker call runs. threading.Lock
+        # is not reentrant, so a failed non-blocking acquire from this thread proves it was held.
+        self.write_state([{'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'kind': 'movie', 'title': 'a',
+                           'season': None, 'episode': None, 'started': 1, 'state': 'downloading'}])
+
+        def probe(payload, timeout=None):
+            free = dp._STATE_LOCK.acquire(blocking=False)
+            try:
+                if not free:
+                    raise AssertionError('the state lock was held during the worker call')
+            finally:
+                if free:
+                    dp._STATE_LOCK.release()
+            return {'ok': True, 'unit': 'dl-a.mkv', 'name': 'a.mkv', 'state': 'stopped',
+                    'message': 'stopped dl-a.mkv'}
+
+        with patch.object(dp, '_download_rpc', side_effect=probe):
+            handled, codes, body = call('/api/debrid', OK, {'stop': 'a.mkv'})
+        self.assertEqual((handled, codes), (True, [200]))
+        self.assertEqual((self.read_state()[0]['state'], self.read_state()[0]['scanned']), ('stopped', True))
+
+    def test_a_row_that_left_the_list_during_the_stop_is_reported(self):
+        # The tick loop or another Stop can rewrite the state while this Stop waits on the worker.
+        # The row is looked up again before it is written, so a vanished row is refused, not re-added.
+        self.write_state([{'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'kind': 'movie', 'title': 'a',
+                           'season': None, 'episode': None, 'started': 1, 'state': 'downloading'}])
+
+        def concurrent(payload, timeout=None):
+            self.write_state([])          # the row is gone by the time the worker answers
+            return {'ok': True, 'unit': 'dl-a.mkv', 'name': 'a.mkv', 'state': 'stopped'}
+
+        with patch.object(dp, '_download_rpc', side_effect=concurrent):
+            handled, codes, body = call('/api/debrid', OK, {'stop': 'a.mkv'})
+        self.assertEqual(codes, [400])
+        self.assertIn('left the list', body['error'])
+        self.assertEqual(self.read_state(), [])
 
     # ---------------------------------------------------------------- routes ---
     def test_debrid_get_route_answers_from_the_state_file(self):

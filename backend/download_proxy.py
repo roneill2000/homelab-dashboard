@@ -507,16 +507,27 @@ def _debrid_tick():
             if j.get('error') and d.get('error') != str(j['error'])[:200]:
                 d['error'] = str(j['error'])[:200]
                 changed = True
-        ready = [d for d in state['downloads'] if d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned')]
-        if ready:
-            ok = _jellyfin_scan()
-            for d in ready:
+        ready = [d['name'] for d in state['downloads']
+                 if d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned')]
+        if changed:
+            _save_state(state)
+    if not ready:
+        return
+    # The library scan is an HTTP call of its own: it runs with the state lock free, so a slow
+    # Jellyfin cannot block a panel read or another write for its whole timeout.
+    ok = _jellyfin_scan()
+    with _STATE_LOCK:
+        state = _load_state()
+        want = set(ready)
+        touched = False
+        for d in state['downloads']:
+            if d['name'] in want and d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned'):
                 if ok:
                     d['scanned'], d['scan_error'] = True, None
                 else:
                     d['scan_error'] = 'the library scan did not start'
-            changed = True
-        if changed:
+                touched = True
+        if touched:
             _save_state(state)
 
 
@@ -540,14 +551,21 @@ def stop_debrid(name):
 
     The partial file stays on the share: pasting the same link again resumes it. Raises
     ValueError (not in the list, bad name) or RuntimeError (the worker refused).
+
+    The state lock is held around the rows only, never around the worker call: one Stop may wait
+    the full 40 s, and it must not freeze a panel read or the tick loop for that long. The row is
+    looked up again after the call, because the tick loop can rewrite the state meanwhile.
     """
     name = _safe_name(name)
+    with _STATE_LOCK:
+        if not any(d['name'] == name for d in _load_state()['downloads']):
+            raise ValueError('that download is not in the list anymore')
+    out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'stop', 'name': name}, timeout=40)
     with _STATE_LOCK:
         state = _load_state()
         row = next((d for d in state['downloads'] if d['name'] == name), None)
         if row is None:
-            raise ValueError('that download is not in the list anymore')
-        out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'stop', 'name': name}, timeout=40)
+            raise ValueError('that download left the list while it was being stopped')
         row['state'], row['state_since'] = 'stopped', int(time.time())
         row['scanned'], row['scan_error'] = True, None   # stopped on purpose: never scanned, no retry
         _save_state(state)
