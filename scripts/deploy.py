@@ -132,18 +132,6 @@ except Exception:
 print(json.dumps({'backup':str(backup),'status':'healthy','backend_sha256':hashlib.sha256(backend.read_bytes()).hexdigest()}))
 """
 
-if __name__ == '__main__':
-    import base64
-    fonts_payload = {
-        p.name: base64.b64encode(p.read_bytes()).decode('ascii')
-        for p in (ROOT / 'fonts').glob('*.woff2')
-    }
-    data = {name:((BACKEND if name.endswith('.py') else ROOT)/name).read_text(encoding='utf-8') for name in ('index.html','catalog.json','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','energy_monitor.py','maintenance.py','ai_history.py','net_monitor.py','ai_monitor.py','gpu_broker.py','download_proxy.py')}
-    data['fonts'] = fonts_payload
-    script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
-    subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)
-    push_to_n100()
-
 
 def push_to_n100():
     """The n100 download worker's own files, so its rules cannot drift from this repo.
@@ -166,3 +154,16 @@ def push_to_n100():
     subprocess.run(['ssh', '-o', 'BatchMode=yes', 'root@192.168.0.3', 'mkdir', '-p', '/var/lib/homelab-download/jobs'],
                    check=True)
     print('n100 download worker updated')
+
+
+if __name__ == '__main__':
+    import base64
+    fonts_payload = {
+        p.name: base64.b64encode(p.read_bytes()).decode('ascii')
+        for p in (ROOT / 'fonts').glob('*.woff2')
+    }
+    data = {name:((BACKEND if name.endswith('.py') else ROOT)/name).read_text(encoding='utf-8') for name in ('index.html','catalog.json','storage_monitor.py','activity_monitor.py','log_monitor.py','backend_patch.py','qwen_proxy.py','update_proxy.py','gpu_monitor.py','energy_monitor.py','maintenance.py','ai_history.py','net_monitor.py','ai_monitor.py','gpu_broker.py','download_proxy.py')}
+    data['fonts'] = fonts_payload
+    script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
+    subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)
+    push_to_n100()
