@@ -339,7 +339,66 @@ class DebridTests(unittest.TestCase):
                     offenders.append('%s at line %d' % (ast.unparse(call.func), call.lineno))
         self.assertEqual(offenders, [], 'network call inside the state lock: %s' % offenders)
 
+    # -------------------------------------------------------------------- aging and clear ---
+    def row(self, name, state, started, state_since=None, scanned=True):
+        return {'dest': dp.MOVIES_DIR, 'name': name, 'kind': 'movie', 'title': name,
+                'season': None, 'episode': None, 'started': started, 'state': state,
+                'bytes': 0, 'scanned': scanned, 'state_since': state_since}
+
+    def test_a_finished_row_older_than_seven_days_leaves_the_list(self):
+        old = int(time.time()) - 8 * 86400
+        self.write_state([self.row('old.mkv', 'finished', old, old),
+                          self.row('recent.mkv', 'finished', int(time.time()) - 3600, int(time.time()) - 3600)])
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer={'ok': True, 'jobs': []})):
+            dp._debrid_tick()
+        rows = self.read_state()
+        self.assertEqual([r['name'] for r in rows], ['recent.mkv'])
+
+    def test_a_running_download_never_ages_out_however_old_it_is(self):
+        ancient = int(time.time()) - 40 * 86400
+        self.write_state([self.row('still.mkv', 'downloading', ancient, state_since=None, scanned=False)])
+        answer = {'ok': True, 'jobs': [{'dest': dp.MOVIES_DIR, 'name': 'still.mkv', 'state': 'downloading',
+                                       'bytes': 10, 'total_bytes': 100}]}
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer=answer)), \
+             patch.object(dp, '_jellyfin_scan', return_value=False) as scan:
+            dp._debrid_tick()
+        self.assertEqual([r['name'] for r in self.read_state()], ['still.mkv'])
+        scan.assert_not_called()
+
+    def test_a_row_with_no_timestamp_is_kept(self):
+        # No state_since and no started means there is nothing to age against: keep it rather than
+        # decide the clock started at zero and drop every old row at once.
+        self.write_state([{'dest': dp.MOVIES_DIR, 'name': 'odd.mkv', 'kind': 'movie', 'title': 'odd',
+                           'season': None, 'episode': None, 'state': 'unknown', 'scanned': True}])
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer={'ok': True, 'jobs': []})):
+            dp._debrid_tick()
+        self.assertEqual([r['name'] for r in self.read_state()], ['odd.mkv'])
+
+    def test_clear_refuses_while_a_download_is_running(self):
+        self.write_state([self.row('a.mkv', 'finished', int(time.time()) - 3600),
+                          self.row('b.mkv', 'downloading', int(time.time()), scanned=False)])
+        with patch.object(dp, '_download_rpc', side_effect=AssertionError('clear must not call the worker')):
+            handled, codes, body = call('/api/debrid', OK, {'clear': True})
+        self.assertEqual((handled, codes), (True, [400]))
+        self.assertIn('still downloading', body['error'])
+        self.assertEqual([r['name'] for r in self.read_state()], ['a.mkv', 'b.mkv'])
+
+    def test_clear_empties_the_rows_without_touching_the_worker(self):
+        self.write_state([self.row('a.mkv', 'finished', int(time.time()) - 86400),
+                          self.row('b.mkv', 'stopped', int(time.time()) - 7200)])
+        with patch.object(dp, '_download_rpc', side_effect=AssertionError('clear must not call the worker')):
+            handled, codes, body = call('/api/debrid', OK, {'clear': True})
+        self.assertEqual((handled, codes, body['ok'], body['cleared']), (True, [200], True, 2))
+        self.assertEqual(self.read_state(), [])
+        self.assertEqual(dp.debrid_status()['downloads'], [])
+
+    def test_clear_needs_the_action_header(self):
+        self.write_state([self.row('a.mkv', 'finished', int(time.time()))])
+        with patch.object(dp, '_download_rpc', side_effect=AssertionError('must not reach the worker')):
+            self.assertEqual(call('/api/debrid', {'Host': '192.168.0.2'}, {'clear': True})[1], [403])
+
     # ------------------------------------------------------------------ stop ---
+
     def test_stop_goes_through_the_worker_and_closes_the_row(self):
         self.write_state([{'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'kind': 'movie', 'title': 'a',
                            'season': None, 'episode': None, 'started': 1, 'state': 'downloading', 'scanned': False}])

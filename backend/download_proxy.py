@@ -58,6 +58,7 @@ _PROXMOX_KNOWN = '/etc/homelab-dashboard/update_known_hosts'
 _PROXMOX_TARGET = 'root@192.168.0.3'
 _DEBRID_IF_VERSION = 1
 _DEBRID_KEEP = 50      # rows kept in the state file
+_DEBRID_AGE = 7 * 86400   # how long a finished row stays on the homepage list
 _DEBRID_ROWS = 15      # rows the homepage shows
 _DEBRID_CHECK_MAX = 40 # downloads in one check call
 _DEBRID_SCAN_UNTIL = ('finished', 'present')   # states that mean "ask Jellyfin to look"
@@ -475,6 +476,7 @@ def _debrid_tick():
     A row is only marked scanned after Jellyfin accepted the scan; otherwise scan_error is stored and
     the next tick tries again. Runs in the background loop, never in a request.
     """
+    _age_out_rows()
     with _STATE_LOCK:
         state = _load_state()
         due = [d for d in state['downloads'] if d['state'] not in _DEBRID_SCAN_UNTIL or not d.get('scanned')]
@@ -531,6 +533,44 @@ def _debrid_tick():
             _save_state(state)
 
 
+def _aged_out(row, now) -> bool:
+    """True when a download's story has been closed for 7 days.
+
+    A running download never ages out, however old it is: it is still doing something, and its row
+    is how you watch it. The clock is the last state change (state_since), else the row's own start.
+    A row with no usable timestamp is kept, and so is one whose start is a placeholder from an
+    older state file, because there is nothing honest to age against.
+    """
+    if row.get('state') == 'downloading':
+        return False
+    since = row.get('state_since') or row.get('started')
+    try:
+        since = float(since)
+    except (TypeError, ValueError):
+        return False
+    if since < 1e9:
+        return False
+    return now - since > _DEBRID_AGE
+
+
+def _age_out_rows() -> int:
+    """Drop aged rows, and only when the list actually changes.
+
+    This is its own step of the tick, before anything needs a worker check: a finished, scanned
+    download is not due for anything, so waiting for another row to keep the loop busy would leave
+    old history on the panel forever.
+    """
+    with _STATE_LOCK:
+        state = _load_state()
+        now = time.time()
+        kept = [d for d in state['downloads'] if not _aged_out(d, now)]
+        gone = len(state['downloads']) - len(kept)
+        if gone:
+            state['downloads'] = kept
+            _save_state(state)
+    return gone
+
+
 def _debrid_rows(state):
     """Rows for the homepage, from the state file only: no SSH per row. The tick loop keeps them fresh."""
     out = []
@@ -571,6 +611,26 @@ def stop_debrid(name):
         _save_state(state)
     return dict(ok=True, name=name, unit=out.get('unit') or 'dl-' + name,
                 message=out.get('message') or ('stopped ' + name))
+
+
+def clear_debrid() -> dict:
+    """Empty the homepage list on purpose (Clear in the panel).
+
+    Only rows leave the state file. Nothing on the share is touched, and the worker's job records
+    and logs on the n100 stay, so homelab-download status still lists what ran. Raises ValueError
+    while a download is still running: an active row is not history, and clearing it would orphan a
+    running job.
+    """
+    with _STATE_LOCK:
+        state = _load_state()
+        running = [d for d in state['downloads'] if d.get('state') == 'downloading']
+        if running:
+            raise ValueError('%s is still downloading: stop it first, then clear the list' % running[0]['name'])
+        cleared = len(state['downloads'])
+        state['downloads'] = []
+        _save_state(state)
+    return {'ok': True, 'cleared': cleared,
+            'message': 'cleared %d download%s from the list' % (cleared, '' if cleared == 1 else 's')}
 
 
 def debrid_status():
@@ -640,6 +700,11 @@ def handle(handler, post=False):
             if not isinstance(body, dict): raise ValueError
         except (ValueError, OSError):
             _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True
+        if body.get('clear') is True:
+            try: _reply(handler, 200, clear_debrid())
+            except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
+            except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
+            return True
         name = body.get('stop')
         if not isinstance(name, str):
             _reply(handler, 400, {'ok': False, 'error': 'Name the download to stop.'}); return True
