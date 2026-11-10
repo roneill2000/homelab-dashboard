@@ -266,6 +266,21 @@ class UnifiedPortTests(unittest.TestCase):
         ensure.assert_called_once_with('llama', hold=True)
         self.assertEqual(FakePC.seen[0][2], 'Bearer secret')
 
+    def test_llama_reasoning_effort_is_normalized_and_copied_to_template_kwargs(self):
+        with patch.object(g, 'ensure'):
+            c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+            c.request('POST', '/v1/chat/completions',
+                      body=json.dumps({'model': 'qwen3.8-27b-uncensored', 'reasoning_effort': 'high'}).encode(),
+                      headers={'Content-Type': 'application/json'})
+            self.assertEqual(c.getresponse().status, 200)
+            sent = json.loads(FakePC.seen[-1][3])
+            self.assertEqual(sent['reasoning_effort'], 'xhigh')
+            self.assertEqual(sent['chat_template_kwargs'], {'reasoning_effort': 'xhigh'})
+        self.assertEqual(json.loads(g.llama_body(b'{"reasoning_effort":"minimal"}')),
+                         {'reasoning_effort': 'low', 'chat_template_kwargs': {'reasoning_effort': 'low'}})
+        self.assertEqual(json.loads(g.llama_body(b'{"reasoning_effort":"off"}')),
+                         {'reasoning_effort': 'none', 'chat_template_kwargs': {'enable_thinking': False}})
+
     def test_models_lists_every_engine(self):
         with patch.object(g.ai_monitor, 'fetch', return_value={'data': [{'id': 'qwen3.8-27b'}, {'id': 'gemma-4-26b-a4b'}]}):
             c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)

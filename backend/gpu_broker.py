@@ -181,6 +181,35 @@ def route(model, names=None):
     return 'llama'
 
 
+LLAMA_EFFORT = {'off': 'none', 'none': 'none', 'minimal': 'low', 'low': 'low',
+                'medium': 'medium', 'high': 'xhigh', 'xhigh': 'xhigh', 'max': 'xhigh'}
+
+
+def llama_body(body):
+    """Map reasoning_effort to the levels the 27B / Cold Fusion templates accept (low, medium, xhigh, or none)
+    and mirror it into chat_template_kwargs so Cold Fusion never 500s on 'high'/'minimal'/'max'/'off'."""
+    if not body:
+        return body
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return body
+    if not isinstance(data, dict) or not isinstance(data.get('reasoning_effort'), str):
+        return body
+    effort = LLAMA_EFFORT.get(data['reasoning_effort'].strip().lower())
+    if not effort:
+        return body
+    data['reasoning_effort'] = effort
+    kwargs = data.get('chat_template_kwargs')
+    kwargs = dict(kwargs) if isinstance(kwargs, dict) else {}
+    if effort == 'none':
+        kwargs.setdefault('enable_thinking', False)
+    else:
+        kwargs.setdefault('reasoning_effort', effort)
+    data['chat_template_kwargs'] = kwargs
+    return json.dumps(data).encode()
+
+
 def llama_ids(max_age=60.0):
     """llama-server's model ids (cached); [] when it can't be asked, so a request then goes through and llama answers."""
     if time.time() - _llama_ids['at'] > max_age:
@@ -297,6 +326,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             host, port = self.server.upstream[0], self.server.ports[engine]
             if engine == 'llama':
                 extra['Authorization'] = 'Bearer ' + llama_token()
+        if generate and engine == 'llama':
+            body = llama_body(body)
         # Strata's chat page has its own Load button; it must free the GPU of llama models first, like a request.
         load = engine in STRATA and self.command == 'POST' and self.path.split('?', 1)[0].rstrip('/') == '/load'
         t0, held = time.time(), False
