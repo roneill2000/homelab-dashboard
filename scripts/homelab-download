@@ -1,0 +1,97 @@
+#!/bin/bash
+# homelab-download: background downloads to Unraid (via the n100's SMB mount), resumable, rate-limited.
+#   homelab-download <url> [dest] [rate]        rate-limited wget download (default dest movies, default rate 50m = 50 MB/s)
+#   homelab-download debrid <url> <dest> [name] full-speed debrid download (aria2c, 16 connections, resumes with the same name)
+#   homelab-download status                     progress of every download (running and finished, newest first)
+#   homelab-download stop <unit-or-name>        stop one (the partial file stays; run the same url again to resume)
+# Each download runs as its own systemd unit (dl-<name>) with its log in /var/log/homelab-download/.
+# The rules that decide what may be written, what a file may be called, and when a
+# download counts as finished live in /usr/local/sbin/homelab_download_lib.py (repo:
+# scripts/homelab_download_lib.py). This file is only a shell front end for people.
+# The dashboard uses /usr/local/sbin/homelab-download-rpc instead of this script.
+set -euo pipefail
+LIB=/usr/local/sbin/homelab_download_lib.py
+LOG=/var/log/homelab-download
+mkdir -p "$LOG"
+
+case "${1:-}" in
+  ""|-h|--help|help)
+    sed -n '2,11p' "$0"
+    exit 0
+    ;;
+  status)
+    python3 "$LIB" status
+    exit 0
+    ;;
+  stop)
+    arg="${2:?a download unit (dl-<name>) or the file name from homelab-download status}"
+    case "$arg" in dl-*) NAME="${arg#dl-}";; *) NAME="$arg";; esac
+    python3 "$LIB" stop "$NAME"
+    exit 0
+    ;;
+  debrid)
+    python3 "$LIB" start-debrid "${2:?download link}" "${3:?destination folder under /mnt/unraid}" "${4:-}"
+    exit 0
+    ;;
+esac
+
+URL="$1"
+DEST_ARG="${2:-movies}"
+case "$DEST_ARG" in
+  movies) DEST_ARG=/mnt/unraid/Movies ;;
+  shows)  DEST_ARG=/mnt/unraid/Shows ;;
+esac
+# the library decides what a real share folder is: no .., no symlink, inside /mnt/unraid
+DEST=$(python3 "$LIB" dest "$DEST_ARG" 2>&1) || { echo "$DEST" | head -1; exit 1; }
+[[ "$URL" =~ ^https://[^[:space:]]+$ ]] || { echo "url must start with https://"; exit 1; }
+RATE="${3:-50m}"
+[[ "$RATE" =~ ^[1-9][0-9]*[mM]?$ ]] || { echo "rate looks wrong (want 50m)"; exit 1; }
+RATE="${RATE%%[mM]}"; RATE=$((RATE >= 1 && RATE <= 100000 ? RATE : 50))
+NAME=$(python3 -c 'import sys,urllib.parse as u;print(u.unquote(u.urlsplit(sys.argv[1]).path.rsplit("/",1)[-1]))' "$URL")
+[ -n "$NAME" ] && [ "$NAME" != "/" ] || { echo "the url has no file name"; exit 1; }
+NAME=${NAME:0:200}
+UNIT=$(python3 "$LIB" unit "$NAME")
+
+if systemctl is-active --quiet "$UNIT"; then
+  echo "already running: $UNIT"
+  python3 "$LIB" status | awk -v unit="$UNIT" -F': ' '$1 == unit'
+  exit 0
+fi
+if ! mountpoint -q /mnt/unraid; then
+  echo "the Unraid share is not mounted on the n100 right now; the download will wait for it"
+fi
+
+# Record the job before it starts, so status and the dashboard can follow a run from the start.
+python3 "$LIB" record "$UNIT" running "$DEST" "$NAME" || true
+# A failed unit of this name can still be loaded: systemd-run refuses it until it is reset.
+systemctl reset-failed "$UNIT" 2>/dev/null || true
+
+if ! systemd-run --unit "$UNIT" --collect --setenv=UNIT="$UNIT" --setenv=DEST="$DEST" --setenv=NAME="$NAME" --setenv=URL="$URL" --setenv=RATE="$RATE" --property=StandardOutput=append:/var/log/homelab-download/"$UNIT".log --property=StandardError=append:/var/log/homelab-download/"$UNIT".log bash -euo pipefail -c '
+  for i in {1..60}; do mountpoint -q /mnt/unraid && break; echo "waiting for /mnt/unraid"; sleep 15; done
+  mkdir -p "$DEST"
+  cd "$DEST"
+  # wget -c resumes a partial file; --limit-rate caps the speed. No pipe: a pipe hides wget exit code.
+  wget -c --server-response --limit-rate="${RATE}m" --tries=20 --timeout=60 --progress=dot:mega -O "$NAME.part" "$URL"
+  rc=$?   # always a number: no guard needed here
+  if [ "$rc" -eq 0 ] && [ -s "$NAME.part" ]; then
+    mv -f "$NAME.part" "$NAME"
+    echo "DONE $DEST/$NAME"
+    python3 /usr/local/sbin/homelab_download_lib.py record "$UNIT" complete "$DEST" "$NAME"
+  elif [ "$rc" -ge 128 ]; then
+    echo "STOPPED wget was stopped (partial file kept, run the same url again to resume)"
+    python3 /usr/local/sbin/homelab_download_lib.py record "$UNIT" stopped "$DEST" "$NAME" "stopped by request"
+    exit 0
+  else
+    echo "FAILED wget exited with code $rc (partial file kept)"
+    python3 /usr/local/sbin/homelab_download_lib.py record "$UNIT" failed "$DEST" "$NAME" "wget exited with code $rc"
+    exit 1
+  fi
+'
+then
+  echo "could not start the download unit $UNIT (see: journalctl -u $UNIT)"
+  exit 1
+fi
+sleep 3
+echo "started $UNIT (rate ${RATE} MB/s -> $DEST/$NAME)"
+python3 "$LIB" status | awk -v unit="$UNIT" -F': ' '$1 == unit'
+tail -3 "$LOG/$UNIT.log" 2>/dev/null | grep -E "$UNIT" | tail -2 || true

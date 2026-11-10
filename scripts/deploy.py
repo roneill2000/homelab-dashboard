@@ -142,3 +142,27 @@ if __name__ == '__main__':
     data['fonts'] = fonts_payload
     script = REMOTE.replace('json.loads(PAYLOAD)', 'json.loads('+repr(json.dumps(data))+')')
     subprocess.run(['ssh','-o','BatchMode=yes','root@192.168.0.3','pct','exec','104','--','python3','-'], input=script, text=True, check=True)
+    push_to_n100()
+
+
+def push_to_n100():
+    """The n100 download worker's own files, so its rules cannot drift from this repo.
+
+    Each file is staged on .3, checked there (python or bash), then installed. A file that does not
+    pass on .3 stops the deploy instead of half-updating the download worker.
+    """
+    jobs = [('homelab_download_lib.py', '/usr/local/sbin/homelab_download_lib.py', 'python3 -m py_compile'),
+            ('homelab_download_rpc.py', '/usr/local/sbin/homelab-download-rpc', 'python3 -m py_compile'),
+            ('homelab-download', '/usr/local/bin/homelab-download', 'bash -n')]
+    for name, target, check in jobs:
+        staged = '/var/tmp/deploy-' + name
+        cmd = f'cat > {staged} && {check} {staged} && install -m 0755 {staged} {target} && rm -f {staged}'
+        proc = subprocess.run(['ssh', '-o', 'BatchMode=yes', 'root@192.168.0.3', 'sh', '-c', cmd],
+                              input=(ROOT / 'scripts' / name).read_text(encoding='utf-8'),
+                              capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise SystemExit('n100 download worker not updated: %s did not pass %s on .3\n%s'
+                             % (name, check, (proc.stderr or proc.stdout).strip()[:400]))
+    subprocess.run(['ssh', '-o', 'BatchMode=yes', 'root@192.168.0.3', 'mkdir', '-p', '/var/lib/homelab-download/jobs'],
+                   check=True)
+    print('n100 download worker updated')

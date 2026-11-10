@@ -9,7 +9,6 @@ import json
 import os
 import re
 import secrets
-import shlex
 import subprocess
 import threading
 import time
@@ -26,22 +25,44 @@ MAGNET = re.compile(r'magnet:\?[\x21-\x7e]*xt=urn:bt(ih|mh):[0-9A-Za-z]{32,68}[\
 RESULTS = {}; RESULTS_LOCK = threading.Lock()
 _opener = None; _opener_lock = threading.Lock()
 
-# Debrid direct-download path: a Real-Debrid/TorBox link is a plain HTTP URL, so we download it
-# straight to Unraid with aria2c (full speed, 16 connections) via homelab-download on the n100,
-# bypassing RdtClient. The backend classifies the file, files it, and fires a Jellyfin scan.
-DEBRID_HTTP = re.compile(r'https?://[^\s"\'<>]+', re.IGNORECASE)
+# --- Debrid direct downloads -------------------------------------------------
+# Ryan pastes a Real-Debrid (or TorBox) link into the homepage; the n100 downloads it
+# straight to Unraid with aria2c at full speed, bypassing RdtClient.
+# The dashboard never runs a shell on the n100. It uses its own download key, whose forced command
+# on .3 is /usr/local/sbin/homelab-download-rpc: one JSON request in, one JSON answer out (ping,
+# start, check). The download rules - which folders a file may land in, what a file may be called,
+# when a download counts as finished - live on the n100 in /usr/local/sbin/homelab_download_lib.py
+# (repo: scripts/homelab_download_lib.py). The checks below only reject the obvious mistakes early
+# so the panel can say why; tests/test_debrid_parity.py keeps the two rule sets equal.
+# Grounding: SearXNG answers "film or series?" only when the file name is ambiguous.
+# Library update: POST .17:8096/ScheduledTasks/Running/<Scan Media Library id>, using the
+# dashboard process's own Jellyfin header (__main__._JF_HDR), the same one posters use.
+# State: /var/lib/homelab-dashboard/debrid.json (older deploys kept it in /etc/homelab-dashboard).
+DEBRID_HTTP = re.compile(r'https://[^\s"\'<>|\\]+')
 SE_DOT = re.compile(r'\bS(\d{1,2})\s*[Ee]\s*(\d{1,3})\b')
 SE_X = re.compile(r'\b(\d{1,2})x(\d{1,3})\b')
+SEASON_ONLY = re.compile(r'\b(?:Season|Staffel)\s*[._-]\s*(\d{1,2})\b', re.I)
+EP_ONLY = re.compile(r'\bE(?:pisode)?\s*[._-]\s*(\d{1,3})\b', re.I)
 YEAR = re.compile(r'\b(19\d{2}|20\d{2})\b')
-MEDIA_EXT = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m4v', '.webm')
+# The worker on .3 checks the same list (scripts/homelab_download_lib.py); tests/test_debrid_parity.py
+# fails if one side adds or drops an extension without the other.
+MEDIA_EXT = ('.mkv', '.mp4', '.m4v', '.mov', '.avi', '.wmv', '.flv', '.webm', '.m4a', '.mp3', '.flac', '.epub')
 SEARXNG = 'http://192.168.0.13:8888/search'
-JF_SCAN = 'http://192.168.0.17:8096/ScheduledTasks/Running/7738148ffcd07979c7ceb148e06b3aed'
-DEBRID_STATE = '/etc/homelab-dashboard/debrid.json'
+JF_SCAN = 'http://192.168.0.17:8096/ScheduledTasks/Running/7738148ffcd07979c7ceb148e06b3aed'  # "Scan Media Library"
+DEBRID_STATE = '/var/lib/homelab-dashboard/debrid.json'
+DEBRID_STATE_OLD = '/etc/homelab-dashboard/debrid.json'
 MOVIES_DIR = '/mnt/unraid/Movies'
 SHOWS_DIR = '/mnt/unraid/Shows'
-_PROXMOX_KEY = '/etc/homelab-dashboard/update_ed25519'
+_DOWNLOAD_KEY = '/etc/homelab-dashboard/download_ed25519'
 _PROXMOX_KNOWN = '/etc/homelab-dashboard/update_known_hosts'
 _PROXMOX_TARGET = 'root@192.168.0.3'
+_DEBRID_IF_VERSION = 1
+_DEBRID_KEEP = 50      # rows kept in the state file
+_DEBRID_ROWS = 15      # rows the homepage shows
+_DEBRID_CHECK_MAX = 40 # downloads in one check call
+_DEBRID_SCAN_UNTIL = ('finished', 'present')   # states that mean "ask Jellyfin to look"
+_DEBRID_STATE_WORDS = ('downloading', 'finished', 'failed', 'stopped', 'interrupted', 'present', 'missing', 'unknown')
+_STATE_LOCK = threading.Lock()
 
 
 def _config(path):
@@ -166,160 +187,396 @@ def poster(item_id):
     return kind, body
 
 
-def _proxmox(cmd, timeout=30):
-    """Run a command on the n100 with the same key the update flow uses."""
-    return subprocess.run(
-        ['ssh', '-i', _PROXMOX_KEY, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
-         '-o', 'UserKnownHostsFile=' + _PROXMOX_KNOWN, '-o', 'StrictHostKeyChecking=yes',
-         '-o', 'ConnectTimeout=6', _PROXMOX_TARGET, cmd],
-        capture_output=True, text=True, timeout=timeout)
+def _download_rpc(payload, timeout=45):
+    """One JSON request to the n100 download worker, one JSON answer back.
+
+    This is the only thing the download key can run on .3: its forced command is
+    /usr/local/sbin/homelab-download-rpc, which accepts no shell, only a JSON request that the
+    worker validates again before it touches anything. Commands: ping, start, check, stop.
+    """
+    cmd = ['ssh', '-i', _DOWNLOAD_KEY, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
+           '-o', 'UserKnownHostsFile=' + _PROXMOX_KNOWN, '-o', 'StrictHostKeyChecking=yes',
+           '-o', 'ConnectTimeout=6', '-n', _PROXMOX_TARGET, json.dumps(payload, separators=(',', ':'))]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('the download worker on the n100 did not answer in time')
+    text = (r.stdout or '').strip()
+    if text:
+        try:
+            out = json.loads(text.splitlines()[-1])
+        except ValueError:
+            out = None
+        if isinstance(out, dict):
+            if out.get('ok'):
+                return out
+            raise RuntimeError(str(out.get('error') or 'the download worker refused')[:200])
+    raise RuntimeError((r.stderr or 'the download worker did not answer').strip()[:200] or 'no answer')
+
+
+# The same rules the n100 worker enforces, applied here first so the panel can explain a refusal.
+# The worker (homelab_download_lib.py) has the last word; tests/test_debrid_parity.py keeps the two equal.
+_NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 
 def _name_from_url(url):
-    return urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit('/', 1)[-1]).strip()
+    """The file name in the link. Decoded before the split, so %2F cannot become a directory separator."""
+    return urllib.parse.unquote(urllib.parse.urlsplit(url).path).rsplit('/', 1)[-1].strip()
 
 
-def _clean_title(title, drop_year=True):
-    t = title.replace('.', ' ')
-    if drop_year:
-        t = YEAR.sub('', t)
-    return re.sub(r'\s+', ' ', t).strip(' -')
+def _safe_url(url):
+    """Structure only: https, a real host, a path. Whether that host is on this LAN is the
+    worker's call (it has DNS and the LAN list); the dashboard never runs a lookup."""
+    if not isinstance(url, str) or len(url) > 4000:
+        raise ValueError('paste a direct https download link')
+    parts = urllib.parse.urlsplit(url.strip())
+    if parts.scheme != 'https' or not parts.netloc or not parts.path.strip('/'):
+        raise ValueError('paste a direct https download link')
+    if _lan_host(parts.hostname or ''):
+        raise ValueError('this link points at the LAN, not at a public download')
+    return url.strip()
+
+
+# Same LAN rule as the worker (scripts/homelab_download_lib.py), without any lookup: this fleet
+# never downloads from itself. What resolves to the LAN through DNS is the worker's call.
+_LAN_NAMES = ('localhost', 'localhost.localdomain', 'pi.hole', 'proxmox', 'unraid', 'agents', 'lan')
+_LAN_STARTS = ('10.', '127.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.',
+               '172.22.', '172.23.', '192.168.', '100.64.', '169.254.', '0.')
+
+
+def _lan_host(host):
+    host = (host or '').lower()
+    if host in _LAN_NAMES or host.startswith(_LAN_STARTS):
+        return True
+    try:
+        import ipaddress
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        return False
+
+
+def _safe_name(name):
+    if not isinstance(name, str) or len(name) > 200 or not name.strip():
+        raise ValueError('the link does not end in a usable file name')
+    name = name.strip()
+    if name in ('.', '..') or name.startswith(('.', '-')) or _NAME_BAD.search(name):
+        raise ValueError('the file name has characters a download cannot use')
+    stem, ext = os.path.splitext(name)
+    if ext.lower() not in MEDIA_EXT or not stem.strip('. '):
+        raise ValueError('this link is not a media file (.mkv, .mp4, .epub, ...)')
+    return name
+
+
+def _safe_show_dir(title):
+    if not isinstance(title, str):
+        raise ValueError('the show name cannot be used as a folder')
+    folder = re.sub(r'\s+', ' ', title).strip(' .-')
+    if not folder or len(folder) > 80 or _NAME_BAD.search(folder) or folder in ('.', '..'):
+        raise ValueError('the show name cannot be used as a folder')
+    return folder
+
+
+def _norm(path):
+    return os.path.normpath(path.rstrip('/'))
+
+
+def _safe_dest(dest):
+    """Movies, or one show folder under Shows. No '..', no backslash, no relative path, no symlink games.
+    The worker repeats this with realpath() on .3, where the share is actually mounted."""
+    if not isinstance(dest, str) or not dest.startswith('/') or chr(92) in dest or '\x00' in dest:
+        raise ValueError('the download folder must be a full path')
+    if any(part in ('.', '..') for part in dest.split('/')):  # refuse traversal, do not normalize it away
+        raise ValueError('the download folder cannot contain . or ..')
+    norm = _norm(dest)
+    if len(norm) > 140:
+        raise ValueError('the download folder has a strange path in it')
+    if norm != MOVIES_DIR and not norm.startswith(SHOWS_DIR + '/'):  # Shows itself is not a download folder
+        raise ValueError('the download folder must be Movies or a show folder under Shows')
+    return norm
+
+
+_TECH_TAIL = {'1080p', '2160p', '1440p', '720p', '480p', '4k', 'uhd', 'hd', 'x264', 'x265', 'h264', 'h265',
+              'hevc', 'av1', 'hdr', 'hdr10', 'hdr10+', '10bit', '8bit', 'dts', 'dts-hd', 'truehd', 'ac3',
+              'eac3', 'atmos', 'remux', 'proper', 'internal', 'repack', 'multi', 'dual', 'subtitles',
+              'nfo', 'web-dl', 'webrip', 'bluray', 'bdrip', 'dvdrip', 'hdtv', 'imax'}
+
+
+def _clean_title(text):
+    """A human title out of a file name: dots become spaces, cut at the release year, drop tech tags.
+    Keeps a title that is only a year (1917) and one that starts with a year (2001: A Space Odyssey)."""
+    t = re.sub(r'[._]+', ' ', text or '').strip()
+    for y in reversed(list(YEAR.finditer(t))):
+        head = t[:y.start()].strip()
+        if head:
+            t = head
+            break
+    words = t.split()
+    while words and words[-1].lower().strip('()-') in _TECH_TAIL:
+        words.pop()
+    return ' '.join(words).strip(' -()')
 
 
 def classify(name):
-    """From a media filename: kind (movie/show), title, S/E, and the show directory name."""
+    """From a media file name: film or series, the title, and any season/episode the name states.
+
+    Season/episode evidence in the name is never thrown away. ambiguous=True means the name states
+    nothing on its own, so add_debrid asks SearXNG. A word like "season" inside a title is not evidence.
+    """
     stem, ext = os.path.splitext(name)
     if ext.lower() not in MEDIA_EXT:
         ext = '.mkv'
-    m = SE_DOT.search(stem) or SE_X.search(stem)
+    m = SE_DOT.search(stem) or SE_X.search(stem) or EP_ONLY.search(stem)
     if m:
-        season, episode = int(m.group(1)), int(m.group(2))
-        title = stem[:m.start()].strip(' .-_') or name
-        kind, show_dir = 'show', _clean_title(title)
-    else:
-        season = episode = None
-        y = YEAR.search(stem)
-        title = stem[:y.start()].strip(' .-_') if y else stem
-        kind, show_dir = 'movie', None
-    return dict(kind=kind, title=title, season=season, episode=episode, ext=ext, show_dir=show_dir, name=name)
+        groups = [g for g in m.groups() if g]
+        season, episode = (int(groups[0]), int(groups[1])) if len(groups) > 1 else (1, int(groups[0]))
+        title = _clean_title(stem[:m.start()]) or name
+        return dict(kind='show', title=title, season=season, episode=episode, ext=ext,
+                    show_dir=_safe_show_dir(title), ambiguous=False)
+    ms = SEASON_ONLY.search(stem)
+    if ms:
+        title = _clean_title(stem[:ms.start()]) or name
+        return dict(kind='show', title=title, season=int(ms.group(1)), episode=None, ext=ext,
+                    show_dir=_safe_show_dir(title), ambiguous=False)
+    title = _clean_title(stem) or stem
+    return dict(kind='movie', title=title, season=None, episode=None, ext=ext, show_dir=None, ambiguous=True)
+
+
+_SHOW_HINT = re.compile(r'\b(?:tv|television|web|streaming|mini[- ]?series|anthology)[ -]*series\b|\bminiseries\b|\bepisodic\b', re.I)
+_MOVIE_HINT = re.compile(r'\b(?:film|movie)\b', re.I)
+
+
+def searxng_results(title):
+    """Top SearXNG snippets for a title: text to match against, never instructions to follow."""
+    q = urllib.parse.urlencode({'q': title, 'format': 'json'})
+    with urllib.request.urlopen(SEARXNG + '?' + q, timeout=8) as r:
+        data = json.load(r)
+    return [((res.get('title') or '') + ' ' + (res.get('content') or '')) for res in (data.get('results') or [])[:6]]
 
 
 def searxng_ground(title):
-    """Best-effort movie/show confirmation via SearXNG. Returns 'movie', 'show' or None."""
+    """'show', 'movie' or None, from what the top results call the title.
+
+    Only strong phrases count. A bare word like "season" never makes a show out of a film: the 2011
+    horror film Season of the Witch stays a film. Results are counted, and a tie answers nothing.
+    """
+    if not title:
+        return None
     try:
-        q = urllib.parse.urlencode({'q': title, 'format': 'json'})
-        with urllib.request.urlopen(SEARXNG + '?' + q, timeout=8) as r:
-            data = json.load(r)
-        text = ' '.join((res.get('title', '') + ' ' + res.get('content', '')) for res in data.get('results', [])[:5]).lower()
-        if 'tv series' in text or 'season' in text or 'episode' in text:
-            return 'show'
-        if 'movie' in text or 'film' in text:
-            return 'movie'
+        texts = searxng_results(title)
     except Exception:
-        pass
+        return None
+    shows = sum(1 for t in texts if _SHOW_HINT.search(t))
+    movies = sum(1 for t in texts if _MOVIE_HINT.search(t))
+    if shows >= 2 and shows >= movies:
+        return 'show'
+    if movies >= 2 and movies > shows:
+        return 'movie'
     return None
 
 
+def _migrate_row(d):
+    # Rows from an older deploy miss fields the panel now uses; default them here so
+    # every row reaching the frontend has the same shape.
+    d.setdefault('kind', 'movie')
+    d.setdefault('title', d['name'])
+    d.setdefault('scanned', False)
+    d.setdefault('scan_error', None)
+    d.setdefault('error', None)
+    d.setdefault('grounded', None)
+    d.setdefault('unit', 'dl-' + d['name'])
+    d.setdefault('state', 'unknown')
+    d.setdefault('started', 0)
+    d.setdefault('state_since', 0)
+    d.setdefault('bytes', 0)
+    d.setdefault('total_bytes', 0)
+    d.setdefault('speed', 0)
+    d.setdefault('eta', '')
+    if d['state'] not in _DEBRID_STATE_WORDS:
+        d['state'] = 'unknown'
+    return d
+
+
 def _load_state():
+    """Read the download rows. Older deploys kept the file in /etc/homelab-dashboard; move it forward."""
+    path = DEBRID_STATE if os.path.exists(DEBRID_STATE) else DEBRID_STATE_OLD
     try:
-        with open(DEBRID_STATE) as f:
-            return json.load(f)
+        with open(path) as f:
+            state = json.load(f)
     except Exception:
         return {'downloads': []}
+    rows = state.get('downloads') if isinstance(state, dict) else None
+    if not isinstance(rows, list):
+        return {'downloads': []}
+    return {'downloads': [_migrate_row(d) for d in rows if isinstance(d, dict) and d.get('dest') and d.get('name')]}
 
 
-def _save_state(s):
-    try:
-        with open(DEBRID_STATE, 'w') as f:
-            json.dump(s, f)
-    except Exception:
-        pass
+def _save_state(state):
+    """Write the rows in one step: tmp file, fsync, rename. Only ever called with _STATE_LOCK held."""
+    state['downloads'] = state['downloads'][-_DEBRID_KEEP:]
+    state['updated'] = int(time.time())
+    os.makedirs(os.path.dirname(DEBRID_STATE), exist_ok=True)
+    tmp = DEBRID_STATE + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(state, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, DEBRID_STATE)
 
 
 def _jellyfin_scan():
+    """Ask Jellyfin to scan the library, using the dashboard process's own header. True only if it accepted."""
     import __main__
     hdr = getattr(__main__, '_JF_HDR', None) or {}
     req = urllib.request.Request(JF_SCAN, data=b'', method='POST', headers=dict(hdr))
-    urllib.request.urlopen(req, timeout=10)
-
-
-def _debrid_done(d):
-    f = d['dest'] + '/' + d['name']
-    r = _proxmox('test -e %s && ! test -e %s.aria2 && echo done' % (shlex.quote(f), shlex.quote(f + '.aria2')), timeout=25)
-    return r.returncode == 0 and 'done' in r.stdout
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return 200 <= r.status < 300
+    except urllib.error.HTTPError as e:
+        return e.code in (200, 202, 204)
+    except Exception:
+        return False
 
 
 def add_debrid(url):
-    name = _name_from_url(url)
+    """Start a debrid download on the n100 and remember it. Raises ValueError (bad input) or RuntimeError (worker)."""
+    if not isinstance(url, str) or not DEBRID_HTTP.fullmatch(url.strip()):
+        raise ValueError('paste a direct https download link')
+    url = _safe_url(url)
+    name = _safe_name(_name_from_url(url))  # _safe_name already requires a media extension
     info = classify(name)
-    grounded = searxng_ground(info['title'])
-    if grounded and grounded != info['kind']:
-        info['kind'] = grounded
-        info['show_dir'] = _clean_title(info['title']) if grounded == 'show' else None
-    dest = MOVIES_DIR if info['kind'] == 'movie' else os.path.join(SHOWS_DIR, info['show_dir'] or _clean_title(info['title']))
-    cmd = 'homelab-download debrid %s %s %s' % (shlex.quote(url), shlex.quote(dest), shlex.quote(name))
-    r = _proxmox(cmd, timeout=60)
-    if r.returncode != 0:
-        raise RuntimeError((r.stderr or r.stdout or 'download failed to start').strip())
-    state = _load_state()
-    state['downloads'] = [d for d in state['downloads'] if not (d['dest'] == dest and d['name'] == name)]
-    state['downloads'].append({'dest': dest, 'name': name, 'kind': info['kind'], 'title': info['title'],
-                               'season': info['season'], 'episode': info['episode'], 'started': int(time.time()), 'scanned': False})
-    _save_state(state)
+    grounded = None
+    if info['ambiguous']:
+        grounded = searxng_ground(info['title'])
+        if grounded == 'show':
+            info['kind'], info['show_dir'] = 'show', _safe_show_dir(info['title'])
+    show_dir = info['show_dir'] or _safe_show_dir(info['title'])
+    dest = _safe_dest(MOVIES_DIR if info['kind'] == 'movie' else os.path.join(SHOWS_DIR, show_dir))
+    out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': url, 'dest': dest, 'name': name})
+    row = {'dest': dest, 'name': name, 'unit': out.get('unit') or 'dl-' + name, 'kind': info['kind'],
+           'title': info['title'], 'season': info['season'], 'episode': info['episode'],
+           'state': out.get('state') if out.get('state') in _DEBRID_STATE_WORDS else 'downloading',
+           'bytes': 0, 'started': int(time.time()), 'scanned': False, 'scan_error': None, 'error': None,
+           'grounded': grounded}
+    with _STATE_LOCK:
+        state = _load_state()
+        old = next((d for d in state['downloads'] if d['dest'] == dest and d['name'] == name), None)
+        if old is not None:
+            state['downloads'].remove(old)
+        state['downloads'].append(row)
+        _save_state(state)
     return dict(ok=True, kind=info['kind'], title=info['title'], season=info['season'], episode=info['episode'],
-                dest=dest, name=name, grounded=grounded, started=r.stdout.strip())
+                grounded=grounded, dest=dest, name=name, state=row['state'], unit=row['unit'],
+                message=out.get('message') or ('started ' + name))
 
 
 def _debrid_tick():
-    """Fire a Jellyfin scan when a tracked debrid download finishes. Called from a background loop."""
-    state = _load_state()
-    changed = False
-    for d in state['downloads']:
-        if d.get('scanned'):
-            continue
-        if _debrid_done(d):
-            try:
-                _jellyfin_scan()
-            except Exception:
-                pass
-            d['scanned'] = True
+    """Refresh rows from the n100 worker, then ask Jellyfin once for everything that just finished.
+
+    A row is only marked scanned after Jellyfin accepted the scan; otherwise scan_error is stored and
+    the next tick tries again. Runs in the background loop, never in a request.
+    """
+    with _STATE_LOCK:
+        state = _load_state()
+        due = [d for d in state['downloads'] if d['state'] not in _DEBRID_SCAN_UNTIL or not d.get('scanned')]
+        jobs = [{'dest': d['dest'], 'name': d['name']} for d in due[-_DEBRID_CHECK_MAX:]]
+    if not jobs:
+        return
+    try:
+        out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'check', 'jobs': jobs}, timeout=90)
+    except Exception:
+        return
+    answers = {(j.get('dest'), j.get('name')): j for j in (out.get('jobs') or []) if isinstance(j, dict)}
+    with _STATE_LOCK:
+        state = _load_state()
+        changed = False
+        for d in state['downloads']:
+            j = answers.get((d['dest'], d['name']))
+            if not j:
+                continue
+            state_word = j.get('state') if j.get('state') in _DEBRID_STATE_WORDS else 'unknown'
+            moved = (d.get('state') != state_word
+                     or int(d.get('bytes') or 0) != int(j.get('bytes') or 0)
+                     or int(d.get('total_bytes') or 0) != int(j.get('total_bytes') or 0))
+            if moved:
+                if d.get('state') != state_word:
+                    d['state_since'] = int(time.time())
+                d['state'], d['bytes'] = state_word, int(j.get('bytes') or 0)
+                d['total_bytes'], d['speed'] = int(j.get('total_bytes') or 0), int(j.get('speed_bytes') or 0)
+                d['eta'] = str(j.get('eta') or '')[:40]
+                changed = True
+            if j.get('error') and d.get('error') != str(j['error'])[:200]:
+                d['error'] = str(j['error'])[:200]
+                changed = True
+        ready = [d for d in state['downloads'] if d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned')]
+        if ready:
+            ok = _jellyfin_scan()
+            for d in ready:
+                if ok:
+                    d['scanned'], d['scan_error'] = True, None
+                else:
+                    d['scan_error'] = 'the library scan did not start'
             changed = True
-    if changed:
-        _save_state(state)
+        if changed:
+            _save_state(state)
 
 
 def _debrid_rows(state):
+    """Rows for the homepage, from the state file only: no SSH per row. The tick loop keeps them fresh."""
     out = []
-    for d in state['downloads'][-15:][::-1]:
-        try:
-            done = _debrid_done(d)
-        except Exception:
-            done = False
+    for d in state['downloads'][-_DEBRID_ROWS:][::-1]:
+        st = d.get('state') or 'unknown'
         out.append(dict(name=d['name'], kind=d['kind'], title=d['title'], season=d.get('season'),
-                        episode=d.get('episode'), dest=d['dest'], done=done, scanned=d.get('scanned', False), started=d.get('started')))
+                        episode=d.get('episode'), dest=d['dest'], state=st, done=st in _DEBRID_SCAN_UNTIL,
+                        bytes=int(d.get('bytes') or 0), total_bytes=int(d.get('total_bytes') or 0),
+                        speed=int(d.get('speed') or 0), eta=d.get('eta') or '',
+                        scanned=bool(d.get('scanned')), scan_error=d.get('scan_error'),
+                        error=d.get('error'), grounded=d.get('grounded'), started=d.get('started'),
+                        age=max(0, int(time.time()) - int(d.get('started') or 0))))
     return out
 
 
+def stop_debrid(name):
+    """Stop one running download on the n100 by file name, so a stuck row can be cleared.
+
+    The partial file stays on the share: pasting the same link again resumes it. Raises
+    ValueError (not in the list, bad name) or RuntimeError (the worker refused).
+    """
+    name = _safe_name(name)
+    with _STATE_LOCK:
+        state = _load_state()
+        row = next((d for d in state['downloads'] if d['name'] == name), None)
+        if row is None:
+            raise ValueError('that download is not in the list anymore')
+        out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'stop', 'name': name}, timeout=40)
+        row['state'], row['state_since'] = 'stopped', int(time.time())
+        row['scanned'], row['scan_error'] = True, None   # stopped on purpose: never scanned, no retry
+        _save_state(state)
+    return dict(ok=True, name=name, unit=out.get('unit') or 'dl-' + name,
+                message=out.get('message') or ('stopped ' + name))
+
+
 def debrid_status():
-    return {'ok': True, 'downloads': _debrid_rows(_load_state())}
+    with _STATE_LOCK:
+        state = _load_state()
+    return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated')}
 
 
 _DEBRID_LOOP = {'started': False}
 
 
 def start_debrid_loop():
-    """Background loop that fires a Jellyfin scan when a debrid download finishes (dashboard host only)."""
-    if not os.path.exists(_PROXMOX_KEY) or _DEBRID_LOOP['started']:
+    """Background loop (dashboard host only): pull download state from the n100 worker, fire a Jellyfin scan on finish."""
+    if not os.path.exists(_DOWNLOAD_KEY) or _DEBRID_LOOP['started']:
         return False
     _DEBRID_LOOP['started'] = True
 
     def loop():
         while True:
+            time.sleep(25)
             try:
                 _debrid_tick()
             except Exception:
                 pass
-            time.sleep(30)
 
     threading.Thread(target=loop, name='debrid-scan', daemon=True).start()
     return True
@@ -353,6 +610,24 @@ def handle(handler, post=False):
     if url.path == '/api/debrid' and not post:
         try: _reply(handler, 200, debrid_status())
         except Exception: _reply(handler, 503, {'error': 'Could not read debrid downloads.'})
+        return True
+    if url.path == '/api/debrid' and post:
+        # Stopping a download is an action like the others: same origin plus the dashboard action header.
+        if not qwen_proxy.same_origin(handler, 'X-Dashboard-Action'):
+            _reply(handler, 403, {'ok': False, 'error': 'Use the homepage to run this action.'}); return True
+        try:
+            length = int(handler.headers.get('Content-Length', '0'))
+            if not 0 < length <= 8192: raise ValueError
+            body = json.loads(handler.rfile.read(length))
+            if not isinstance(body, dict): raise ValueError
+        except (ValueError, OSError):
+            _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True
+        name = body.get('stop')
+        if not isinstance(name, str):
+            _reply(handler, 400, {'ok': False, 'error': 'Name the download to stop.'}); return True
+        try: _reply(handler, 200, stop_debrid(name))
+        except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
+        except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
         return True
     if url.path != '/api/action/download' or not post: return False
     if not qwen_proxy.same_origin(handler, 'X-Dashboard-Action'):
