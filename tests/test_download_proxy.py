@@ -76,5 +76,77 @@ class DownloadTests(unittest.TestCase):
             self.assertEqual(dp.recent()[0]['stage'], 'finishing')
 
 
+class DebridTests(unittest.TestCase):
+    def test_classify_movie_and_show(self):
+        m = dp.classify('Memento.2000.BluRay.1080p.mkv')
+        self.assertEqual((m['kind'], m['title'], m['season'], m['episode'], m['ext']), ('movie', 'Memento', None, None, '.mkv'))
+        s = dp.classify('Breaking.Bad.S05E02.HDTV.x264.mkv')
+        self.assertEqual((s['kind'], s['season'], s['episode'], s['show_dir']), ('show', 5, 2, 'Breaking Bad'))
+        x = dp.classify('Some.Show.2019.1080p.mkv')  # year, no S/E -> movie
+        self.assertEqual((x['kind'], x['title']), ('movie', 'Some.Show.2019.1080p'.split('.2019')[0].strip('. ')))
+
+    def test_name_from_url(self):
+        self.assertEqual(dp._name_from_url('https://nyk.example.com/d/abc/Memento.2000%20BluRay.mkv'), 'Memento.2000 BluRay.mkv')
+
+    def test_add_debrid_movie_files_to_movies(self):
+        url = 'https://nyk.example.com/d/abc/Memento.2000.BluRay.1080p.mkv'
+        with patch.object(dp, 'searxng_ground', return_value=None), \
+             patch.object(dp, '_proxmox', return_value=SimpleNamespace(returncode=0, stdout='started dl-x\n', stderr='')) as prox, \
+             patch.object(dp, '_load_state', return_value={'downloads': []}), \
+             patch.object(dp, '_save_state') as save:
+            out = dp.add_debrid(url)
+        self.assertEqual((out['kind'], out['dest'], out['name']), ('movie', dp.MOVIES_DIR, 'Memento.2000.BluRay.1080p.mkv'))
+        self.assertIn('homelab-download debrid', prox.call_args[0][0])
+        save.assert_called_once()
+
+    def test_add_debrid_show_files_to_show_dir(self):
+        url = 'https://nyk.example.com/d/abc/Breaking.Bad.S05E02.720p.mkv'
+        with patch.object(dp, 'searxng_ground', return_value=None), \
+             patch.object(dp, '_proxmox', return_value=SimpleNamespace(returncode=0, stdout='ok', stderr='')), \
+             patch.object(dp, '_load_state', return_value={'downloads': []}), \
+             patch.object(dp, '_save_state'):
+            out = dp.add_debrid(url)
+        self.assertEqual((out['kind'], out['season'], out['episode']), ('show', 5, 2))
+        self.assertEqual(out['dest'], dp.SHOWS_DIR + '/Breaking Bad')
+
+    def test_add_debrid_reports_start_failure(self):
+        url = 'https://nyk.example.com/d/abc/Memento.2000.mkv'
+        with patch.object(dp, 'searxng_ground', return_value=None), \
+             patch.object(dp, '_proxmox', return_value=SimpleNamespace(returncode=2, stdout='', stderr='dest must be under /mnt/unraid')):
+            with self.assertRaises(RuntimeError):
+                dp.add_debrid(url)
+
+    def test_debrid_status_rows(self):
+        state = {'downloads': [{'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'kind': 'movie', 'title': 'a',
+                                'season': None, 'episode': None, 'started': 1, 'scanned': True}]}
+        with patch.object(dp, '_load_state', return_value=state), patch.object(dp, '_debrid_done', return_value=True):
+            out = dp.debrid_status()
+        self.assertTrue(out['ok'])
+        self.assertEqual((out['downloads'][0]['name'], out['downloads'][0]['done']), ('a.mkv', True))
+
+    def test_debrid_status_route(self):
+        with patch.object(dp, 'debrid_status', return_value={'ok': True, 'downloads': []}):
+            _, codes, body = call('/api/debrid', OK, post=False)
+        self.assertEqual(codes, [200]); self.assertTrue(body['ok'])
+
+    def test_url_route_dispatches_add_debrid(self):
+        url = 'https://nyk.example.com/d/abc/x.mkv'
+        with patch.object(dp, 'add_debrid', return_value={'ok': True, 'kind': 'movie', 'title': 'x', 'season': None,
+                                                          'episode': None, 'dest': dp.MOVIES_DIR, 'name': 'x.mkv',
+                                                          'grounded': None, 'started': 'started dl-x'}) as add:
+            _, codes, body = call('/api/action/download', OK, {'url': url})
+        self.assertEqual(codes, [200]); self.assertTrue(body['ok'])
+        add.assert_called_once_with(url)
+
+    def test_url_route_rejects_non_url(self):
+        with patch.object(dp, 'add_debrid') as add:
+            self.assertEqual(call('/api/action/download', OK, {'url': 'not a url'})[1], [400])
+        add.assert_not_called()
+
+    def test_debrid_loop_guards_on_key(self):
+        with patch('os.path.exists', return_value=False):
+            self.assertFalse(dp.start_debrid_loop())
+
+
 if __name__ == '__main__':
     unittest.main()

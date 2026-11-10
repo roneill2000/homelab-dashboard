@@ -1027,13 +1027,16 @@ const dlState=t=>t.progress>=1||/UP$|^uploading$/.test(t.state||'')?['Done',true
 // Last RdtClient list, kept across visits so the Media page doesn't flash a placeholder each time.
 let lastRecent=null;
 function DownloadsPanel({notify=()=>{}}){
- const [text,setText]=useState(''),[kind,setKind]=useState('torrent'),[results,setResults]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState({}),[shown,setShown]=useState(15),[recent,setRecent]=useState(()=>lastRecent);
+ const [text,setText]=useState(''),[kind,setKind]=useState('torrent'),[results,setResults]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState({}),[shown,setShown]=useState(15),[recent,setRecent]=useState(()=>lastRecent),[debrid,setDebrid]=useState(null);
  const isMagnet=/^magnet:\?/i.test(text.trim());
+ const isUrl=/^https?:\/\/\S+$/i.test(text.trim());
  const poll=useRef(null),seq=useRef(0),ctl=useRef(null);
  useEffect(()=>{let alive=true,timer,inflight=false;async function get(){if(inflight)return;inflight=true;try{const r=await fetch('/api/downloads',{cache:'no-store',signal:AbortSignal.timeout(15000)});const d=await r.json();const items=r.ok&&Array.isArray(d?.items)?d.items:null;if(items)lastRecent=items;
    // Android app: something is downloading, so keep a progress notification going after the app is left.
    if(items?.some(t=>(t.progress??1)<1&&!/error/i.test(t.state||''))){try{window.AndroidBridge?.watchDownloads?.()}catch{}}if(alive)setRecent(items||{error:d?.error||'RdtClient is not answering.'})}catch{if(alive)setRecent({error:'RdtClient is not answering.'})}finally{inflight=false;clearTimeout(timer);if(alive)timer=setTimeout(get,document.hidden?30000:5000)}}
   poll.current=()=>{clearTimeout(timer);get()};get();return()=>{alive=false;clearTimeout(timer)}},[]);
+ // Debrid downloads are tracked by the backend (not RdtClient); poll their done/scanned state separately.
+ useEffect(()=>{let alive=true;async function get(){try{const r=await fetch('/api/debrid',{cache:'no-store',signal:AbortSignal.timeout(15000)});if(r.ok){const d=await r.json();if(alive)setDebrid(Array.isArray(d?.downloads)?d.downloads:[])}}catch{}}get();const iv=setInterval(get,15000);return()=>{alive=false;clearInterval(iv)}},[]);
  // Each search cancels the one before it (switching Debrid/Usenet mid-search can't show the other kind's results) and
  // gives up after 45 s, so a hung indexer never locks the panel. Errors are worded for people, not raw browser text.
  async function search(k=kind){const q=text.trim();if(q.length<2)return;const id=++seq.current;ctl.current?.abort();const c=new AbortController();ctl.current=c;const t=setTimeout(()=>c.abort(),45000);
@@ -1044,15 +1047,17 @@ function DownloadsPanel({notify=()=>{}}){
   finally{clearTimeout(t);if(id===seq.current)setBusy(false)}}
  async function addMagnet(){setBusy(true);setError('');const d=await postAction('/api/action/download',{magnet:text.trim()}).catch(()=>({ok:false,error:'Could not reach the dashboard.'}));setBusy(false);
   if(d.ok){notify('Magnet sent to RdtClient.');setText('');setTimeout(()=>poll.current?.(),1500)}else setError(d.error||'RdtClient did not accept the magnet.')}
+ async function addUrl(){setBusy(true);setError('');const d=await postAction('/api/action/download',{url:text.trim()}).catch(()=>({ok:false,error:'Could not reach the dashboard.'}));setBusy(false);
+  if(d.ok){notify(`Downloading ${d.title} to ${d.kind==='movie'?'Movies':d.title}.`);setText('');setTimeout(()=>poll.current?.(),1500)}else setError(d.error||'The download could not be started.')}
  async function grab(r){setSent(m=>({...m,[r.id]:'busy'}));const d=await postAction('/api/action/download',{result:r.id}).catch(()=>({ok:false,error:'Could not reach the dashboard.'}));
   setSent(m=>({...m,[r.id]:d.ok?'done':undefined}));if(d.ok){notify(results?.kind==='usenet'?'Sent to SABnzbd.':'Sent to RdtClient.');setTimeout(()=>poll.current?.(),2500)}else notify(d.error||'Could not send it.')}
- function submit(e){e.preventDefault();if(busy)return;isMagnet?addMagnet():search()}
+ function submit(e){e.preventDefault();if(busy)return;isUrl?addUrl():isMagnet?addMagnet():search()}
  const list=results?.list||[];
  return <section className="downloads-section" aria-labelledby="dl-h"><div className="section-heading"><h2 id="dl-h">Add a download</h2></div>
   <article className="m3-card m3-card--outlined panel downloads-panel">
-   <form className="dl-form" onSubmit={submit}><TextField icon={isMagnet?'link':'search'} aria-label="Search indexers or paste a magnet link" placeholder="Search, or paste a magnet link" value={text} onChange={e=>setText(e.target.value)} onClear={()=>{setText('');setResults(null);setError('')}} clearLabel="Clear" enterKeyHint={isMagnet?'send':'search'} autoComplete="off" spellCheck="false"/>
-    <div className="dl-controls">{!isMagnet&&<Segmented label="Source" value={kind} onChange={k=>{setKind(k);if(results||busy)search(k)}} options={[['torrent','Debrid'],['usenet','Usenet']]}/>}
-     <Button type="submit" variant="filled" icon={isMagnet?'download':'search'} disabled={busy||(isMagnet?false:text.trim().length<2)}>{busy?(isMagnet?'Sending…':'Searching…'):isMagnet?'Add magnet':'Search'}</Button></div></form>
+   <form className="dl-form" onSubmit={submit}><TextField icon={isMagnet||isUrl?'link':'search'} aria-label="Search indexers, or paste a magnet or download link" placeholder="Search, or paste a magnet or download link" value={text} onChange={e=>setText(e.target.value)} onClear={()=>{setText('');setResults(null);setError('')}} clearLabel="Clear" enterKeyHint={isMagnet||isUrl?'send':'search'} autoComplete="off" spellCheck="false"/>
+    <div className="dl-controls">{!isMagnet&&!isUrl&&<Segmented label="Source" value={kind} onChange={k=>{setKind(k);if(results||busy)search(k)}} options={[['torrent','Debrid'],['usenet','Usenet']]}/>}
+     <Button type="submit" variant="filled" icon={isMagnet||isUrl?'download':'search'} disabled={busy||(isMagnet||isUrl?false:text.trim().length<2)}>{busy?(isMagnet||isUrl?'Sending…':'Searching…'):isUrl?'Add download':isMagnet?'Add magnet':'Search'}</Button></div></form>
    {error&&<div className="notice warning" role="alert">{error}</div>}
    {busy&&!isMagnet&&<IndeterminateProgress label="Searching indexers"/>}
    {results&&<div className="dl-results" aria-live="polite"><h3 className="dl-subhead">{list.length?`${list.length} results for “${results.q}”`:`Nothing found for “${results.q}”`}</h3>
@@ -1062,6 +1067,7 @@ function DownloadsPanel({notify=()=>{}}){
    <div className="dl-recent"><h3 className="dl-subhead">Recently added to RdtClient</h3>
     {recent===null?<Skeleton h={40}/>:recent.error?<p className="source-note">{recent.error}</p>:!recent.length?<div className="empty">Nothing yet.</div>:
      recent.map((t,i)=>{const [label,tone]=dlState(t),pct=Math.floor((t.progress||0)*1000)/10;return <div className="dl-row dl-row--recent" key={i}><div className="dl-row__text"><strong>{t.name}</strong><small><span className="nowrap"><strong className="ov-num">{bytes(t.size)}</strong></span>{tone===null&&label!=='Done'&&<span className="nowrap">{t.stage==='debrid'?'Debrid ':t.stage==='local'?'To disk ':''}<strong className="ov-num">{pct}%</strong>{t.dlspeed>0&&<> · {rate(t.dlspeed)} MB/s</>}{t.stage==='debrid'&&valid(t.seeders)&&<> · {num(t.seeders)} seeders</>}</span>}{t.error&&<span>{t.error}</span>}{t.category&&<span className="nowrap">{t.category}</span>}</small>{tone===null&&label!=='Queued'&&<LinearProgress value={pct} label={`${t.name} progress`}/>}</div><Badge state={tone} label={label}/></div>})}</div>
+   {debrid&&debrid.length>0&&<div className="dl-recent"><h3 className="dl-subhead">Debrid downloads</h3>{debrid.map((d,i)=><div className="dl-row dl-row--recent" key={i}><div className="dl-row__text"><strong>{d.title}</strong><small><span className="nowrap">{d.kind==='show'&&d.season!=null?`S${String(d.season).padStart(2,'0')}E${String(d.episode).padStart(2,'0')}`:d.kind==='movie'?'Movie':'Show'}</span><span className="nowrap">· {d.kind==='movie'?'Movies':d.title}</span></small></div><Badge state={d.done?(d.scanned?true:'warn'):null} label={d.done?(d.scanned?'Filed':'Done'):'Downloading'}/></div>)}</div>}
   </article></section>}
 // Last /api/updates answer, shared by the sidebar badge poll and the Updates page, so returning to the page shows the
 // list at once and refreshes it quietly instead of flashing placeholders.

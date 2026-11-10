@@ -6,8 +6,11 @@ indexer URLs or API keys: search results are handed out as short-lived tokens.
 """
 import http.cookiejar
 import json
+import os
 import re
 import secrets
+import shlex
+import subprocess
 import threading
 import time
 import urllib.error
@@ -22,6 +25,23 @@ CATEGORY = 'prowlarr'
 MAGNET = re.compile(r'magnet:\?[\x21-\x7e]*xt=urn:bt(ih|mh):[0-9A-Za-z]{32,68}[\x21-\x7e]*')
 RESULTS = {}; RESULTS_LOCK = threading.Lock()
 _opener = None; _opener_lock = threading.Lock()
+
+# Debrid direct-download path: a Real-Debrid/TorBox link is a plain HTTP URL, so we download it
+# straight to Unraid with aria2c (full speed, 16 connections) via homelab-download on the n100,
+# bypassing RdtClient. The backend classifies the file, files it, and fires a Jellyfin scan.
+DEBRID_HTTP = re.compile(r'https?://[^\s"\'<>]+', re.IGNORECASE)
+SE_DOT = re.compile(r'\bS(\d{1,2})\s*[Ee]\s*(\d{1,3})\b')
+SE_X = re.compile(r'\b(\d{1,2})x(\d{1,3})\b')
+YEAR = re.compile(r'\b(19\d{2}|20\d{2})\b')
+MEDIA_EXT = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m4v', '.webm')
+SEARXNG = 'http://192.168.0.13:8888/search'
+JF_SCAN = 'http://192.168.0.17:8096/ScheduledTasks/Running/7738148ffcd07979c7ceb148e06b3aed'
+DEBRID_STATE = '/etc/homelab-dashboard/debrid.json'
+MOVIES_DIR = '/mnt/unraid/Movies'
+SHOWS_DIR = '/mnt/unraid/Shows'
+_PROXMOX_KEY = '/etc/homelab-dashboard/update_ed25519'
+_PROXMOX_KNOWN = '/etc/homelab-dashboard/update_known_hosts'
+_PROXMOX_TARGET = 'root@192.168.0.3'
 
 
 def _config(path):
@@ -146,7 +166,167 @@ def poster(item_id):
     return kind, body
 
 
+def _proxmox(cmd, timeout=30):
+    """Run a command on the n100 with the same key the update flow uses."""
+    return subprocess.run(
+        ['ssh', '-i', _PROXMOX_KEY, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
+         '-o', 'UserKnownHostsFile=' + _PROXMOX_KNOWN, '-o', 'StrictHostKeyChecking=yes',
+         '-o', 'ConnectTimeout=6', _PROXMOX_TARGET, cmd],
+        capture_output=True, text=True, timeout=timeout)
+
+
+def _name_from_url(url):
+    return urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit('/', 1)[-1]).strip()
+
+
+def _clean_title(title, drop_year=True):
+    t = title.replace('.', ' ')
+    if drop_year:
+        t = YEAR.sub('', t)
+    return re.sub(r'\s+', ' ', t).strip(' -')
+
+
+def classify(name):
+    """From a media filename: kind (movie/show), title, S/E, and the show directory name."""
+    stem, ext = os.path.splitext(name)
+    if ext.lower() not in MEDIA_EXT:
+        ext = '.mkv'
+    m = SE_DOT.search(stem) or SE_X.search(stem)
+    if m:
+        season, episode = int(m.group(1)), int(m.group(2))
+        title = stem[:m.start()].strip(' .-_') or name
+        kind, show_dir = 'show', _clean_title(title)
+    else:
+        season = episode = None
+        y = YEAR.search(stem)
+        title = stem[:y.start()].strip(' .-_') if y else stem
+        kind, show_dir = 'movie', None
+    return dict(kind=kind, title=title, season=season, episode=episode, ext=ext, show_dir=show_dir, name=name)
+
+
+def searxng_ground(title):
+    """Best-effort movie/show confirmation via SearXNG. Returns 'movie', 'show' or None."""
+    try:
+        q = urllib.parse.urlencode({'q': title, 'format': 'json'})
+        with urllib.request.urlopen(SEARXNG + '?' + q, timeout=8) as r:
+            data = json.load(r)
+        text = ' '.join((res.get('title', '') + ' ' + res.get('content', '')) for res in data.get('results', [])[:5]).lower()
+        if 'tv series' in text or 'season' in text or 'episode' in text:
+            return 'show'
+        if 'movie' in text or 'film' in text:
+            return 'movie'
+    except Exception:
+        pass
+    return None
+
+
+def _load_state():
+    try:
+        with open(DEBRID_STATE) as f:
+            return json.load(f)
+    except Exception:
+        return {'downloads': []}
+
+
+def _save_state(s):
+    try:
+        with open(DEBRID_STATE, 'w') as f:
+            json.dump(s, f)
+    except Exception:
+        pass
+
+
+def _jellyfin_scan():
+    import __main__
+    hdr = getattr(__main__, '_JF_HDR', None) or {}
+    req = urllib.request.Request(JF_SCAN, data=b'', method='POST', headers=dict(hdr))
+    urllib.request.urlopen(req, timeout=10)
+
+
+def _debrid_done(d):
+    f = d['dest'] + '/' + d['name']
+    r = _proxmox('test -e %s && ! test -e %s.aria2 && echo done' % (shlex.quote(f), shlex.quote(f + '.aria2')), timeout=25)
+    return r.returncode == 0 and 'done' in r.stdout
+
+
+def add_debrid(url):
+    name = _name_from_url(url)
+    info = classify(name)
+    grounded = searxng_ground(info['title'])
+    if grounded and grounded != info['kind']:
+        info['kind'] = grounded
+        info['show_dir'] = _clean_title(info['title']) if grounded == 'show' else None
+    dest = MOVIES_DIR if info['kind'] == 'movie' else os.path.join(SHOWS_DIR, info['show_dir'] or _clean_title(info['title']))
+    cmd = 'homelab-download debrid %s %s %s' % (shlex.quote(url), shlex.quote(dest), shlex.quote(name))
+    r = _proxmox(cmd, timeout=60)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout or 'download failed to start').strip())
+    state = _load_state()
+    state['downloads'] = [d for d in state['downloads'] if not (d['dest'] == dest and d['name'] == name)]
+    state['downloads'].append({'dest': dest, 'name': name, 'kind': info['kind'], 'title': info['title'],
+                               'season': info['season'], 'episode': info['episode'], 'started': int(time.time()), 'scanned': False})
+    _save_state(state)
+    return dict(ok=True, kind=info['kind'], title=info['title'], season=info['season'], episode=info['episode'],
+                dest=dest, name=name, grounded=grounded, started=r.stdout.strip())
+
+
+def _debrid_tick():
+    """Fire a Jellyfin scan when a tracked debrid download finishes. Called from a background loop."""
+    state = _load_state()
+    changed = False
+    for d in state['downloads']:
+        if d.get('scanned'):
+            continue
+        if _debrid_done(d):
+            try:
+                _jellyfin_scan()
+            except Exception:
+                pass
+            d['scanned'] = True
+            changed = True
+    if changed:
+        _save_state(state)
+
+
+def _debrid_rows(state):
+    out = []
+    for d in state['downloads'][-15:][::-1]:
+        try:
+            done = _debrid_done(d)
+        except Exception:
+            done = False
+        out.append(dict(name=d['name'], kind=d['kind'], title=d['title'], season=d.get('season'),
+                        episode=d.get('episode'), dest=d['dest'], done=done, scanned=d.get('scanned', False), started=d.get('started')))
+    return out
+
+
+def debrid_status():
+    return {'ok': True, 'downloads': _debrid_rows(_load_state())}
+
+
+_DEBRID_LOOP = {'started': False}
+
+
+def start_debrid_loop():
+    """Background loop that fires a Jellyfin scan when a debrid download finishes (dashboard host only)."""
+    if not os.path.exists(_PROXMOX_KEY) or _DEBRID_LOOP['started']:
+        return False
+    _DEBRID_LOOP['started'] = True
+
+    def loop():
+        while True:
+            try:
+                _debrid_tick()
+            except Exception:
+                pass
+            time.sleep(30)
+
+    threading.Thread(target=loop, name='debrid-scan', daemon=True).start()
+    return True
+
+
 def handle(handler, post=False):
+    start_debrid_loop()
     url = urllib.parse.urlparse(handler.path)
     m = POSTER.fullmatch(url.path)
     if m and not post:
@@ -170,6 +350,10 @@ def handle(handler, post=False):
         try: _reply(handler, 200, {'results': search(query, kind)})
         except Exception: _reply(handler, 503, {'error': 'Prowlarr did not answer the search.'})
         return True
+    if url.path == '/api/debrid' and not post:
+        try: _reply(handler, 200, debrid_status())
+        except Exception: _reply(handler, 503, {'error': 'Could not read debrid downloads.'})
+        return True
     if url.path != '/api/action/download' or not post: return False
     if not qwen_proxy.same_origin(handler, 'X-Dashboard-Action'):
         _reply(handler, 403, {'ok': False, 'error': 'Use the homepage to run this action.'}); return True
@@ -180,7 +364,14 @@ def handle(handler, post=False):
         if not isinstance(body, dict): raise ValueError
     except (ValueError, OSError):
         _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True
-    magnet, token = body.get('magnet'), body.get('result')
+    magnet, token, url = body.get('magnet'), body.get('result'), body.get('url')
+    if isinstance(url, str):
+        url = url.strip()
+        if not DEBRID_HTTP.fullmatch(url):
+            _reply(handler, 400, {'ok': False, 'error': 'That is not a download URL.'}); return True
+        try: _reply(handler, 200, add_debrid(url))
+        except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
+        return True
     if isinstance(magnet, str):
         magnet = magnet.strip()
         if not MAGNET.fullmatch(magnet):
