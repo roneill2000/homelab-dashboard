@@ -411,6 +411,8 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-row__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.dl-row__head>strong{font-weight:500;overflow-wrap:anywhere;min-width:0}.dl-row__head>.badge{flex:none}.dl-row__meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.dl-row__meta>small{flex:1;min-width:0}.dl-row__meta>.m3-btn{margin:-6px -12px -6px 0}
 .dl-row__text small{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size)}
 .dl-row .m3-btn{flex:none}
+.dl-tags{display:flex;flex-wrap:wrap;gap:4px}.dl-tag{padding:1px 8px;border:1px solid var(--md-sys-color-outline-variant);border-radius:8px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size);white-space:nowrap}
+.dl-plan{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}.dl-plan__where{display:flex;align-items:flex-start;gap:8px;min-width:0;color:var(--md-sys-color-on-surface-variant)}.dl-plan__where strong{color:var(--md-sys-color-on-surface);font-weight:500}.dl-plan__where small{display:block;overflow-wrap:anywhere;font-size:var(--md-sys-typescale-body-small-size)}.dl-plan__bad{color:var(--md-sys-color-error)}
 .dl-results>.text-button{align-self:flex-start;margin-top:4px}
 .m3-field__input:focus-visible{outline:none}
 /* Overview hero while backup status is still unknown: neutral, neither green nor attention. */
