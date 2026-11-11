@@ -34,21 +34,27 @@ _opener = None; _opener_lock = threading.Lock()
 # when a download counts as finished - live on the n100 in /usr/local/sbin/homelab_download_lib.py
 # (repo: scripts/homelab_download_lib.py). The checks below only reject the obvious mistakes early
 # so the panel can say why; tests/test_debrid_parity.py keeps the two rule sets equal.
-# Grounding: SearXNG answers "film or series?" only when the file name is ambiguous.
+# Film or series: the file name decides when it states a season/episode; otherwise Jellyfin is asked what
+# it already calls that title, and only then SearXNG. A tie in the search answers nothing (see searxng_ground).
 # Library update: POST .17:8096/ScheduledTasks/Running/<Scan Media Library id>, using the
 # dashboard process's own Jellyfin header (__main__._JF_HDR), the same one posters use.
 # State: /var/lib/homelab-dashboard/debrid.json (older deploys kept it in /etc/homelab-dashboard).
 DEBRID_HTTP = re.compile(r'https://[^\s"\'<>|\\]+')
+# Episode evidence in a file name. Case matters for the shorthand forms, so a lowercase hex or uuid
+# name cannot read as S01E02, and classify() ignores a shorthand that sits after a tech tag segment:
+# 16x9, 21x9, and a release tag like -E9 are release tags, not episodes.
 SE_DOT = re.compile(r'\bS(\d{1,2})\s*[Ee]\s*(\d{1,3})\b')
-SE_X = re.compile(r'\b(\d{1,2})x(\d{1,3})\b')
+SE_X = re.compile(r'\b(\d{1,2})x(\d{2,3})\b')                     # 1x04, 11x104: the episode is zero-padded
 SEASON_ONLY = re.compile(r'\b(?:Season|Staffel)\s*[._-]\s*(\d{1,2})\b', re.I)
-EP_ONLY = re.compile(r'\bE(?:pisode)?\s*[._-]\s*(\d{1,3})\b', re.I)
+EP_WORD = re.compile(r'\bEpisode\s*[._-]?\s*(\d{1,3})\b', re.I)  # Episode 7, Episode.07
+EP_BARE = re.compile(r'\bE\s*[._-]\s*(\d{2,3})\b')               # E-12, E_07 (capital E only)
 YEAR = re.compile(r'\b(19\d{2}|20\d{2})\b')
 # The worker on .3 checks the same list (scripts/homelab_download_lib.py); tests/test_debrid_parity.py
 # fails if one side adds or drops an extension without the other.
 MEDIA_EXT = ('.mkv', '.mp4', '.m4v', '.mov', '.avi', '.wmv', '.flv', '.webm', '.m4a', '.mp3', '.flac', '.epub')
 SEARXNG = 'http://192.168.0.13:8888/search'
 JF_SCAN = 'http://192.168.0.17:8096/ScheduledTasks/Running/7738148ffcd07979c7ceb148e06b3aed'  # "Scan Media Library"
+JF_ITEMS = 'http://192.168.0.17:8096/Items'
 DEBRID_STATE = '/var/lib/homelab-dashboard/debrid.json'
 DEBRID_STATE_OLD = '/etc/homelab-dashboard/debrid.json'
 MOVIES_DIR = '/mnt/unraid/Movies'
@@ -378,48 +384,103 @@ _TECH_TAIL = {'1080p', '2160p', '1440p', '720p', '480p', '4k', 'uhd', 'hd', 'x26
               'nfo', 'web-dl', 'webrip', 'bluray', 'bdrip', 'dvdrip', 'hdtv', 'imax'}
 
 
-def _clean_title(text):
-    """A human title out of a file name: dots become spaces, cut at the release year, drop tech tags.
-    Keeps a title that is only a year (1917) and one that starts with a year (2001: A Space Odyssey)."""
+def _title_and_year(text):
+    """A human title out of a file name, plus the release year the name states.
+    Dots become spaces, cut at the release year, then at the first release tag, then drop tech tags.
+    Keeps a title that is only a year (1917) and one that starts with a year (2001: A Space Odyssey).
+    The year is kept as well: "Dune.2021" alone says film or series nothing, but "Dune 2021" does."""
     t = re.sub(r'[._]+', ' ', text or '').strip()
+    year = None
     for y in reversed(list(YEAR.finditer(t))):
         head = t[:y.start()].strip()
         if head:
-            t = head
+            t, year = head, int(y.group(0))
             break
+    cut = _TAG_SEGMENT.search(t)              # 'Severance S02 2022' and 'Some Show 1x04' name no title past the tag
+    if cut:
+        head = t[:cut.start()].strip()
+        if head:
+            t = head
     words = t.split()
-    while words and words[-1].lower().strip('()-') in _TECH_TAIL:
+    while words and (words[-1].lower().strip('()-') in _TECH_TAIL or _TAG_SEGMENT.fullmatch(words[-1])):
         words.pop()
-    return ' '.join(words).strip(' -()')
+    return ' '.join(words).strip(' -()'), year
+
+
+def _clean_title(text):
+    return _title_and_year(text)[0]
+
+
+def _norm_title(text):
+    """Compare form of a title: 'Dune: Part One' and 'dune  part, one' both become 'dune part one'."""
+    return re.sub(r'[^a-z0-9]+', ' ', (text or '').lower()).strip()
+
+
+_TAG_SEGMENT = re.compile(r'(?:^|(?<=\s))(?:[SsEe]\d{1,3}|\d{1,2}[xX]\d{1,3}|16x10|16x9|21x9|4x3)(?=$|\s)')
+
+
+# Picture shapes that read as 16x10 = season 16 episode 10. They are named here because no amount of
+# pattern cleverness tells an aspect ratio from a two-digit season and episode.
+_ASPECT = {'16x9', '16x10', '16x11', '21x9', '21x10', '4x3', '3x2', '5x4', '4x5', '1x1', '2x1', '9x16', '3x4',
+           '32x9', '64x36', '64x27', '48x27', '32x18', '96x54', '128x72', '256x144', '16x6', '16x7'}
+
+
+def _after_tech_tag(stem, at):
+    """True when a tech tag segment (2160p, x264, BluRay...) sits before position at.
+    Something in that place is a release tag, so an NxN or E-9 match found there names nothing."""
+    return any(seg.lower().strip('()-') in _TECH_TAIL for seg in stem.split('.')[:stem.count('.', 0, at)])
 
 
 def classify(name):
-    """From a media file name: film or series, the title, and any season/episode the name states.
+    """From a media file name: film or series, the title, the year, and any season/episode the name states.
 
     Season/episode evidence in the name is never thrown away. ambiguous=True means the name states
-    nothing on its own, so add_debrid asks SearXNG. A word like "season" inside a title is not evidence.
+    nothing on its own, so add_debrid asks the library and then SearXNG. A word like "season" inside a
+    title is not evidence, and neither is a release tag after the tech tags (16x9, 21x9, E-9).
     """
     stem, ext = os.path.splitext(name)
     if ext.lower() not in MEDIA_EXT:
         ext = '.mkv'
-    m = SE_DOT.search(stem) or SE_X.search(stem) or EP_ONLY.search(stem)
+    title, year = _title_and_year(stem)
+
+    def as_show(match, season, episode):
+        head = _clean_title(stem[:match.start()]) or name
+        return dict(kind='show', title=head, season=season, episode=episode, year=year, ext=ext,
+                    show_dir=_safe_show_dir(head), ambiguous=False)
+
+    m = SE_DOT.search(stem)
     if m:
-        groups = [g for g in m.groups() if g]
-        season, episode = (int(groups[0]), int(groups[1])) if len(groups) > 1 else (1, int(groups[0]))
-        title = _clean_title(stem[:m.start()]) or name
-        return dict(kind='show', title=title, season=season, episode=episode, ext=ext,
-                    show_dir=_safe_show_dir(title), ambiguous=False)
-    ms = SEASON_ONLY.search(stem)
-    if ms:
-        title = _clean_title(stem[:ms.start()]) or name
-        return dict(kind='show', title=title, season=int(ms.group(1)), episode=None, ext=ext,
-                    show_dir=_safe_show_dir(title), ambiguous=False)
-    title = _clean_title(stem) or stem
-    return dict(kind='movie', title=title, season=None, episode=None, ext=ext, show_dir=None, ambiguous=True)
+        return as_show(m, int(m.group(1)), int(m.group(2)))
+    m = SEASON_ONLY.search(stem)
+    if m:
+        return as_show(m, int(m.group(1)), None)
+    for pat in (EP_WORD, EP_BARE, SE_X):        # an episode with no season stated: season 1
+        m = pat.search(stem)
+        if not m or (pat is not EP_WORD and _after_tech_tag(stem, m.start())):
+            continue
+        if pat is SE_X and m.group(0).lower() in _ASPECT:
+            continue                            # 16x10 and 64x36 are picture shapes, not 1x10 and 6x43
+        groups = m.groups()
+        if len(groups) > 1:
+            return as_show(m, int(groups[0]), int(groups[1]))
+        return as_show(m, 1, int(groups[0]))
+    return dict(kind='movie', title=title or stem, season=None, episode=None, year=year, ext=ext,
+                show_dir=None, ambiguous=True)
 
 
-_SHOW_HINT = re.compile(r'\b(?:tv|television|web|streaming|mini[- ]?series|anthology)[ -]*series\b|\bminiseries\b|\bepisodic\b', re.I)
-_MOVIE_HINT = re.compile(r'\b(?:film|movie)\b', re.I)
+_SHOW_HINT = re.compile(r'\b(?:tv|television|web|streaming|animated|limited|drama|comedy|reality|crime|'
+                        r'medical|sci[- ]?fi|science[- ]?fiction|anthology|documentary|mini)[-. ]*series\b'
+                        r'|\bminiser(?:es|ies)\b|\bepisodic\b|\bseason\s*\d+\s+(?:premiere|premiered|debuted)', re.I)
+_MOVIE_HINT = re.compile(r'\b(?:film|movie)s?\b', re.I)
+# A show page still talks about films - "based on the 1984 film", "the film series". Those say nothing
+# about the title being searched, so they are erased before the page is counted as evidence.
+_MOVIE_NOISE = re.compile(r'(?:based on|adaptation of|spin[- ]?off|original|upcoming|planned|cancelled|'
+                          r'proposed)[^.]{0,90}?\b(?:film|movie)s?\b|\bfilm[- ]*series\b|\bfilm adaptations?\b', re.I)
+# Franchise, novel, list-of-episodes and character pages hold both films and series: they answer nothing.
+_RESULT_NOISE = re.compile(r'\b(?:franchise|novels?|books?|disambiguat\w*|list of|characters?|soundtrack|'
+                           r'video game|awards?|film[- ]*series)\b', re.I)
+_PAREN = re.compile(r'^(?P<main>[^()]+)\((?P<inside>[^()]+)\)')
+_PAREN_YEAR = re.compile(r'\b(19\d\d|20\d\d)\b')
 
 
 def searxng_results(title):
@@ -430,25 +491,99 @@ def searxng_results(title):
     return [((res.get('title') or '') + ' ' + (res.get('content') or '')) for res in (data.get('results') or [])[:6]]
 
 
-def searxng_ground(title):
+def _title_and_paren(text):
+    """Split a result title into ('dune', '2021 film'): the site tail and any parenthetical are read off.
+    A result with no parenthetical returns ('dune', ''), which is counted instead of read outright."""
+    head = re.split(r'\s+[-|\u2013]\s*', text.strip())[0]
+    m = _PAREN.match(head)
+    if not m:
+        return _norm_title(re.split(r'\s+(?:wikipedia|imdb|netflix|amazon|letterboxd)\b', head, flags=re.I)[0]), ''
+    return _norm_title(m.group('main')), m.group('inside').lower()
+
+
+def searxng_ground(title, year=None):
     """'show', 'movie' or None, from what the top results call the title.
 
-    Only strong phrases count. A bare word like "season" never makes a show out of a film: the 2011
-    horror film Season of the Witch stays a film. Results are counted, and a tie answers nothing.
+    A result titled like the article for this exact title says what it is: 'Dune (2021 film)'
+    answers film, 'The Crown (TV series)' answers series, and a stated year that is not the year in the
+    file name means the page is about a different work, so it is dropped. Only when no page names the
+    title outright are snippets counted, and then a tie answers nothing (the panel asks the library).
+    A bare word like "season" never makes a show out of a film: the 2011 horror film Season of the
+    Witch stays a film.
     """
     if not title:
         return None
+    query = title + (' ' + str(year) if year else '')     # 'Dune 2021' finds the film page; 'Dune' finds both
     try:
-        texts = searxng_results(title)
+        results = searxng_results(query)
     except Exception:
         return None
-    shows = sum(1 for t in texts if _SHOW_HINT.search(t))
-    movies = sum(1 for t in texts if _MOVIE_HINT.search(t))
-    if shows >= 2 and shows >= movies:
+    want = _norm_title(title)
+    shows = movies = 0
+    for text in results:
+        main, paren = _title_and_paren(text)
+        if _RESULT_NOISE.search(paren) or _RESULT_NOISE.search(main):
+            continue
+        if main == want and paren:
+            stated = _PAREN_YEAR.search(paren)
+            if stated and int(stated.group(0)) != (year or int(stated.group(0))):
+                continue                        # same name, a different work: answers nothing here
+            if year and str(year) not in text:
+                continue                        # the page does not speak about the year in the file name
+            if re.search(r'\b(?:film|movie)s?\b', paren):
+                return 'movie'
+            if re.search(r'\bseries\b|\bminiser(?:es|ies)\b', paren):
+                return 'show'
+        body = _MOVIE_NOISE.sub(' ', text)
+        shows += 1 if _SHOW_HINT.search(body) else 0
+        movies += 1 if _MOVIE_HINT.search(body) else 0
+    if shows > movies and shows >= 2:
         return 'show'
-    if movies >= 2 and movies > shows:
+    if movies > shows and movies >= 2:
         return 'movie'
     return None
+
+
+def _jellyfin_items(params, timeout=6):
+    """Ask Jellyfin for library items, with the dashboard process's own header. None if it does not answer."""
+    import __main__
+    hdr = getattr(__main__, '_JF_HDR', None)
+    if not hdr:
+        return None                                  # no header in this process: nothing to ask
+    req = urllib.request.Request(JF_ITEMS + '?' + urllib.parse.urlencode(params), headers=dict(hdr))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.load(r)
+    except Exception:
+        return None
+    items = data.get('Items') if isinstance(data, dict) else None
+    return items if isinstance(items, list) else None
+
+
+def library_hint(title):
+    """'show', 'movie' or None: what Ryan's library already calls this title.
+
+    Jellyfin has already decided this for every title on the shelves, and it is the answer that matters
+    (a new season of a show that lives in Shows must not land in Movies). Only an exact title match
+    counts; a title owned both ways answers nothing and the search engine is asked instead.
+    """
+    if not title:
+        return None
+    items = _jellyfin_items({'SearchTerm': title, 'IncludeItemTypes': 'Movie,Series', 'Recursive': 'true',
+                             'Limit': 25})
+    if not items:
+        return None
+    want = _norm_title(title)
+    kinds = set()
+    for it in items:
+        if not isinstance(it, dict) or _norm_title(it.get('Name') or '') != want:
+            continue
+        item_type = (it.get('Type') or '').lower()
+        if item_type == 'movie':
+            kinds.add('movie')
+        elif item_type in ('series', 'season', 'episode'):
+            kinds.add('show')
+    return kinds.pop() if len(kinds) == 1 else None
 
 
 def _migrate_row(d):
@@ -456,6 +591,8 @@ def _migrate_row(d):
     # every row reaching the frontend has the same shape.
     d.setdefault('kind', 'movie')
     d.setdefault('title', d['name'])
+    d.setdefault('year', None)
+    d.setdefault('kind_source', 'name')
     d.setdefault('scanned', False)
     d.setdefault('scan_error', None)
     d.setdefault('error', None)
@@ -529,8 +666,15 @@ def add_debrid(url):
             raise ValueError('this link does not name a media file (.mkv, .mp4, .epub, ...) - %s' % exc)
     info = classify(name)
     grounded = None
+    source = 'name'                                   # the file name itself stated a season/episode
     if info['ambiguous']:
-        grounded = searxng_ground(info['title'])
+        grounded = library_hint(info['title'])
+        if grounded:
+            source = 'library'
+        else:
+            grounded = searxng_ground(info['title'], info['year'])
+            if grounded:
+                source = 'search'
         if grounded == 'show':
             info['kind'], info['show_dir'] = 'show', _safe_show_dir(info['title'])
     show_dir = info['show_dir'] or _safe_show_dir(info['title'])
@@ -538,6 +682,7 @@ def add_debrid(url):
     out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': url, 'dest': dest, 'name': name})
     row = {'dest': dest, 'name': name, 'unit': out.get('unit') or 'dl-' + name, 'kind': info['kind'],
            'title': info['title'], 'season': info['season'], 'episode': info['episode'],
+           'year': info['year'], 'kind_source': source,
            'state': out.get('state') if out.get('state') in _DEBRID_STATE_WORDS else 'downloading',
            'bytes': 0, 'started': int(time.time()), 'scanned': False, 'scan_error': None, 'error': None,
            'grounded': grounded}
@@ -549,7 +694,7 @@ def add_debrid(url):
         state['downloads'].append(row)
         _save_state(state)
     return dict(ok=True, kind=info['kind'], title=info['title'], season=info['season'], episode=info['episode'],
-                grounded=grounded, dest=dest, name=name, state=row['state'], unit=row['unit'],
+                grounded=grounded, kind_source=source, dest=dest, name=name, state=row['state'], unit=row['unit'],
                 message=out.get('message') or ('started ' + name))
 
 

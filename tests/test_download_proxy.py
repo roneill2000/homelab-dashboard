@@ -147,6 +147,89 @@ class DebridTests(unittest.TestCase):
             self.assertEqual((info['kind'], info['season'], info['episode'], info['ambiguous']),
                              ('show', season, episode, False), name)
 
+    def test_release_tags_are_not_episode_evidence(self):
+        # 16x9 / 21x9 / 16x10 are aspect ratios and E-9 / E_07 can be a release tag. What sits after the
+        # tech tags (2160p, x264, BluRay) is a tag, not an episode, so the name stays ambiguous.
+        for name in ('300.2006.2160p.16x9.mkv', 'Some.Movie.2019.2160p.21x9.mkv', 'Some.Movie.2019.16x10.mkv',
+                     'Reservoir.Dogs.1992.1080p.E-9.mkv', 'Some.Movie.2020.x264.1080p.E_07.mkv'):
+            info = dp.classify(name)
+            self.assertEqual((info['kind'], info['ambiguous'], info['season'], info['episode']),
+                             ('movie', True, None, None), name)
+
+    def test_an_episode_marker_before_the_tech_tags_still_counts(self):
+        for name, season, episode in (('The.Office.1x04.1080p.mkv', 1, 4), ('Some.Show.E-12.720p.mkv', 1, 12),
+                                      ('Some.Show.Episode.7.1080p.mkv', 1, 7), ('30.Rock.S01E01.mkv', 1, 1)):
+            info = dp.classify(name)
+            self.assertEqual((info['kind'], info['season'], info['episode'], info['ambiguous']),
+                             ('show', season, episode, False), name)
+
+    def test_the_title_keeps_no_release_tag_and_the_year_is_kept_separate(self):
+        self.assertEqual(dp.classify('Severance.S02.2022.BluRay.1080p.mkv')['title'], 'Severance')
+        self.assertEqual(dp.classify('Some.Show.2019.1080p.1x04.mkv')['title'], 'Some Show')
+        self.assertEqual(dp.classify('300.2006.2160p.16x9.mkv')['title'], '300')
+        self.assertEqual(dp.classify('Dune.2021.2160p.BluRay.mkv')['year'], 2021)
+        self.assertIsNone(dp.classify('Memento.BluRay.1080p.mkv')['year'])
+
+    # ------------------------------------------------------------ grounding ---
+    def ground(self, title, year, results):
+        with patch.object(dp, 'searxng_results', return_value=results):
+            return dp.searxng_ground(title, year)
+
+    def test_a_tie_in_the_search_answers_nothing(self):
+        # One side may not win a tie: the old rule sent every tie to 'show', which is how Dune (2021)
+        # ended up in Shows. No answer is better than a coin flip.
+        results = ['Other page one - a site it is a television series about a hospital',
+                   'Other page two - a site an american film about a hospital',
+                   'Other page three - a site another television series',
+                   'Other page four - a site another american film']
+        self.assertIsNone(self.ground('Some Title', 2019, results))
+
+    def test_the_film_page_for_the_year_in_the_name_decides(self):
+        results = ['Dune (franchise) - Wikipedia the franchise has films and a television series',
+                   'Dune (2021 film) - Wikipedia Dune is a 2021 american film directed by Denis Villeneuve',
+                   'Dune (novel) - Wikipedia a 1965 science fiction novel']
+        self.assertEqual(self.ground('Dune', 2021, results), 'movie')
+
+    def test_the_series_page_that_states_the_year_decides(self):
+        results = ['Andor (American TV series) - Wikipedia an american television series that premiered in 2022']
+        self.assertEqual(self.ground('Andor', 2022, results), 'show')
+
+    def test_a_page_about_a_different_work_with_the_same_name_is_dropped(self):
+        # Dallas names both a long-running series and a 2017 film: the series page must not decide
+        # a file named Dallas.2017, and only when a page speaks about that year may it answer.
+        results = ['Dallas (TV series) - Wikipedia an american television drama series that aired from 1978 to 1991',
+                   'Dallas (2017 film) - Wikipedia a 2017 american film']
+        self.assertEqual(self.ground('Dallas', 2017, results), 'movie')
+
+    def test_a_show_that_was_a_film_first_stays_a_show(self):
+        results = ['Some Show - Wikipedia an american television series based on the 2019 film of the same name',
+                   'Some Show season 2 premiered in 2024 - a site',
+                   'Some Show - Wikipedia a television series with two seasons']
+        self.assertEqual(self.ground('Some Show', None, results), 'show')
+
+    def test_a_year_only_title_is_not_cut_in_half(self):
+        # '2012' with no release year in the name: the title itself is the year.
+        self.assertEqual(dp.classify('2012.2160p.BluRay.mkv')['title'], '2012')
+        self.assertIsNone(dp.classify('2012.2160p.BluRay.mkv')['year'])
+
+    # ------------------------------------------------------------- the library ---
+    def test_the_library_hint_reads_the_title_out_of_jellyfin(self):
+        with patch.object(dp, '_jellyfin_items', return_value=[{'Name': 'Dune', 'Type': 'Movie'}]):
+            self.assertEqual(dp.library_hint('Dune'), 'movie')
+        with patch.object(dp, '_jellyfin_items', return_value=[{'Name': 'The Crown', 'Type': 'Series'}]):
+            self.assertEqual(dp.library_hint('The Crown'), 'show')
+        with patch.object(dp, '_jellyfin_items', return_value=[{'Name': 'Dune', 'Type': 'Movie'},
+                                                               {'Name': 'Dune', 'Type': 'Series'}]):
+            self.assertIsNone(dp.library_hint('Dune'))                 # owned both ways: answers nothing
+        with patch.object(dp, '_jellyfin_items', return_value=[{'Name': 'Dune Part Two', 'Type': 'Movie'}]):
+            self.assertIsNone(dp.library_hint('Dune'))                 # a similar title is not evidence
+        with patch.object(dp, '_jellyfin_items', return_value=None):
+            self.assertIsNone(dp.library_hint('Dune'))                 # Jellyfin did not answer
+
+    def test_an_episode_guess_uses_no_network_at_all(self):
+        # No header in this test process means no Jellyfin call, so grounding is the only lookup made.
+        self.assertIsNone(dp.library_hint('Dune'))
+
     def test_name_from_url(self):
         self.assertEqual(dp._name_from_url('https://nyk.example.com/d/abc/Memento.2000%20BluRay.mkv'),
                          'Memento.2000 BluRay.mkv')
@@ -174,10 +257,30 @@ class DebridTests(unittest.TestCase):
     def test_grounding_is_asked_only_when_the_name_states_nothing(self):
         calls = []
         with patch.object(dp, '_download_rpc', side_effect=self.rpc()), \
-             patch.object(dp, 'searxng_ground', side_effect=lambda t: calls.append(t) or None):
+             patch.object(dp, 'searxng_ground', side_effect=lambda t, y=None: calls.append((t, y)) or None):
             dp.add_debrid('https://nyk.example.com/d/abc/Breaking.Bad.S05E02.720p.mkv')
             dp.add_debrid('https://nyk.example.com/d/abc/Some.Show.2019.1080p.mkv')
-        self.assertEqual(calls, ['Some Show'])
+        self.assertEqual(calls, [('Some Show', 2019)])        # only the ambiguous name, with its year
+
+    def test_the_library_is_asked_before_the_search_engine(self):
+        asked = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc()), \
+             patch.object(dp, 'library_hint', return_value='show'), \
+             patch.object(dp, 'searxng_ground', side_effect=lambda *a: asked.append(a) or 'movie'):
+            out = dp.add_debrid('https://nyk.example.com/d/abc/Some.Show.2019.1080p.mkv')
+        self.assertEqual((out['kind'], out['dest'], out['grounded'], out['kind_source']),
+                         ('show', dp.SHOWS_DIR + '/Some Show', 'show', 'library'))
+        self.assertEqual(asked, [])                                  # the search engine was not asked
+
+    def test_a_name_that_states_an_episode_asks_nobody(self):
+        asked = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc()), \
+             patch.object(dp, 'library_hint', side_effect=lambda *a: asked.append(a) or None), \
+             patch.object(dp, 'searxng_ground', side_effect=lambda *a: asked.append(a) or None):
+            out = dp.add_debrid('https://nyk.example.com/d/abc/Breaking.Bad.S05E02.720p.mkv')
+        self.assertEqual((out['kind'], out['kind_source']), ('show', 'name'))
+        self.assertEqual(asked, [])
+        self.assertEqual(self.read_state()[0]['kind_source'], 'name')
 
     def test_grounding_can_turn_an_ambiguous_name_into_a_show(self):
         with patch.object(dp, '_download_rpc', side_effect=self.rpc()), \
@@ -430,7 +533,7 @@ class DebridTests(unittest.TestCase):
         path = os.path.join(os.path.dirname(__file__), '..', 'backend', 'download_proxy.py')
         with open(path, encoding='utf-8') as handle:
             tree = ast.parse(handle.read())
-        blocked = {'_download_rpc', '_jellyfin_scan', 'searxng_ground', '_proxmox'}
+        blocked = {'_download_rpc', '_jellyfin_scan', 'searxng_ground', '_proxmox', 'library_hint', '_jellyfin_items'}
         offenders = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.With):
