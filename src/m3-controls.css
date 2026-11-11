@@ -408,6 +408,7 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--md-sys-color-outline-variant)}
 .dl-row__text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .dl-row__text>strong{font-weight:500;overflow-wrap:anywhere}
+.dl-row__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.dl-row__head>strong{font-weight:500;overflow-wrap:anywhere;min-width:0}.dl-row__head>.badge{flex:none}
 .dl-row__text small{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size)}
 .dl-row .m3-btn{flex:none}
 .dl-results>.text-button{align-self:flex-start;margin-top:4px}
