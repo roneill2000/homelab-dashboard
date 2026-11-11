@@ -17,28 +17,33 @@ Out of scope, leave untouched: the Usenet tab (SABnzbd), Sonarr (it keeps using 
 
 ## Before you write any code: confirm the TorBox API
 
-I could not open TorBox's official reference from here. The table below is what I expect, pieced together from SDK
-documentation and TorBox changelogs. **Confirm every row against the live API with read-only calls (`mylist`,
-`checkcached`) and the official docs at `https://api-docs.torbox.app/` before relying on it.** If a field name or
-state differs, follow the real API and note the difference in your commit message. If something important differs
-(no way to get a per-file link, no file list), stop and tell Ryan.
+**Requests: confirmed 11 Nov by Claude** from TorBox's own API description, `https://api.torbox.app/openapi.json`
+(fetch it with `curl`; no key needed. `https://api-docs.torbox.app/` is a script-rendered page and returns almost
+nothing to a fetch). **Answers: not described there.** Read the real field names with one read-only call before coding:
+`curl -s -H "Authorization: Bearer $KEY" "https://api.torbox.app/v1/api/torrents/mylist?limit=1&bypass_cache=true"`.
+If a step below needs a field that does not exist, stop and tell Ryan.
 
-Base URL `https://api.torbox.app/v1/api`. Auth header `Authorization: Bearer <key>`. Answers look like
-`{"success": true|false, "error": "...", "detail": "...", "data": ...}`.
+Base URL `https://api.torbox.app/v1/api` (the root answers `{"success":true,"detail":"API is running."}`; an unknown
+path answers `{"detail":"Not Found"}` with HTTP 404, so a 404 means a wrong path, not a bad key; a missing key is 401).
+Auth header `Authorization: Bearer <key>`. Your own account is `GET /user/me` (not `/me`).
 
-| Purpose | Call (expected) | Confirmed by a source? |
+| Purpose | Call | Status |
 |---|---|---|
-| Add a torrent | `POST /torrents/createtorrent`, multipart form with `magnet=<magnet link>` **or** `file=<.torrent bytes>`. Answer `data` has `torrent_id`, `hash`, `name`. | Answer fields: yes (changelog). Form field names: verify. |
-| Read one torrent | `GET /torrents/mylist?id=<torrent_id>&bypass_cache=true`. | `id` + `bypass_cache`: yes (SDK). The list is otherwise cached about 10 minutes. |
-| Torrent fields | `id`, `name`, `size`, `progress` (0 to 1), `download_state`, `download_finished`, `download_present`, `seeds`, `download_speed`, `files[]` each with `id`, `name`, `short_name`, `size`. | No. Verify all names and the `download_state` values. |
-| Link for one file | `GET /torrents/requestdl?token=<key>&torrent_id=<id>&file_id=<id>`. Answer `data` is an https link. | Shape: yes. Links expire (sources say 1 to 3 hours). Calls are throttled (reported around 20 a minute). |
-| Is it already cached | `GET /torrents/checkcached?hash=<hash>&format=object&list_files=true`. | Yes (docs mirror). Optional for this spec. |
-| Remove a torrent | `POST /torrents/controltorrent`, JSON `{"torrent_id": <id>, "operation": "delete"}`. | Operation names: yes (SDK). Body shape: verify. |
+| Add a torrent | `POST /torrents/createtorrent`, **multipart form**: `magnet` or `file` (the .torrent bytes), optional `name`, `seed`, `allow_zip`, `as_queued`, `add_only_if_cached`. | Request confirmed. Answer fields (`torrent_id`, `hash`, `name` per a changelog): verify. |
+| Read one torrent | `GET /torrents/mylist?id=<torrent_id>&bypass_cache=true` (also `offset`, `limit`, `files`, `active`). | Request confirmed. The list is otherwise cached about 10 minutes. |
+| Torrent fields | Expected: `id`, `name`, `size`, `progress` (0 to 1), `download_state`, `download_finished`, `download_present`, `seeds`, `download_speed`, `files[]` with `id`, `name`, `short_name`, `size`. | **Not described. Verify every name and the `download_state` values with the call above.** |
+| Link for one file | `GET /torrents/requestdl?token=<key>&torrent_id=<id>&file_id=<id>` (also `zip_link`, `user_ip`, `redirect`, `append_name`). The key goes in `token`, not the header. | Request confirmed. Answer `data` is expected to be the https link: verify. Links expire (1 to 3 hours reported); calls are throttled (about 20 a minute reported). |
+| Many files at once | `GET /torrents/requestdl/batch?token=<key>&torrent_id=<id>&file_ids=<ids>`. | Exists. Optional: it could replace per-file calls for a season pack, but keep the 3 s spacing rule per call. |
+| Is it already cached | `GET /torrents/checkcached?hash=<hash>&format=object&list_files=true`. | Request confirmed. Optional for this spec. |
+| Remove a torrent | `POST /torrents/controltorrent`, **JSON** `{"torrent_id": <id>, "operation": "delete"}` (`all` also exists: never send it). | Request confirmed. |
 
 **Never use `requestdl` with `redirect=true`.** That form is a permanent link with the API key in it, and the link is
 passed to the worker on a command line and written to its log.
 
 ## The key
+
+**For the read-only checks above** a key in a 0600 file in your own container is fine (for example `/root/.torbox_key`),
+read into a variable, never printed. Delete that file when the feature is deployed.
 
 - TorBox's API key goes in a new private file on LXC 104: `/etc/homelab-dashboard/torbox.json`, `{"key": "..."}`,
   mode `0600`, read with `_config()` like the other files there. **Ryan or Claude puts the key there. Do not look for
@@ -142,6 +147,9 @@ deployed. In the same commit, Get for torrent results takes the new path. Usenet
 - Clear keeps `preparing` rows. The 24-hour limit marks a stuck row failed.
 
 ## Rules
+
+- **Tools in Pi Pocket:** there is no `webfetch` or `web_search` tool there; MCP tools are reached through
+  `tool_search` / `codemode`. To read a web page or the API description, use `bash` with `curl`.
 
 - Same as `SPEC-downloads-backend.md`: pull and rebase first, small commits, no AI credit, build + `npm run check`
   (`ALL CHECKS OK`) + `npm test` before each commit, deploy with `scripts/deploy.py`, one line per deploy in
