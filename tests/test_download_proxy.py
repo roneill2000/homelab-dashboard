@@ -74,6 +74,73 @@ class DownloadTests(unittest.TestCase):
         self.assertNotIn('secret', json.dumps(body)); self.assertNotIn('idx/1', json.dumps(body))
         self.assertEqual(call('/api/downloads/search?q=a', OK, post=False)[1], [400])
 
+    # ------------------------------------------------------------- dismiss ---
+    HASH40 = '0123456789abcdef0123456789abcdef01234567'
+
+    def rdtfake(self, pages):
+        """Fake RdtClient: answers known paths, records every call (path, data)."""
+        calls = []
+        def call(path, data=None):
+            calls.append((path, data))
+            return json.dumps(pages.get(path, [])).encode()
+        return calls, call
+
+    def test_recent_rows_carry_the_lowercase_hash_as_id(self):
+        qbit = [{'name': 'A', 'hash': self.HASH40.upper(), 'category': 'prowlarr', 'state': 'error',
+                 'progress': 1, 'added_on': 2},
+                {'name': 'B', 'hash': '', 'category': 'prowlarr', 'state': 'metaDL', 'progress': 1, 'added_on': 1}]
+        calls, f = self.rdtfake({'/api/v2/torrents/info': qbit})
+        with patch.object(dp, 'rdt', side_effect=f):
+            _, codes, body = call('/api/downloads', OK, post=False)
+        self.assertEqual(codes, [200])
+        self.assertEqual(calls, [('/api/v2/torrents/info', None)])   # nothing active, no native follow-up
+        a, b = body['items']
+        self.assertEqual(a['id'], self.HASH40)   # the panel can address the errored row
+        self.assertNotIn('hash', a)
+        self.assertNotIn('id', b)                # no hash: no id, no Dismiss button
+
+    def test_dismiss_of_an_errored_prowlarr_grab_deletes_the_list_entry_only(self):
+        info = [{'name': 'A', 'hash': self.HASH40, 'category': 'prowlarr', 'state': 'error', 'added_on': 1}]
+        calls, f = self.rdtfake({'/api/v2/torrents/info': info})
+        with patch.object(dp, 'rdt', side_effect=f):
+            handled, codes, body = call('/api/downloads', OK, {'dismiss': self.HASH40})
+        self.assertEqual((handled, codes, body), (True, [200], {'ok': True, 'id': self.HASH40}))
+        deletes = [d for p, d in calls if p == '/api/v2/torrents/delete']
+        self.assertEqual(deletes, [{'hashes': self.HASH40, 'deleteFiles': 'false'}])  # exactly one, no data
+
+    def test_dismiss_accepts_an_item_only_RdtClient_own_record_calls_error(self):
+        info = [{'name': 'A', 'hash': self.HASH40, 'category': 'prowlarr', 'state': 'queued', 'added_on': 1}]
+        native = [{'hash': self.HASH40, 'error': 'the indexer refused the file'}]
+        calls, f = self.rdtfake({'/api/v2/torrents/info': info, '/Api/Torrents': native})
+        with patch.object(dp, 'rdt', side_effect=f):
+            self.assertEqual(call('/api/downloads', OK, {'dismiss': self.HASH40})[1], [200])
+        self.assertEqual([d for p, d in calls if p == '/api/v2/torrents/delete'],
+                         [{'hashes': self.HASH40, 'deleteFiles': 'false'}])
+
+    def test_dismiss_refuses_healthy_items_other_categories_and_unknown_ids(self):
+        info = [{'name': 'A', 'hash': self.HASH40, 'category': 'prowlarr', 'state': 'downloading', 'added_on': 1},
+                {'name': 'B', 'hash': 'ab' * 32, 'category': 'manual', 'state': 'error', 'added_on': 2}]
+        calls, f = self.rdtfake({'/api/v2/torrents/info': info})
+        with patch.object(dp, 'rdt', side_effect=f):
+            for bad in (self.HASH40,          # healthy prowlarr item (native list empty)
+                        'ab' * 32,             # errored but not a search grab
+                        self.HASH40.replace('0', 'g', 1),   # malformed id
+                        'ff' * 20,             # well formed, not in the list
+                        'short', ''):
+                self.assertEqual(call('/api/downloads', OK, {'dismiss': bad})[1], [400], bad)
+        self.assertNotIn('/api/v2/torrents/delete', [p for p, _ in calls])
+
+    def test_malformed_ids_never_reach_rdtclient_and_dismiss_needs_the_header(self):
+        calls, f = self.rdtfake({'/api/v2/torrents/info': []})
+        with patch.object(dp, 'rdt', side_effect=f):
+            for bad in ('ZZ' * 20, 'x', 'g' * 40):
+                self.assertEqual(call('/api/downloads', OK, {'dismiss': bad})[1], [400], bad)
+        self.assertEqual(calls, [])
+        with patch.object(dp, 'rdt', side_effect=AssertionError('must not reach RdtClient')):
+            self.assertEqual(call('/api/downloads', {'Host': '192.168.0.2'}, {'dismiss': 'ff' * 20})[1], [403])
+            self.assertEqual(call('/api/downloads', OK, {'dismiss': 42})[1], [400])
+            self.assertEqual(call('/api/downloads', OK, {})[1], [400])
+
     def test_recent_uses_real_stage_progress(self):
         qbit = [{'name': 'A', 'hash': 'AA', 'progress': 0.69, 'added_on': 2, 'state': 'downloading'},
                 {'name': 'B', 'hash': 'bb', 'progress': 0.1, 'added_on': 1, 'state': 'metaDL'},
@@ -379,7 +446,7 @@ class DebridTests(unittest.TestCase):
         with patch.object(dp, '_download_rpc', side_effect=lambda *a, **k: self.fail('the worker must not be asked')):
             _, codes, body = call('/api/debrid', OK, post=False)
         self.assertEqual(codes, [200])
-        self.assertEqual(body['features'], ['preview', 'retry'])
+        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss'])
 
     # ------------------------------------------------- name discovery (TorBox) ---
     def test_a_name_in_the_headers_is_read_out_of_content_disposition(self):

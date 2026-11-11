@@ -123,12 +123,12 @@ def recent():
     items = json.loads(rdt('/api/v2/torrents/info'))
     items.sort(key=lambda t: t.get('added_on') or 0, reverse=True)
     keep = ('name', 'category', 'state', 'progress', 'size', 'dlspeed', 'eta', 'added_on')
-    out = [{k: t.get(k) for k in keep} | {'hash': (t.get('hash') or '').lower()} for t in items[:12]]
+    out = [{k: t.get(k) for k in keep} | {'id': (t.get('hash') or '').lower()} for t in items[:12]]
     active = [t for t in out if (t['progress'] or 0) < 1]
     if active:
         native = {(n.get('hash') or '').lower(): n for n in json.loads(rdt('/Api/Torrents'))}
         for t in active:
-            n = native.get(t['hash'])
+            n = native.get(t['id'])
             if not n: continue
             t['status_text'], t['error'] = n.get('statusText'), n.get('error')
             if (n.get('rdProgress') or 0) < 100:
@@ -140,7 +140,9 @@ def recent():
                 t.update(stage='local', progress=sum(d.get('bytesDone') or 0 for d in downloads) / total,
                          dlspeed=sum(d.get('speed') or 0 for d in downloads))
                 if t['progress'] >= 1: t.update(stage='finishing', progress=0.999)
-    for t in out: del t['hash']
+    for t in out:
+        if not t['id']:
+            del t['id']   # an item RdtClient gives no hash to cannot be addressed, so it gets no id
     return out
 
 
@@ -165,6 +167,39 @@ def search(query, kind):
 
 def add_magnet(magnet):
     rdt('/api/v2/torrents/add', {'urls': magnet, 'category': CATEGORY})
+
+
+_GRAB_ID = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')   # the sha1 (and sha256) forms RdtClient uses
+
+
+def dismiss_grab(item_id):
+    """Remove one failed Prowlarr grab from RdtClient's list, without deleting any data.
+
+    A search grab that RdtClient refuses otherwise stays in the list forever. RdtClient's qBittorrent
+    interface (verified in the running build: QBittorrentController serves torrents/delete with a
+    deleteFiles field) answers this; deleteFiles=false means the entry leaves the list only. Raises
+    ValueError for anything this call must not remove: a malformed or unknown id, another category,
+    or a healthy item. An item is only removed when its category is 'prowlarr' and it is in an error
+    state - the qBittorrent state says error/missing, or RdtClient's own record states an error.
+    """
+    if not isinstance(item_id, str) or not _GRAB_ID.fullmatch(item_id):
+        raise ValueError('that is not a download id')
+    item = next((t for t in json.loads(rdt('/api/v2/torrents/info'))
+                 if (t.get('hash') or '').lower() == item_id), None)
+    if item is None:
+        raise ValueError('that download is not in the list anymore')
+    if (item.get('category') or '') != CATEGORY:
+        raise ValueError('that download was not a search grab; it stays in the list')
+    state = (item.get('state') or '').lower()
+    errored = 'error' in state or 'missing' in state
+    if not errored:
+        record = next((n for n in json.loads(rdt('/Api/Torrents'))
+                       if (n.get('hash') or '').lower() == item_id), None) or {}
+        errored = bool(str(record.get('error') or '').strip())
+    if not errored:
+        raise ValueError('that download has not failed; it stays in the list')
+    rdt('/api/v2/torrents/delete', {'hashes': item_id, 'deleteFiles': 'false'})
+    return dict(ok=True, id=item_id)
 
 
 def grab(token):
@@ -963,11 +998,11 @@ def clear_debrid() -> dict:
 def debrid_status():
     with _STATE_LOCK:
         state = _load_state()
-    # 'preview' and 'retry' go live with the routes that answer them, in the same commits; the panel only
+    # 'preview', 'retry' and 'dismiss' go live with the routes that answer them, in the same commits; the panel only
     # offers a control when its name is here, because an older backend would run the new request as a
     # real download.
     return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated'),
-            'features': ['preview', 'retry']}
+            'features': ['preview', 'retry', 'dismiss']}
 
 
 _DEBRID_LOOP = {'started': False}
@@ -1023,6 +1058,24 @@ def handle(handler, post=False):
         try: _reply(handler, 200, {'items': recent()})
         except Exception: _reply(handler, 503, {'error': 'RdtClient is not answering.'})
         return True
+    if url.path == '/api/downloads' and post:
+        # Removing a failed grab is an action like the others: same origin plus the dashboard action header.
+        if not qwen_proxy.same_origin(handler, 'X-Dashboard-Action'):
+            _reply(handler, 403, {'ok': False, 'error': 'Use the homepage to run this action.'}); return True
+        try:
+            length = int(handler.headers.get('Content-Length', '0'))
+            if not 0 < length <= 8192: raise ValueError
+            body = json.loads(handler.rfile.read(length))
+            if not isinstance(body, dict): raise ValueError
+        except (ValueError, OSError):
+            _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True
+        item_id = body.get('dismiss')
+        if isinstance(item_id, str):
+            try: _reply(handler, 200, dismiss_grab(item_id))
+            except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
+            except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
+            return True
+        _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True
     if url.path == '/api/downloads/search' and not post:
         q = urllib.parse.parse_qs(url.query)
         query, kind = (q.get('q') or [''])[0].strip(), (q.get('kind') or ['torrent'])[0]
