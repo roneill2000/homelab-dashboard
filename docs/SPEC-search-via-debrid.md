@@ -183,3 +183,17 @@ commit that sends torrent Gets down the new path.
 | The service finishes | One normal download row per file, filed under Movies or its show folder, with live progress. |
 | A download finishes | "Adding to library", then "In library". |
 | Both refuse | An error at once naming both services' reasons. No nameless red row. |
+
+## Status
+
+Committed on `main`: step 1 (Get puts the torrent in the account and shows the watching row, Real-Debrid first, TorBox
+fallback, rate-limit refusals separated from torrent refusals), step 2 (the tick watches a watching row at its own
+service: progress, seeders, file count, files chosen at Real-Debrid before it starts, 24 h move to the fallback,
+stalled and dead rows named, the magnet or .torrent bytes kept in a 0600 sidecar file next to the state), step 3
+(a ready torrent hands up to 2 of its files per tick to the download worker: media files chosen by the usual rules,
+each file's link resolved at the service just before aria2c is told it, the plan and the start call the same ones a
+pasted link uses, the row keeping the provider's link and never a url, an archive answer moving the torrent to TorBox,
+calls kept 1 s and 3 s apart). `search` is still off in `features`; the browser screen waits for that.
+
+Left: step 4 (Retry asks the row's provider for a fresh link), step 5 (Cancel on a watching row deletes at the
+provider and frees the row), step 6 (turn `search` on), then Ryan's one real Get.
