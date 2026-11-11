@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+import urllib.error
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -12,6 +13,19 @@ import download_proxy as dp
 
 OK = {'Host': '192.168.0.2', 'X-Dashboard-Action': '1'}
 MAGNET = 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny'
+
+
+class _FakeResponse:
+    """Stand-in for one HTTP answer: headers only, since the name probe reads nothing but headers."""
+    def __init__(self, headers):
+        self.headers = headers
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
 
 
 def call(path, headers, body=None, post=True):
@@ -191,6 +205,95 @@ class DebridTests(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=bad):
                     dp.add_debrid(bad)
         self.assertEqual(calls, [])
+
+    # ------------------------------------------------- name discovery (TorBox) ---
+    def test_a_name_in_the_headers_is_read_out_of_content_disposition(self):
+        cases = {
+            'attachment; filename="Dune.2021.2160p.mkv"': 'Dune.2021.2160p.mkv',
+            "attachment; filename*=UTF-8''Dune.2021.mkv": 'Dune.2021.mkv',
+            "attachment; filename*=UTF-8''Some%20Show.S01E01.mkv": 'Some Show.S01E01.mkv',
+            'attachment; filename="x.mkv"; filename*=UTF-8\'\'real.mkv': 'real.mkv',
+            'attachment; filename=Dune.mkv': 'Dune.mkv',
+            'inline': None, '': None, 'attachment; filename="notes.txt"': None,
+            'attachment; filename="../../escape.mkv"': None, 'attachment; filename=".hidden.mkv"': None,
+            'attachment; filename="-x.mkv"': None, 'attachment; filename=".mkv"': None,
+        }
+        for header, want in cases.items():
+            self.assertEqual(dp._media_name(dp._header_name({'Content-Disposition': header})), want, header)
+
+    def test_the_probe_is_one_byte_and_follows_only_safe_redirects(self):
+        hops = []
+
+        def open_(req, timeout=None):
+            hops.append((req.full_url, req.headers.get('Range')))
+            if len(hops) == 1:
+                raise urllib.error.HTTPError(req.full_url, 302, 'Found', {'Location': 'https://cdn.example/a/b'}, None)
+            return _FakeResponse({'Content-Disposition': 'filename="Dune.2021.mkv"'})
+
+        with patch.object(dp, '_probe_opener', return_value=SimpleNamespace(open=open_)):
+            self.assertEqual(dp._discover_name('https://nexus-228.example/dld/4fb4e907?token=t'), 'Dune.2021.mkv')
+        self.assertEqual([h[1] for h in hops], ['bytes=0-0', 'bytes=0-0'])
+        self.assertEqual(hops[1][0], 'https://cdn.example/a/b')
+
+    def test_a_probe_redirect_to_the_lan_is_refused(self):
+        def open_(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 302, 'Found', {'Location': 'https://192.168.0.2/x.mkv'}, None)
+        with patch.object(dp, '_probe_opener', return_value=SimpleNamespace(open=open_)):
+            with self.assertRaises(ValueError):
+                dp._discover_name('https://cdn.example/dld/4fb4e907')
+
+    def test_a_probe_that_answers_nothing_or_refuses_is_a_clear_error(self):
+        def open_(req, timeout=None):
+            return _FakeResponse({})
+        with patch.object(dp, '_probe_opener', return_value=SimpleNamespace(open=open_)):
+            with self.assertRaises(ValueError):
+                dp._discover_name('https://cdn.example/dld/4fb4e907')
+
+        def refuse(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 403, 'Forbidden', {}, None)
+        with patch.object(dp, '_probe_opener', return_value=SimpleNamespace(open=refuse)):
+            with self.assertRaises(ValueError):
+                dp._discover_name('https://cdn.example/dld/4fb4e907')
+
+        def dead(req, timeout=None):
+            raise urllib.error.URLError('no route')
+        with patch.object(dp, '_probe_opener', return_value=SimpleNamespace(open=dead)):
+            with self.assertRaises(ValueError):
+                dp._discover_name('https://cdn.example/dld/4fb4e907')
+
+    def test_an_id_only_link_starts_with_the_name_the_server_named(self):
+        calls, probes = [], []
+
+        def probe(url):
+            probes.append(url)
+            return 'Dune.2021.2160p.BluRay.REMUX.HEVC.DTS-HD.MA.TrueHD.7.1.Atmos-FGT.mkv'
+        url = 'https://nexus-228.example/dld/4fb4e907-d23c-4705-bfdb-9b5d0723efec?token=2559c10a'
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)), \
+             patch.object(dp, 'searxng_ground', return_value=None), \
+             patch.object(dp, '_discover_name', side_effect=probe):
+            out = dp.add_debrid(url)
+        self.assertTrue(out['ok'])
+        self.assertEqual(probes, [url])                      # asked the server, once
+        self.assertEqual(calls[0]['name'], out['name'])
+        self.assertEqual((out['kind'], out['title'], out['dest']),
+                         ('movie', 'Dune', dp.MOVIES_DIR))
+        self.assertEqual(out['name'], 'Dune.2021.2160p.BluRay.REMUX.HEVC.DTS-HD.MA.TrueHD.7.1.Atmos-FGT.mkv')
+        self.assertEqual(self.read_state()[0]['name'], out['name'])
+
+    def test_a_link_the_server_will_not_name_is_refused_before_the_worker_is_asked(self):
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)), \
+             patch.object(dp, '_discover_name', side_effect=ValueError('the server did not say what the file is called')):
+            with self.assertRaises(ValueError) as got:
+                dp.add_debrid('https://cdn.example/dld/4fb4e907?token=t')
+        self.assertIn('does not name a media file', str(got.exception))
+        self.assertEqual(calls, [])
+        self.assertFalse(os.path.exists(self.state_path))
+
+    def test_a_named_link_never_probes_the_server(self):
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc()), \
+             patch.object(dp, '_discover_name', side_effect=AssertionError('probed a link that already named the file')):
+            dp.add_debrid('https://nyk.example.com/d/abc/Memento.2000.mkv')
 
     # ------------------------------------------------------------------ tick ---
     def test_finished_rows_are_scanned_once_and_the_scan_is_recorded(self):

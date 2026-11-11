@@ -219,6 +219,25 @@ def _download_rpc(payload, timeout=45):
 # The worker (homelab_download_lib.py) has the last word; tests/test_debrid_parity.py keeps the two equal.
 _NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
+# A TorBox nexus link is /dld/<uuid>?token=...: the real file name is only in the server's own
+# Content-Disposition header. Some CDNs answer HEAD with no headers at all, so the probe is a GET
+# for the first byte only (Range: bytes=0-0), whose body is thrown away.
+_CONTENT_DISPOSITION = re.compile(r'filename\*\s*=\s*([A-Za-z0-9#_-]+)\'\'([^;]+)', re.I)
+_FILENAME_PLAIN = re.compile(r'filename\s*=\s*(?:"([^"]*)"|([^";]+))', re.I)
+_PROBE_REDIRECTS = 4
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirects are followed one hop at a time, so every hop passes _safe_url (https, not the LAN)."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _probe_opener():
+    opener = urllib.request.build_opener(_NoRedirect)
+    opener.addheaders = [('User-Agent', 'homelab-dashboard/1.0')]
+    return opener
+
 
 def _name_from_url(url):
     """The file name in the link. Decoded before the split, so %2F cannot become a directory separator."""
@@ -266,6 +285,63 @@ def _safe_name(name):
     if ext.lower() not in MEDIA_EXT or not stem.strip('. '):
         raise ValueError('this link is not a media file (.mkv, .mp4, .epub, ...)')
     return name
+
+
+def _media_name(name):
+    """A file name a CDN answered with, checked against the same rules _safe_name uses before it is
+    trusted: no separators, no leading dot or dash, a real stem, a known media extension."""
+    if not isinstance(name, str):
+        return None
+    name = urllib.parse.unquote(name.strip())
+    if not name or len(name) > 200 or name in ('.', '..') or name.startswith(('.', '-')) or _NAME_BAD.search(name):
+        return None
+    stem, ext = os.path.splitext(name)
+    if ext.lower() not in MEDIA_EXT or not stem.strip('. '):
+        return None
+    return name
+
+
+def _header_name(headers):
+    """The file name in a Content-Disposition header. RFC 5987 (filename*=UTF-8''...) wins,
+    because it carries the real characters; the plain filename= is the fallback."""
+    raw = (headers.get('Content-Disposition') or '').strip()
+    if not raw:
+        return None
+    m = _CONTENT_DISPOSITION.search(raw)
+    if m:
+        return urllib.parse.unquote(m.group(2).strip().rstrip(';').strip('"').strip())
+    m = _FILENAME_PLAIN.search(raw)
+    if m:
+        return (m.group(1) if m.group(1) is not None else m.group(2) or '').strip()
+    return None
+
+
+def _discover_name(url):
+    """Ask the server what the file is called, for links whose path is an id and not a name.
+
+    Every redirect hop is re-checked with _safe_url before it is requested. The reply only has to
+    name a media file: the worker on .3 validates the name again before it writes anything.
+    Raises ValueError with what stopped us, so the panel can say why.
+    """
+    target, last_error = url, None
+    for _ in range(_PROBE_REDIRECTS + 1):
+        try:
+            req = urllib.request.Request(target, headers={'Range': 'bytes=0-0'})
+            with _probe_opener().open(req, timeout=15) as r:
+                found = _media_name(_header_name(r.headers))
+                if found:
+                    return found
+                last_error = 'the server did not say what the file is called'
+        except urllib.error.HTTPError as exc:
+            if exc.code in (301, 302, 303, 307, 308):
+                target = _safe_url(urllib.parse.urljoin(target, exc.headers.get('Location') or ''))
+                continue
+            last_error = 'the server refused the name lookup (HTTP %d)' % exc.code
+            break
+        except (urllib.error.URLError, TimeoutError, OSError):
+            last_error = 'the download server did not answer the name lookup'
+            break
+    raise ValueError(last_error or 'the link does not name a media file')
 
 
 def _safe_show_dir(title):
@@ -443,7 +519,14 @@ def add_debrid(url):
     if not isinstance(url, str) or not DEBRID_HTTP.fullmatch(url.strip()):
         raise ValueError('paste a direct https download link')
     url = _safe_url(url)
-    name = _safe_name(_name_from_url(url))  # _safe_name already requires a media extension
+    try:
+        name = _safe_name(_name_from_url(url))  # _safe_name already requires a media extension
+    except ValueError:
+        # A TorBox nexus link is /dld/<uuid>?token=...: the name is only in the server's headers.
+        try:
+            name = _safe_name(_discover_name(url))
+        except ValueError as exc:
+            raise ValueError('this link does not name a media file (.mkv, .mp4, .epub, ...) - %s' % exc)
     info = classify(name)
     grounded = None
     if info['ambiguous']:

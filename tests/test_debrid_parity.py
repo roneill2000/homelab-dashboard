@@ -84,6 +84,19 @@ class SharedRoot(unittest.TestCase):
             back, worker = self.verdict('dashboard', dp._safe_name, name), self.verdict('worker', lib.media_name, name)
             self.assertEqual(back[0], worker[0], '%r: dashboard %s, worker %s' % (name, back[0], worker[0]))
 
+    def test_an_id_only_link_never_reaches_the_worker_unnamed(self):
+        # A TorBox nexus link is /dld/<uuid>?token=..., so the URL names nothing. The dashboard
+        # discovers the name from the server's headers (download_proxy._discover_name) and sends it
+        # as a normal media name; the worker checks that name like any other. Neither side starts
+        # a download from an unnamed link.
+        url = 'https://nexus-228.example/dld/4fb4e907-d23c-4705-bfdb-9b5d0723efec?token=2559c10a'
+        self.assertEqual(self.verdict('dashboard', dp._safe_name, dp._name_from_url(url))[0], 'refused')
+        self.assertEqual(self.verdict('worker', lib.media_name, lib.name_from_url(url))[0], 'refused')
+        with self.assertRaises(lib.BadDownload):
+            lib.start_debrid(url, self.movies, '')
+        named = 'Dune.2021.2160p.BluRay.REMUX.HEVC.DTS-HD.MA.TrueHD.7.1.Atmos-FGT.mkv'
+        self.assertEqual(self.verdict('worker', lib.media_name, named), self.verdict('dashboard', dp._safe_name, named))
+
     # ------------------------------------------------------------- show dirs ---
     def test_show_folder_verdicts_are_identical(self):
         cases = ['Breaking Bad', '  The   Office  ', 'Severance (2022)', 'A,B & "C"', 'The-Office',
