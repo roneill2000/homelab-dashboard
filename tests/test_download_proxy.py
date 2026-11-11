@@ -2003,6 +2003,55 @@ class DebridHandoverTests(DebridTests):
         self.assertEqual(rd[-1]['method'] + rd[-1]['path'], 'DELETE/torrents/delete/1')
         self.assertTrue(any(c['path'].startswith('/torrents/createtorrent') for c in tb))
 
+    def test_a_packed_answer_after_a_started_file_keeps_that_file_and_skips_only_the_packed_one(self):
+        """A packed answer mid-tick: the file already started on the worker keeps its row, and the
+        fallback hands over only the packed file, not the one already downloading."""
+        names = ['Movie.1995.Part1.mkv', 'Movie.1995.Part2.mkv']
+        self.prep_row(release='Movie.1995.1080p.x264', name='rd-7')
+        dp._sidecar_store('rd-7', 'magnet', 'magnet:?xt=urn:btih:' + self.HASH)
+        rd, tb = [], []
+        # the first answer is normal (Part1 starts), the second is packed (Part2 goes to the fallback)
+        rd_service = self.rd_service(names, calls=rd, archive=[
+            {'download': 'https://rd-dl-invalid.dl/f/1/%s' % names[0], 'filename': names[0], 'filesize': self.SIZE},
+            {'download': 'https://rd-dl-invalid.dl/f/2/movie.rar', 'filename': 'Movie.1995.rar', 'filesize': 2 << 30}])
+
+        def tb_call(method, path, fields=(), files=(), timeout=20, json_body=None):
+            tb.append({'method': method, 'path': path})
+            if path.startswith('/torrents/mylist'):
+                # ids 5 and 6 do not collide with Real-Debrid's 1 and 2: the skip must be by name
+                return {'success': True, 'data': [{'id': 7, 'download_state': 'cached', 'progress': 1,
+                                                  'seeds': 4, 'download_finished': True, 'download_present': True,
+                                                  'files': [{'id': 5, 'name': names[0], 'size': self.SIZE, 'infected': False},
+                                                            {'id': 6, 'name': names[1], 'size': self.SIZE, 'infected': False}]}]}
+            if path.startswith('/torrents/requestdl'):
+                return {'success': True, 'data': 'https://tb-dl-invalid.dl/dld/uuid?token=abc'}
+            return {'success': True, 'data': {'torrent_id': 7, 'hash': self.HASH}}
+        with patch.object(dp, 'realdebrid', side_effect=rd_service), \
+             patch.object(dp, 'torbox', side_effect=tb_call):
+            dp._debrid_prep_tick(time.time())
+        # Part1 is on the worker and has a row; the packed file has neither
+        self.assertEqual([c['name'] for c in self.started], [names[0]])
+        rows = {d['name']: d for d in dp._load_state()['downloads']}
+        self.assertEqual((rows[names[0]]['state'], rows[names[0]]['provider']), ('downloading', 'realdebrid'))
+        self.assertEqual(rows[names[0]]['debrid'], {'id': 1, 'file': 1, 'link': 'https://rd-lan-invalid.dl/l/1'})
+        watch = rows['rd-7']
+        self.assertEqual((watch['state'], watch['provider']), ('preparing', 'torbox'))
+        self.assertIn('packed into an archive', watch['error'])
+        self.assertEqual(watch['handed_names'], [names[0]])
+        self.assertTrue(any(c['method'] + c['path'] == 'DELETE/torrents/delete/1' for c in rd))
+        self.assertTrue(any(c['path'].startswith('/torrents/createtorrent') for c in tb))
+        # the next tick: the fallback hands over only the packed file
+        with patch.object(dp, 'realdebrid', side_effect=rd_service), \
+             patch.object(dp, 'torbox', side_effect=tb_call):
+            dp._debrid_prep_tick(time.time() + 30)
+        self.assertEqual([c['name'] for c in self.started], [names[0], names[1]])
+        rows = dp._load_state()['downloads']
+        self.assertEqual([d for d in rows if d.get('state') == 'preparing'], [])
+        part2 = next(d for d in rows if d['name'] == names[1])
+        self.assertEqual(part2['provider'], 'torbox')
+        self.assertEqual(part2['debrid'], {'id': 7, 'file': 6, 'link': None})
+        self.assertEqual(dp._sidecar_load(), {})
+
     # ------------------------------------------------------------------ the other service
     def test_torbox_is_asked_its_way_and_its_link_never_asks_for_a_redirect(self):
         self.prep_row(provider='torbox', tid=7, name='torbox-7', release=self.MOVIE)

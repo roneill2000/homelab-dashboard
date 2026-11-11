@@ -1634,8 +1634,12 @@ def _handover_files(row, view, media, provider, now, limit):
     """
     torrent_id = _row_torrent_id(row)
     handed = set(row.get('handed') or [])
-    todo = [f for f in media if f.get('id') not in handed][:max(0, int(limit))]
-    out, ids, errors, archive = [], [], [], None
+    handed_names = {str(n).lower() for n in row.get('handed_names') or []}
+    # A file already handed over is skipped by its service id, and by its name too: after the row
+    # moved to the fallback the ids are the other service's, but the file names of one torrent are not.
+    todo = [f for f in media
+            if f.get('id') not in handed and str(f.get('name') or '').lower() not in handed_names][:max(0, int(limit))]
+    out, ids, names, errors, archive = [], [], [], [], None
     for wanted in todo:
         try:
             if provider == 'realdebrid':
@@ -1658,6 +1662,7 @@ def _handover_files(row, view, media, provider, now, limit):
                         'grounded': None, 'provider': provider,
                         'debrid': {'id': torrent_id, 'file': wanted.get('id'), 'link': service}})
             ids.append(wanted.get('id'))
+            names.append(wanted['name'])
         except ValueError as exc:
             reason = _scrub_key(str(exc))
             if reason.startswith('packed into an archive'):
@@ -1666,7 +1671,7 @@ def _handover_files(row, view, media, provider, now, limit):
             errors.append(reason)
         except Exception as exc:
             errors.append(_scrub_key(str(exc)))
-    return out, ids, errors, archive
+    return out, ids, names, errors, archive
 
 
 def _prep_refresh(name, now, budget=2):
@@ -1727,14 +1732,14 @@ def _prep_refresh(name, now, budget=2):
         close_it, why = True, 'TorBox: %s' % view['status']
 
     # Ready: the files go to the download worker, at most two per tick, links asked for only now.
-    started_rows, started_ids, hand_errors, archive = [], [], [], None
+    started_rows, started_ids, started_names, hand_errors, archive = [], [], [], [], None
     if view['ready'] and not move and not close_it:
-        started_rows, started_ids, hand_errors, archive = _handover_files(row, view, media, provider, now, budget)
+        started_rows, started_ids, started_names, hand_errors, archive = _handover_files(row, view, media, provider, now, budget)
         if archive:
             # One hoster link for several files: the torrent is packed up. Real-Debrid will not split it,
-            # so the fallback service is given the same torrent and nothing is handed over here.
+            # so the fallback service is given the same torrent. The files already started on the worker
+            # keep their rows; their names are remembered, so the fallback hands over only the packed file.
             move, why = True, 'Real-Debrid: %s' % archive
-            started_rows, started_ids, hand_errors = [], [], []
 
     # Moving to the fallback is its own pair of calls, made before the row changes.
     moved_id, moved_error = None, None
@@ -1774,6 +1779,7 @@ def _prep_refresh(name, now, budget=2):
             return
         if started_ids:
             d['handed'] = list(d.get('handed') or []) + started_ids
+            d['handed_names'] = list(d.get('handed_names') or []) + started_names
             left = len(media) - len(d['handed'])
             d['prep']['files'] = max(0, left)
             if left <= 0 and not move and not close_it:
