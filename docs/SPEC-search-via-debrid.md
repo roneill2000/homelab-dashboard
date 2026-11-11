@@ -148,8 +148,9 @@ deployed. In the same commit, Get for torrent results takes the new path. Usenet
 
 ## Rules
 
-- **Tools in Pi Pocket:** there is no `webfetch` or `web_search` tool there; MCP tools are reached through
-  `tool_search` / `codemode`. To read a web page or the API description, use `bash` with `curl`.
+- **Tools in Pi Pocket:** the web tools are named `mcp__webfetch__webfetch` and `mcp__searxng__web_search` there
+  (a call to plain `webfetch` is printed instead of run, and the turn ends). For the API description, `bash` with
+  `curl` is simplest.
 
 - Same as `SPEC-downloads-backend.md`: pull and rebase first, small commits, no AI credit, build + `npm run check`
   (`ALL CHECKS OK`) + `npm test` before each commit, deploy with `scripts/deploy.py`, one line per deploy in
