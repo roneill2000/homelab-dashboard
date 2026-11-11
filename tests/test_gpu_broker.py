@@ -367,3 +367,98 @@ class DrainTests(unittest.TestCase):
     def test_drain_gives_up_after_its_timeout(self):
         g._inflight['strata'] = 1
         self.assertFalse(g.drain('llama', timeout=0.2))
+
+
+def _convo(steps, result='same answer', args='{"command": "grep -n foo x"}', tail=()):
+    """A user message, then `steps` identical tool steps (assistant tool call + its result)."""
+    msgs = [{'role': 'system', 'content': 'rules'}, {'role': 'user', 'content': 'fix it'}]
+    for n in range(steps):
+        msgs.append({'role': 'assistant', 'content': None, 'reasoning_content': f'try {n}',
+                     'tool_calls': [{'id': f'c{n}', 'type': 'function', 'function': {'name': 'bash', 'arguments': args}}]})
+        msgs.append({'role': 'tool', 'tool_call_id': f'c{n}', 'content': result(n) if callable(result) else result})
+    return msgs + list(tail)
+
+
+class LoopGuardTests(unittest.TestCase):
+    """11 Nov 2026: one tool call repeated with the same result 55-80 times. Normal sessions never repeat a step
+    more than twice, so the 3rd identical step gets a note and the 6th is refused before any GPU swap."""
+
+    def test_the_run_counts_identical_steps_at_the_end_only(self):
+        self.assertEqual(g.loop_run(_convo(1)), 1)
+        self.assertEqual(g.loop_run(_convo(5)), 5)
+        self.assertEqual(g.loop_run(_convo(5, result=lambda n: f'line {n}')), 1)        # results change: polling
+        self.assertEqual(g.loop_run(_convo(5, tail=[{'role': 'user', 'content': 'go on'}])), 0)  # Ryan spoke
+        self.assertEqual(g.loop_run(_convo(0)), 0)
+        self.assertEqual(g.loop_run(None), 0)
+        # arguments compare as JSON, so key order and spacing do not hide a repeat
+        msgs = _convo(2) + _convo(1, args='{ "command":"grep -n foo x" }')[2:]
+        for i, m in enumerate(msgs[2:]):
+            if m['role'] == 'assistant':
+                m['tool_calls'][0]['id'] = m['tool_calls'][0]['id'] + str(i)
+        self.assertEqual(g.loop_run(msgs), 3)
+
+    def test_a_different_step_in_between_ends_the_run(self):
+        msgs = _convo(3)
+        msgs[4]['tool_calls'][0]['function']['arguments'] = '{"command": "ls"}'   # the 2nd step differs
+        self.assertEqual(g.loop_run(msgs), 1)
+
+    def test_parallel_calls_count_as_one_step(self):
+        msgs = [{'role': 'user', 'content': 'x'}]
+        for n in range(3):
+            msgs.append({'role': 'assistant', 'tool_calls': [
+                {'id': f'a{n}', 'function': {'name': 'read', 'arguments': '{"path": "a"}'}},
+                {'id': f'b{n}', 'function': {'name': 'read', 'arguments': '{"path": "b"}'}}]})
+            msgs += [{'role': 'tool', 'tool_call_id': f'a{n}', 'content': 'A'},
+                     {'role': 'tool', 'tool_call_id': f'b{n}', 'content': [{'type': 'text', 'text': 'B'}]}]
+        self.assertEqual(g.loop_run(msgs), 3)
+
+    def test_the_note_goes_on_the_last_result_from_the_third_step(self):
+        for steps in (1, 2):
+            body = json.dumps({'model': 'm', 'messages': _convo(steps)}).encode()
+            self.assertEqual(g.loop_guard(body), (body, steps))   # untouched
+        sent, run = g.loop_guard(json.dumps({'model': 'm', 'messages': _convo(3)}).encode())
+        msgs = json.loads(sent)['messages']
+        self.assertEqual(run, 3)
+        self.assertEqual(msgs[:-1], _convo(3)[:-1])               # the cached prefix is unchanged
+        self.assertTrue(msgs[-1]['content'].startswith('same answer\n\n[Homelab broker: you have now made'))
+        self.assertIn('3 times in a row', msgs[-1]['content'])
+        listed = _convo(4, result=[{'type': 'text', 'text': 'same'}])
+        msgs = json.loads(g.loop_guard(json.dumps({'messages': listed}).encode())[0])['messages']
+        self.assertEqual(msgs[-1]['content'][0], {'type': 'text', 'text': 'same'})
+        self.assertIn('Do not call it again', msgs[-1]['content'][-1]['text'])
+        self.assertEqual(g.loop_guard(b'not json'), (b'not json', 0))
+
+    def test_the_sixth_identical_step_is_refused_before_any_swap(self):
+        FakePC.seen = []
+        pc = serve(http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakePC))
+        broker = serve(g.Server(('127.0.0.1', 0), 'auto', ('127.0.0.1', 0)))
+        broker.ports = {e: pc.server_address[1] for e in ('llama', 'strata', 'coder')}
+        FakePC.release.set()
+        try:
+            with patch.object(g, 'strata_names', return_value=NAMES), patch.object(g, 'llama_token', return_value='t'), \
+                 patch.object(g, 'llama_ids', return_value=['qwen3.8-27b']), \
+                 patch.object(g, 'ensure') as ensure, patch.object(g, 'remember') as remember:
+                def post(steps, model='qwen3.8-27b'):
+                    c = http.client.HTTPConnection('127.0.0.1', broker.server_address[1], timeout=10)
+                    c.request('POST', '/v1/chat/completions', headers={'Content-Type': 'application/json'},
+                              body=json.dumps({'model': model, 'messages': _convo(steps)}).encode())
+                    r = c.getresponse()
+                    return r.status, r.read()
+                self.assertEqual(post(5)[0], 200)
+                self.assertIn('5 times in a row', json.loads(FakePC.seen[-1][3])['messages'][-1]['content'])
+                ensure.reset_mock(); FakePC.seen = []
+                for model in ('qwen3.8-27b', NAMES['strata']):    # Strata conversations too
+                    status, raw = post(6, model)
+                    self.assertEqual(status, 409)
+                    message = json.loads(raw)['error']['message']
+                    self.assertIn('Loop guard', message)
+                ensure.assert_not_called()
+                self.assertEqual(FakePC.seen, [])
+                self.assertEqual(remember.call_args[0][0]['swap'], 'loop')
+        finally:
+            for s in (broker, pc):
+                s.shutdown(); s.server_close()
+        # pi retries an error whose text matches its retry list; this one must not, or the loop just goes on
+        for word in ('429', '500', '502', '503', 'rate limit', 'overloaded', 'timeout', 'timed out', 'terminated',
+                     'server error', 'internal error', 'try your request again', 'unavailable', 'connection'):
+            self.assertNotIn(word, message.lower())

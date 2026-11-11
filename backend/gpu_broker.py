@@ -230,6 +230,81 @@ def llama_body(body):
     return json.dumps(data).encode()
 
 
+# Loop guard (11 Nov 2026). Three agent sessions (9 and 11 Nov) repeated one tool call with the same result 55-80
+# times in a row. Replaying every recorded pi / Pi Pocket session: normal work never repeats a step (same calls, same
+# arguments, same results) more than twice. So the 3rd identical step gets a note on its tool result, and the 6th
+# is refused before any GPU swap, which ends the client's turn. Every client goes through here, so one guard covers
+# pi, Pi Pocket, Paseo and Open WebUI. The note sits on the last message only: the cached prompt prefix is untouched.
+LOOP_NUDGE_AT = 3
+LOOP_STOP_AT = 6
+LOOP_NOTE = ('\n\n[Homelab broker: you have now made exactly this tool call and got exactly this result {n} times in '
+             'a row. Repeating it will not change the answer. Do not call it again: use what you already have, '
+             'try a different approach, or tell Ryan what is blocking you.]')
+
+
+def _tool_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return ''.join(p.get('text') or '' for p in content if isinstance(p, dict))
+    return ''
+
+
+def _tool_args(raw):
+    if isinstance(raw, str):
+        try:
+            return json.dumps(json.loads(raw), sort_keys=True)
+        except ValueError:
+            return raw
+    return json.dumps(raw, sort_keys=True)
+
+
+def loop_run(messages):
+    """How many identical tool steps end this conversation. A step is one assistant message with tool calls plus
+    the tool results after it; two steps are identical when the calls (name + arguments) and the results match.
+    0 unless the last message is a tool result (a new message from Ryan ends any run)."""
+    if not isinstance(messages, list) or not messages or not isinstance(messages[-1], dict) \
+            or messages[-1].get('role') != 'tool':
+        return 0
+    steps, i = [], len(messages) - 1
+    while i >= 0:
+        results = []
+        while i >= 0 and isinstance(messages[i], dict) and messages[i].get('role') == 'tool':
+            results.insert(0, _tool_text(messages[i].get('content')))
+            i -= 1
+        m = messages[i] if i >= 0 else None
+        calls = m.get('tool_calls') if isinstance(m, dict) and m.get('role') == 'assistant' else None
+        if not results or not isinstance(calls, list) or not calls:
+            break
+        sig = tuple(sorted(((c.get('function') or {}).get('name'), _tool_args((c.get('function') or {}).get('arguments')))
+                           for c in calls if isinstance(c, dict)))
+        steps.append((sig, tuple(results)))
+        if steps[-1] != steps[0]:
+            steps.pop()
+            break
+        i -= 1
+    return len(steps)
+
+
+def loop_guard(body):
+    """(body, run): the request with a note on its last tool result once a loop starts, and how long the run is.
+    Never raises: a body it cannot read goes through unchanged."""
+    try:
+        data = json.loads(body)
+        messages = data.get('messages') if isinstance(data, dict) else None
+        run = loop_run(messages)
+        if run < LOOP_NUDGE_AT or run >= LOOP_STOP_AT:
+            return body, run
+        last, note = messages[-1], LOOP_NOTE.format(n=run)
+        if isinstance(last.get('content'), list):
+            last['content'] = list(last['content']) + [{'type': 'text', 'text': note.strip()}]
+        else:
+            last['content'] = _tool_text(last.get('content')) + note
+        return json.dumps(data).encode(), run
+    except Exception:
+        return body, 0
+
+
 def llama_ids(max_age=60.0):
     """llama-server's model ids (cached); [] when it can't be asked, so a request then goes through and llama answers."""
     if time.time() - _llama_ids['at'] > max_age:
@@ -346,6 +421,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             host, port = self.server.upstream[0], self.server.ports[engine]
             if engine == 'llama':
                 extra['Authorization'] = 'Bearer ' + llama_token()
+        if generate and body:
+            body, run = loop_guard(body)
+            if run >= LOOP_STOP_AT:
+                model = ai_history.model_of(body)
+                log(f'loop guard: {model} repeated one tool step {run} times; turn refused')
+                remember(dict(ts=time.time(), engine=engine, model=model, ok=0, status=409, swap='loop', wall_s=0.0))
+                return self.fail(409, f'Loop guard: the same tool call returned the same result {run} times in a row, '
+                                      'so this turn was stopped. Send a new message to go on.')
+            if run >= LOOP_NUDGE_AT:
+                log(f'loop guard: {ai_history.model_of(body)} repeated one tool step {run} times; note added')
         if generate and engine == 'llama':
             body = llama_body(body)
         # Strata's chat page has its own Load button; it must free the GPU of llama models first, like a request.
