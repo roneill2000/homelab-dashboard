@@ -374,12 +374,12 @@ class DebridTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertFalse(os.path.exists(self.state_path))
 
-    def test_debrid_status_offers_the_preview_feature(self):
+    def test_debrid_status_offers_the_preview_and_retry_features(self):
         self.write_state([])
         with patch.object(dp, '_download_rpc', side_effect=lambda *a, **k: self.fail('the worker must not be asked')):
             _, codes, body = call('/api/debrid', OK, post=False)
         self.assertEqual(codes, [200])
-        self.assertEqual(body['features'], ['preview'])
+        self.assertEqual(body['features'], ['preview', 'retry'])
 
     # ------------------------------------------------- name discovery (TorBox) ---
     def test_a_name_in_the_headers_is_read_out_of_content_disposition(self):
@@ -764,6 +764,112 @@ class DebridTests(unittest.TestCase):
         self.assertEqual(codes, [400])
         self.assertIn('left the list', body['error'])
         self.assertEqual(self.read_state(), [])
+
+    # ------------------------------------------------------------------- retry ---
+    def linked_row(self, name, state, **over):
+        row = {'dest': dp.MOVIES_DIR, 'name': name, 'kind': 'movie', 'title': name,
+               'season': None, 'episode': None, 'started': 1, 'state': state, 'scanned': True,
+               'error': None, 'url': 'https://cdn.example.com/d/abc/' + name + '?token=abc123'}
+        row.update(over)
+        return row
+
+    def test_add_keeps_the_link_but_the_panel_never_sees_it(self):
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc()), \
+             patch.object(dp, 'searxng_ground', return_value=None):
+            dp.add_debrid('https://nyk.example.com/d/abc/a.mkv?token=t1')
+        row = self.read_state()[0]
+        self.assertEqual(row['url'], 'https://nyk.example.com/d/abc/a.mkv?token=t1')
+        for sent in dp.debrid_status()['downloads']:
+            self.assertNotIn('url', sent)
+            self.assertNotIn('token', json.dumps(sent))
+            self.assertIs(sent['can_retry'], False)   # the row is downloading
+
+    def test_the_state_file_is_written_private_and_an_old_one_is_fixed_on_load(self):
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc()):
+            dp.add_debrid('https://nyk.example.com/d/abc/a.mkv?token=t1')
+        self.assertEqual(oct(os.stat(self.state_path).st_mode & 0o777), '0o600')
+        os.chmod(self.state_path, 0o644)               # a file from before this rule
+        dp.debrid_status()
+        self.assertEqual(oct(os.stat(self.state_path).st_mode & 0o777), '0o600')
+
+    def test_can_retry_is_true_only_for_the_three_states_with_a_stored_link(self):
+        self.write_state([self.linked_row('dl.mkv', 'downloading'),
+                          self.linked_row('fin.mkv', 'finished'),
+                          self.linked_row('bad.mkv', 'failed'),
+                          self.linked_row('st.mkv', 'stopped'),
+                          self.linked_row('int.mkv', 'interrupted'),
+                          dict(self.linked_row('old.mkv', 'failed'), url=None)])
+        _, codes, body = call('/api/debrid', OK, post=False)
+        self.assertEqual(codes, [200])
+        self.assertEqual({r['name']: r['can_retry'] for r in body['downloads']},
+                         {'dl.mkv': False, 'fin.mkv': False, 'bad.mkv': True, 'st.mkv': True,
+                          'int.mkv': True, 'old.mkv': False})
+        for sent in body['downloads']:
+            self.assertNotIn('url', sent)
+
+    def test_retry_refuses_rows_that_are_missing_unlinkable_or_not_retriable(self):
+        self.write_state([self.linked_row('run.mkv', 'downloading'), self.linked_row('fin.mkv', 'finished'),
+                          dict(self.linked_row('old.mkv', 'failed'), url=None)])
+        with patch.object(dp, '_download_rpc', side_effect=AssertionError('must not reach the worker')):
+            for name in ('not-there.mkv', 'run.mkv', 'fin.mkv', 'old.mkv', '../escape.mk', 42):
+                self.assertEqual(call('/api/debrid', OK, {'retry': name})[1], [400], str(name))
+            self.assertEqual(call('/api/debrid', {'Host': '192.168.0.2'}, {'retry': 'bad.mkv'})[1], [403])
+
+    def test_retry_restarts_with_the_stored_link_and_holds_no_lock(self):
+        self.write_state([self.linked_row('a.mkv', 'failed')])
+        calls = []
+
+        def probe(payload, timeout=None):
+            free = dp._STATE_LOCK.acquire(blocking=False)
+            try:
+                if not free:
+                    raise AssertionError('the state lock was held during the worker call')
+            finally:
+                if free:
+                    dp._STATE_LOCK.release()
+            calls.append(dict(payload))
+            return {'ok': True, 'unit': 'dl-a.mkv', 'state': 'downloading', 'message': 'started a.mkv'}
+
+        with patch.object(dp, '_download_rpc', side_effect=probe):
+            handled, codes, body = call('/api/debrid', OK, {'retry': 'a.mkv'})
+        self.assertEqual((handled, codes, body['state']), (True, [200], 'downloading'))
+        self.assertEqual((calls[0]['cmd'], calls[0]['url'], calls[0]['dest'], calls[0]['name']),
+                         ('start', 'https://cdn.example.com/d/abc/a.mkv?token=abc123', dp.MOVIES_DIR, 'a.mkv'))
+        row = self.read_state()[0]
+        self.assertEqual((row['state'], row['error'], row['scanned'], row['scan_error'], row['retried']),
+                         ('downloading', None, False, None, True))
+        self.assertGreater(row['started'], 1_000_000_000)
+        self.assertEqual(oct(os.stat(self.state_path).st_mode & 0o777), '0o600')
+
+    def test_a_stopped_row_can_be_retried_and_reopens_the_scan_queue(self):
+        # stop_debrid marks the row scanned (a partial file is never scanned); a retry must reset that.
+        self.write_state([self.linked_row('a.mkv', 'stopped', scanned=True, error='stopped')])
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc()):
+            self.assertEqual(call('/api/debrid', OK, {'retry': 'a.mkv'})[1], [200])
+        row = self.read_state()[0]
+        self.assertEqual((row['state'], row['scanned'], row['retried']), ('downloading', False, True))
+
+    def test_an_expired_link_after_a_retry_closes_the_row(self):
+        # aria2c 22/24 after a retry means the access token in the stored link has run out: keep the row
+        # failed, say so plainly, drop the link (so can_retry goes false). A first attempt that fails with
+        # 22 keeps its raw error and its link; a non-retried row is untouched by this rule.
+        self.write_state([self.linked_row('bad.mkv', 'failed', retried=True, error='aria2c exited with code 4'),
+                          self.linked_row('first.mkv', 'failed')])
+        answer = {'ok': True, 'jobs': [{'dest': dp.MOVIES_DIR, 'name': 'bad.mkv', 'state': 'failed',
+                                        'error': 'aria2c exited with code 22 (no file was written)'},
+                                       {'dest': dp.MOVIES_DIR, 'name': 'first.mkv', 'state': 'failed',
+                                        'error': 'aria2c exited with code 22'}]}
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer=answer)), \
+             patch.object(dp, '_jellyfin_scan', return_value=False):
+            dp._debrid_tick()
+        rows = {r['name']: r for r in self.read_state()}
+        self.assertEqual(rows['bad.mkv']['error'], 'the link has expired; paste a fresh one')
+        self.assertIsNone(rows['bad.mkv']['url'])
+        self.assertIs(rows['bad.mkv']['retried'], False)
+        self.assertEqual(rows['first.mkv']['error'], 'aria2c exited with code 22')
+        self.assertEqual(rows['first.mkv']['url'], 'https://cdn.example.com/d/abc/first.mkv?token=abc123')
+        self.assertEqual({r['name']: r['can_retry'] for r in dp.debrid_status()['downloads']},
+                         {'bad.mkv': False, 'first.mkv': True})
 
     # ---------------------------------------------------------------- routes ---
     def test_debrid_get_route_answers_from_the_state_file(self):

@@ -69,6 +69,10 @@ _DEBRID_ROWS = 15      # rows the homepage shows
 _DEBRID_CHECK_MAX = 40 # downloads in one check call
 _DEBRID_SCAN_UNTIL = ('finished', 'present')   # states that mean "ask Jellyfin to look"
 _DEBRID_STATE_WORDS = ('downloading', 'finished', 'failed', 'stopped', 'interrupted', 'present', 'missing', 'unknown')
+_RETRY_STATES = ('failed', 'stopped', 'interrupted')   # a stored link can be run again in these
+# aria2c 22 (the server refused the URL) and 24 (HTTP auth/authorization error) are what an
+# expired debrid access token looks like. Only counted after a retry, where the link itself is the suspect.
+_EXPIRED_LINK = re.compile(r'aria2c exited with code (?:22|24)\b')
 _STATE_LOCK = threading.Lock()
 
 
@@ -593,6 +597,8 @@ def _migrate_row(d):
     d.setdefault('title', d['name'])
     d.setdefault('year', None)
     d.setdefault('kind_source', 'name')
+    d.setdefault('url', None)      # the pasted link, kept only in the state file (it carries an access token)
+    d.setdefault('retried', False)
     d.setdefault('scanned', False)
     d.setdefault('scan_error', None)
     d.setdefault('error', None)
@@ -618,6 +624,12 @@ def _load_state():
             state = json.load(f)
     except Exception:
         return {'downloads': []}
+    # The rows now hold the pasted link, access token and all: the file must never be world-readable.
+    # Fix an older file's mode the first time it is read (they were written 0644 before this rule).
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
     rows = state.get('downloads') if isinstance(state, dict) else None
     if not isinstance(rows, list):
         return {'downloads': []}
@@ -625,7 +637,11 @@ def _load_state():
 
 
 def _save_state(state):
-    """Write the rows in one step: tmp file, fsync, rename. Only ever called with _STATE_LOCK held."""
+    """Write the rows in one step: tmp file, fsync, rename. Only ever called with _STATE_LOCK held.
+
+    The mode is set on the tmp file before the rename, so the real file is never briefly world
+    readable: it carries the pasted links with their access tokens.
+    """
     state['downloads'] = state['downloads'][-_DEBRID_KEEP:]
     state['updated'] = int(time.time())
     os.makedirs(os.path.dirname(DEBRID_STATE), exist_ok=True)
@@ -634,6 +650,7 @@ def _save_state(state):
         json.dump(state, f)
         f.flush()
         os.fsync(f.fileno())
+    os.chmod(tmp, 0o600)
     os.replace(tmp, DEBRID_STATE)
 
 
@@ -714,7 +731,7 @@ def add_debrid(url, kind=None):
     info = plan['info']
     dest, name, source, grounded = plan['dest'], plan['name'], plan['source'], plan['grounded']
     out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': plan['url'], 'dest': dest, 'name': name})
-    row = {'dest': dest, 'name': name, 'unit': out.get('unit') or 'dl-' + name, 'kind': info['kind'],
+    row = {'dest': dest, 'name': name, 'url': plan['url'], 'unit': out.get('unit') or 'dl-' + name, 'kind': info['kind'],
            'title': info['title'], 'season': info['season'], 'episode': info['episode'],
            'year': info['year'], 'kind_source': source,
            'state': out.get('state') if out.get('state') in _DEBRID_STATE_WORDS else 'downloading',
@@ -770,6 +787,13 @@ def _debrid_tick():
                 changed = True
             if j.get('error') and d.get('error') != str(j['error'])[:200]:
                 d['error'] = str(j['error'])[:200]
+                changed = True
+            if (d.get('retried') and d.get('state') == 'failed'
+                    and _EXPIRED_LINK.search(str(j.get('error') or ''))):
+                # aria2c refused the link itself after a retry: the access token has run out. Keep
+                # the row failed, say it plainly, and drop the stored link so can_retry goes false.
+                d['error'] = 'the link has expired; paste a fresh one'
+                d['url'], d['retried'] = None, False
                 changed = True
         ready = [d['name'] for d in state['downloads']
                  if d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned')]
@@ -844,6 +868,8 @@ def _debrid_rows(state):
                         speed=int(d.get('speed') or 0), eta=d.get('eta') or '',
                         scanned=bool(d.get('scanned')), scan_error=d.get('scan_error'),
                         error=d.get('error'), grounded=d.get('grounded'), started=d.get('started'),
+                        # The link stays inside the backend: the panel only learns whether a retry is possible.
+                        can_retry=bool(d.get('url')) and st in _RETRY_STATES,
                         age=max(0, int(time.time()) - int(d.get('started') or 0))))
     return out
 
@@ -869,10 +895,47 @@ def stop_debrid(name):
         if row is None:
             raise ValueError('that download left the list while it was being stopped')
         row['state'], row['state_since'] = 'stopped', int(time.time())
-        row['scanned'], row['scan_error'] = True, None   # stopped on purpose: never scanned, no retry
+        row['scanned'], row['scan_error'] = True, None   # stopped on purpose: partial file, no scan (a retry resets this)
         _save_state(state)
     return dict(ok=True, name=name, unit=out.get('unit') or 'dl-' + name,
                 message=out.get('message') or ('stopped ' + name))
+
+
+def retry_debrid(name):
+    """Restart a failed, stopped or interrupted download with the link its row stored.
+
+    The same start call add_debrid() makes: the worker revalidates everything and aria2c continues
+    the partial file (its .aria2 control file is what makes --continue safe). Raises ValueError
+    (no such row, no stored link, or a state that cannot be retried) or RuntimeError (worker).
+
+    The state lock is held around the rows only, never around the worker call (same pattern as
+    stop_debrid); the row is looked up again after the call because the tick loop can rewrite it.
+    """
+    name = _safe_name(name)
+    with _STATE_LOCK:
+        row = next((d for d in _load_state()['downloads'] if d['name'] == name), None)
+        if row is None:
+            raise ValueError('that download is not in the list anymore')
+        if not row.get('url'):
+            raise ValueError('no link is stored for that download; paste a fresh one')
+        if row.get('state') not in _RETRY_STATES:
+            raise ValueError('that download is %s; only failed, stopped or interrupted can be retried' % row.get('state'))
+        url, dest = row['url'], row['dest']
+    out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': url, 'dest': dest, 'name': name})
+    state_word = out.get('state') if out.get('state') in _DEBRID_STATE_WORDS else 'downloading'
+    with _STATE_LOCK:
+        state = _load_state()
+        row = next((d for d in state['downloads'] if d['name'] == name), None)
+        if row is None:
+            raise ValueError('that download left the list while it was being retried')
+        row['state'], row['state_since'] = state_word, int(time.time())
+        row['error'], row['scanned'], row['scan_error'] = None, False, None   # open again: the scan queue re-arms
+        row['started'] = int(time.time())
+        row['retried'] = True   # the next failure is read against _EXPIRED_LINK with this row in mind
+        row['unit'] = out.get('unit') or row.get('unit') or 'dl-' + name
+        _save_state(state)
+    return dict(ok=True, name=name, state=state_word,
+                message=out.get('message') or ('restarted ' + name))
 
 
 def clear_debrid() -> dict:
@@ -898,9 +961,11 @@ def clear_debrid() -> dict:
 def debrid_status():
     with _STATE_LOCK:
         state = _load_state()
-    # 'preview' goes live with the preview route in this same commit; the panel only offers the control
-    # when the name is here, because an older backend would run a preview request as a real download.
-    return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated'), 'features': ['preview']}
+    # 'preview' and 'retry' go live with the routes that answer them, in the same commits; the panel only
+    # offers a control when its name is here, because an older backend would run the new request as a
+    # real download.
+    return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated'),
+            'features': ['preview', 'retry']}
 
 
 _DEBRID_LOOP = {'started': False}
@@ -966,6 +1031,12 @@ def handle(handler, post=False):
             _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True
         if body.get('clear') is True:
             try: _reply(handler, 200, clear_debrid())
+            except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
+            except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
+            return True
+        retry = body.get('retry')
+        if isinstance(retry, str):
+            try: _reply(handler, 200, retry_debrid(retry))
             except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
             except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
             return True
