@@ -411,6 +411,15 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-row__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.dl-row__head>strong{font-weight:500;overflow-wrap:anywhere;min-width:0}.dl-row__head>.badge{flex:none}.dl-row__meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.dl-row__meta>small{flex:1;min-width:0}.dl-row__meta>.m3-btn{margin:-6px -12px -6px 0}
 .dl-row__text small{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size)}
 .dl-row .m3-btn{flex:none}
+/* Search results: every row is exactly three lines (title, quality tags, details), so the list scans evenly. */
+.dl-row--result .dl-row__text>strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl-row--result .dl-tags,.dl-row--result .dl-row__text small{flex-wrap:nowrap;overflow:hidden}
+.dl-row--result .dl-row__text small>span{flex:none}.dl-row--result .dl-row__text small>.dl-indexer{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:599px){.dl-row--result .m3-btn{min-width:0;padding:0 12px}.dl-row--result .dl-get-label{display:none}.dl-row--result .dl-row__text small{gap:4px 8px}}
+.dl-filters{display:flex;align-items:center;gap:8px;margin:0 0 8px;overflow-x:auto;scrollbar-width:none}.dl-filters::-webkit-scrollbar{display:none}.dl-filters>*{flex:none}
+button.dl-filter{appearance:none;border:0;background:transparent;color:inherit;cursor:pointer}
+button.dl-filter[aria-pressed=true]{box-shadow:none;background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}button.dl-filter[aria-pressed=true] .material-symbols-rounded{color:inherit}
+.dl-nomatch{margin:4px 0 8px;color:var(--md-sys-color-on-surface-variant)}
 .dl-tags{display:flex;flex-wrap:wrap;gap:4px}.dl-tag{padding:1px 8px;border:1px solid var(--md-sys-color-outline-variant);border-radius:8px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size);white-space:nowrap}
 .dl-plan{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}.dl-plan__where{display:flex;align-items:flex-start;gap:8px;min-width:0;color:var(--md-sys-color-on-surface-variant)}.dl-plan__where strong{color:var(--md-sys-color-on-surface);font-weight:500}.dl-plan__where small{display:block;overflow-wrap:anywhere;font-size:var(--md-sys-typescale-body-small-size)}.dl-plan__bad{color:var(--md-sys-color-error)}
 .dl-results>.text-button{align-self:flex-start;margin-top:4px}

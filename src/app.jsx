@@ -1038,14 +1038,14 @@ function release(name){const raw=String(name||''),m=raw.match(REL_CUT);if(!m||m.
  const year=(raw.match(/[\s._(\[]((?:19|20)\d{2})(?=$|[\s._)\]])/)||[])[1],ep=raw.match(/(?:^|[\s._])S(\d{1,2})(?:E(\d{1,3}))?(?=$|[\s._])/i),u=raw.toUpperCase(),has=re=>re.test(u),tags=[];
  if(has(/2160P|\b4K\b|\bUHD\b/))tags.push('4K');else{const r=u.match(/\b(1080|720|480)P\b/);if(r)tags.push(r[1]+'p')}
  if(has(/REMUX/))tags.push('Remux');else if(has(/BLU-?RAY|BDRIP|BRRIP/))tags.push('Blu-ray');else if(has(/WEB-?DL|WEBRIP|\bWEB\b/))tags.push('Web');else if(has(/HDTV/))tags.push('HDTV');
- if(has(/\bDV\b|DOLBY.?VISION|\bDOVI\b/))tags.push('Dolby Vision');else if(has(/HDR/))tags.push('HDR');
+ if(has(/\bDV\b|DOLBY.?VISION|\bDOVI\b/))tags.push('DV');else if(has(/HDR/))tags.push('HDR');
  if(has(/HEVC|[XH].?265/))tags.push('HEVC');else if(has(/[XH].?264|\bAVC\b/))tags.push('H.264');else if(has(/\bAV1\b/))tags.push('AV1');
  if(has(/ATMOS/))tags.push('Atmos');if(has(/\bIMAX\b/))tags.push('IMAX');if(has(/EXTENDED|DIRECTOR/))tags.push('Extended');
  return {title:head+(ep?` · S${ep[1].padStart(2,'0')}${ep[2]?`E${ep[2].padStart(2,'0')}`:''}`:year?` (${year})`:''),tags}}
 const sharePath=d=>String(d||'').replace(/^\/mnt\/unraid\/?/,'').split('/').filter(Boolean).join(' / ');
 // Last RdtClient list, kept across visits so the Media page doesn't flash a placeholder each time.
 function DownloadsPanel({notify=()=>{}}){
- const [text,setText]=useState(''),[kind,setKind]=useState('torrent'),[results,setResults]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState({}),[shown,setShown]=useState(15),[debrid,setDebrid]=useState(null),[stopping,setStopping]=useState(null),[grabs,setGrabs]=useState(null),[features,setFeatures]=useState([]),[plan,setPlan]=useState(null),[kindPick,setKindPick]=useState(null);
+ const [text,setText]=useState(''),[kind,setKind]=useState('torrent'),[results,setResults]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState({}),[shown,setShown]=useState(15),[debrid,setDebrid]=useState(null),[stopping,setStopping]=useState(null),[grabs,setGrabs]=useState(null),[features,setFeatures]=useState([]),[plan,setPlan]=useState(null),[kindPick,setKindPick]=useState(null),[sortBy,setSortBy]=useState(()=>{try{const v=localStorage.getItem('dlSort');return ['size','popular','new'].includes(v)?v:'size'}catch{return 'size'}}),[only,setOnly]=useState(()=>{try{const v=JSON.parse(localStorage.getItem('dlOnly')||'[]');return Array.isArray(v)?v.filter(t=>typeof t==='string'):[]}catch{return []}});
  const isUrl=/^https?:\/\/\S+$/i.test(text.trim());
  const poll=useRef(null),seq=useRef(0),ctl=useRef(null);
  // Search grabs land in RdtClient (Prowlarr sends them there), so poll its list: without it a Debrid-tab
@@ -1096,6 +1096,13 @@ function DownloadsPanel({notify=()=>{}}){
   if(r.ok){notify('Removed from the list.');gRefresh.current?.()}else notify(sentence(r.error)||'It could not be removed.')}
  function submit(e){e.preventDefault();if(busy)return;isUrl?addUrl():search()}
  const list=results?.list||[];
+ // Sorting and quality filters for the results. Both are remembered: the usual pick here is the largest file (a remux).
+ const tagged=list.map(r=>({r,rel:release(r.title)})),FILTERS=['4K','1080p','Remux','DV'];
+ const offered=FILTERS.filter(t=>only.includes(t)||tagged.some(x=>x.rel?.tags.includes(t)));
+ const pickSort=v=>{setSortBy(v);setShown(15);try{localStorage.setItem('dlSort',v)}catch{}};
+ const toggleOnly=t=>{const next=only.includes(t)?only.filter(x=>x!==t):[...only,t];setOnly(next);setShown(15);try{localStorage.setItem('dlOnly',JSON.stringify(next))}catch{}};
+ const sortKey=x=>sortBy==='size'?(x.r.size||0):sortBy==='popular'?(results?.kind==='usenet'?(x.r.grabs||0):(x.r.seeders||0)):(Date.parse(x.r.published)||0);
+ const view=tagged.filter(x=>only.every(t=>x.rel?.tags.includes(t))).sort((a,b)=>sortKey(b)-sortKey(a));
  return <section className="downloads-section" aria-labelledby="dl-h"><div className="section-heading"><h2 id="dl-h">Add a download</h2></div>
   <article className="m3-card m3-card--outlined panel downloads-panel">
    <form className="dl-form" onSubmit={submit}><TextField icon={isUrl?'link':'search'} aria-label="Search indexers, or paste a download link" placeholder="Search, or paste a download link" value={text} onChange={e=>setText(e.target.value)} onClear={()=>{setText('');setResults(null);setError('')}} clearLabel="Clear" enterKeyHint={isUrl?'send':'search'} autoComplete="off" spellCheck="false"/>
@@ -1106,10 +1113,13 @@ function DownloadsPanel({notify=()=>{}}){
      <Segmented label="Film or series" value={plan.kind} onChange={k=>setKindPick(k)} options={[['movie','Film'],['show','Series']]}/></>}</div>}
    {error&&<div className="notice warning" role="alert">{error}</div>}
    {busy&&!isUrl&&<IndeterminateProgress label="Searching indexers"/>}
-   {results&&<div className="dl-results" aria-live="polite"><h3 className="dl-subhead">{list.length?`${list.length} results for “${results.q}”`:`Nothing found for “${results.q}”`}</h3>
-    {list.slice(0,shown).map(r=>{const st=sent[r.id];const rel=release(r.title);return <div className="dl-row" key={r.id}><div className="dl-row__text"><strong title={r.title}>{rel?rel.title:r.title}</strong>{rel&&rel.tags.length>0&&<span className="dl-tags">{rel.tags.map(t=><span className="dl-tag" key={t}>{t}</span>)}</span>}<small><span className="nowrap"><strong className="ov-num">{bytes(r.size)}</strong></span>{results.kind==='torrent'?<span className="nowrap"><strong className="ov-num">{num(r.seeders)}</strong> seeders</span>:valid(r.grabs)&&<span className="nowrap"><strong className="ov-num">{num(r.grabs)}</strong> grabs</span>}<span className="nowrap">{r.indexer}</span>{r.published&&<span className="nowrap">{ago(r.published)}</span>}</small></div>
-     <Button variant={st==='done'?'text':'tonal'} icon={st==='done'?'check':'download'} disabled={!!st} onClick={()=>grab(r)} aria-label={`Download ${r.title}`}>{st==='done'?'Sent':st==='busy'?'Sending…':'Get'}</Button></div>})}
-    {list.length>shown&&<button className="m3-btn m3-btn--text m3-state text-button" onClick={()=>setShown(n=>n+15)}>Show {Math.min(15,list.length-shown)} more</button>}</div>}
+   {results&&<div className="dl-results" aria-live="polite"><h3 className="dl-subhead">{!list.length?`Nothing found for “${results.q}”`:view.length===list.length?`${list.length} results for “${results.q}”`:`${view.length} of ${list.length} results for “${results.q}”`}</h3>
+    {list.length>1&&<div className="dl-filters"><MenuSelect value={sortBy} onChange={pickSort} aria-label="Sort results" options={[{value:'size',label:'Largest first'},{value:'popular',label:results.kind==='usenet'?'Most grabbed':'Most seeders'},{value:'new',label:'Newest'}]}/>
+     {offered.map(t=>{const on=only.includes(t);return <button type="button" key={t} className={'m3-chip m3-state dl-filter'+(on?' has-icon':'')} aria-pressed={on} onClick={()=>toggleOnly(t)}>{on&&<Icon name="check" size={18}/>}{t}</button>})}</div>}
+    {list.length>0&&!view.length&&<p className="dl-nomatch">None of these match the filters.</p>}
+    {view.slice(0,shown).map(({r,rel})=>{const st=sent[r.id];return <div className="dl-row dl-row--result" key={r.id}><div className="dl-row__text"><strong title={r.title}>{rel?rel.title:r.title}</strong>{rel&&rel.tags.length>0&&<span className="dl-tags">{rel.tags.map(t=><span className="dl-tag" key={t}>{t}</span>)}</span>}<small><span className="nowrap"><strong className="ov-num">{bytes(r.size)}</strong></span>{results.kind==='torrent'?<span className="nowrap"><strong className="ov-num">{num(r.seeders)}</strong> seeders</span>:valid(r.grabs)&&<span className="nowrap"><strong className="ov-num">{num(r.grabs)}</strong> grabs</span>}<span className="nowrap dl-indexer">{r.indexer}</span>{r.published&&<span className="nowrap">{ago(r.published)}</span>}</small></div>
+     <Button variant={st==='done'?'text':'tonal'} icon={st==='done'?'check':'download'} disabled={!!st} onClick={()=>grab(r)} aria-label={`Download ${r.title}`}><span className="dl-get-label">{st==='done'?'Sent':st==='busy'?'Sending…':'Get'}</span></Button></div>})}
+    {view.length>shown&&<button className="m3-btn m3-btn--text m3-state text-button" onClick={()=>setShown(n=>n+15)}>Show {Math.min(15,view.length-shown)} more</button>}</div>}
    {/* One list for everything on its way in: pasted links (the n100 worker) and search grabs (RdtClient). Running rows
        come first. The status badge sits on the title line, so on a phone the size, speed and time left fit on one line. */}
    {(()=>{const rows=[];
