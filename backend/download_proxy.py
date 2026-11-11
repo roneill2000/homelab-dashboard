@@ -92,8 +92,11 @@ _RD_KEY_LOCK = threading.Lock()
 _RD_TORRENT_REFUSALS = {28: 'file not allowed', 29: 'torrent too big', 30: 'torrent file invalid',
                         35: 'infringing file', 36: 'fair usage limit', 23: 'traffic exhausted',
                         21: 'too many active downloads'}
-_RD_ACCOUNT_REFUSALS = {8: 'the Real-Debrid key is not accepted', 9: 'Real-Debrid account trouble',
-                        14: 'Real-Debrid account trouble'}
+_RD_ACCOUNT_REFUSALS = {8: 'the Real-Debrid key is not accepted', 9: 'Real-Debrid refused this account',
+                        14: 'the Real-Debrid account is locked'}
+# Slow down (5), too many requests (34) and HTTP 429 are the same thing: the 250 a minute limit. Asking
+# again can block the account, so this grab goes to the fallback instead of waiting.
+_RD_RATE_LIMITS = (5, 34)
 # aria2c 22 (the server refused the URL) and 24 (HTTP auth/authorization error) are what an
 # expired debrid access token looks like. Only counted after a retry, where the link itself is the suspect.
 _EXPIRED_LINK = re.compile(r'aria2c exited with code (?:22|24)\b')
@@ -381,7 +384,7 @@ def realdebrid(method, path, fields=None, raw=None, timeout=20):
             raise RDRefusal(_scrub_key(text or _RD_TORRENT_REFUSALS[code]))
         if code in _RD_ACCOUNT_REFUSALS:
             raise RDAccountError(_scrub_key(text or _RD_ACCOUNT_REFUSALS[code]))
-        if exc.code == 429:
+        if code in _RD_RATE_LIMITS or exc.code == 429:
             raise RDAccountError('Real-Debrid rate limit reached')
         raise RuntimeError(_scrub_key(text or ('Real-Debrid answered HTTP %d' % exc.code)))
     if not raw_in.strip():

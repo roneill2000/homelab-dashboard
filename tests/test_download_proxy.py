@@ -1330,3 +1330,74 @@ class DebridGrabTests(DebridTests):
             _, codes, body = call('/api/action/download', OK, {'result': 'nope'})
         self.assertEqual(codes, [410])
         self.assertFalse(os.path.exists(self.state_path))
+
+    # ------- realdebrid()'s own HTTP reading: only the base URL is local, no call is mocked -------
+    def rd_server(self, status, payload):
+        """Serve one Real-Debrid answer over real HTTP: (server, base URL) for a 409 or 429 style error."""
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self._reply(status, payload)
+
+            def do_POST(self):
+                self._reply(status, payload)
+
+            def do_PUT(self):
+                self._reply(status, payload)
+
+            def _reply(self, status, payload):
+                self.send_response(status)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(payload.encode())
+
+            def log_message(self, *a):
+                pass
+
+        srv = HTTPServer(('127.0.0.1', 0), H)
+        self.addCleanup(srv.server_close)
+        t = threading.Thread(target=srv.handle_request)
+        t.start()
+        self.addCleanup(t.join, 5)
+        return srv.server_address[1]
+
+    def test_a_real_http_torrent_refusal_from_realdebrid_goes_to_torbox(self):
+        self.reset_key_cache()
+        self.seed('t20', magnet=self.MAGNET)
+        port = self.rd_server(409, '{"error": "Infringing file", "error_code": 35}')
+        tb = []
+        with patch.object(dp, 'RD_API', 'http://127.0.0.1:%d' % port), \
+             patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=tb)):
+            _, codes, body = call('/api/action/download', OK, {'result': 't20'})
+        self.assertEqual(codes, [200])
+        self.assertEqual(len(tb), 1)
+        row = self.read_state()[0]
+        self.assertEqual((row['provider'], row['tried']), ('torbox', ['realdebrid', 'torbox']))
+        self.assertIn('Infringing file', row['error'])
+
+    def test_a_real_http_rate_limit_from_realdebrid_goes_to_torbox(self):
+        self.reset_key_cache()
+        self.seed('t21', magnet=self.MAGNET)
+        port = self.rd_server(429, '{"error": "Too many requests", "error_code": 34}')
+        tb = []
+        with patch.object(dp, 'RD_API', 'http://127.0.0.1:%d' % port), \
+             patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=tb)):
+            _, codes, _ = call('/api/action/download', OK, {'result': 't21'})
+        self.assertEqual(codes, [200])
+        self.assertEqual(len(tb), 1)
+        row = self.read_state()[0]
+        self.assertEqual(row['provider'], 'torbox')
+        self.assertIn('rate limit', row['error'])
+
+    def test_the_realdebrid_answer_never_echoes_the_key(self):
+        self.reset_key_cache()
+        self.seed('t22', magnet=self.MAGNET)
+        port = self.rd_server(401, '{"error": "%s", "error_code": 8}' % self.RD_KEY)
+        tb = []
+        with patch.object(dp, 'RD_API', 'http://127.0.0.1:%d' % port), \
+             patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=tb)):
+            _, codes, _ = call('/api/action/download', OK, {'result': 't22'})
+        self.assertEqual(codes, [200])
+        row = self.read_state()[0]
+        self.assertNotIn(self.RD_KEY, json.dumps(row))
+        self.assertIn('***', row['error'])
