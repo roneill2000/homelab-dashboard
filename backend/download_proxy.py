@@ -22,6 +22,7 @@ import qwen_proxy
 RDT = '/etc/homelab-dashboard/rdt.json'
 PROWLARR = '/etc/homelab-dashboard/prowlarr.json'
 TORBOX = '/etc/homelab-dashboard/torbox.json'
+REALDEBRID = '/etc/homelab-dashboard/realdebrid.json'
 CATEGORY = 'prowlarr'
 MAGNET = re.compile(r'magnet:\?[\x21-\x7e]*xt=urn:bt(ih|mh):[0-9A-Za-z]{32,68}[\x21-\x7e]*')
 RESULTS = {}; RESULTS_LOCK = threading.Lock()
@@ -81,6 +82,18 @@ TORBOX_KEY = None
 TORBOX_KEY_AT = 0
 _TORBOX_KEY_LOCK = threading.Lock()
 _TORBOX_MAX_TORRENT_BYTES = 5 * 1024 * 1024   # the indexer's .torrent file, at most
+RD_API = 'https://api.real-debrid.com/rest/1.0'   # the primary service: its downloads are not capped
+RD_KEY = None
+RD_KEY_AT = 0
+_RD_KEY_LOCK = threading.Lock()
+# Real-Debrid refuses some torrents outright. These codes are about the torrent, so TorBox gets the
+# same torrent next; a bad key or account trouble (8, 9, 14) is not the torrent's fault, but this grab
+# still goes to TorBox and Ryan hears what Real-Debrid said.
+_RD_TORRENT_REFUSALS = {28: 'file not allowed', 29: 'torrent too big', 30: 'torrent file invalid',
+                        35: 'infringing file', 36: 'fair usage limit', 23: 'traffic exhausted',
+                        21: 'too many active downloads'}
+_RD_ACCOUNT_REFUSALS = {8: 'the Real-Debrid key is not accepted', 9: 'Real-Debrid account trouble',
+                        14: 'Real-Debrid account trouble'}
 # aria2c 22 (the server refused the URL) and 24 (HTTP auth/authorization error) are what an
 # expired debrid access token looks like. Only counted after a retry, where the link itself is the suspect.
 _EXPIRED_LINK = re.compile(r'aria2c exited with code (?:22|24)\b')
@@ -266,10 +279,24 @@ def _torbox_key():
         return TORBOX_KEY
 
 
+def _rd_key():
+    """The Real-Debrid key from its own file, or None when the file is missing or empty. Re-read after 60 s."""
+    global RD_KEY, RD_KEY_AT
+    with _RD_KEY_LOCK:
+        if RD_KEY is None and time.time() - RD_KEY_AT > 60:
+            RD_KEY_AT = time.time()
+            try:
+                with open(REALDEBRID) as f:
+                    RD_KEY = (json.load(f).get('key') or '').strip() or None
+            except Exception:
+                RD_KEY = None
+        return RD_KEY
+
+
 def _scrub_key(text):
-    key = _torbox_key()
-    if key and key in text:
-        text = text.replace(key, '***')
+    for key in (_rd_key(), _torbox_key()):
+        if key and key in text:
+            text = text.replace(key, '***')
     return text[:200]
 
 
@@ -314,6 +341,84 @@ def torbox(method, path, fields=(), files=(), timeout=20):
     return ans
 
 
+class RDRefusal(RuntimeError):
+    """Real-Debrid will not do this torrent: the fallback provider gets it."""
+
+
+class RDAccountError(RuntimeError):
+    """A bad key or account trouble at Real-Debrid: not this torrent's fault, and this grab goes to the fallback."""
+
+
+def realdebrid(method, path, fields=None, raw=None, timeout=20):
+    """One Real-Debrid API call. Raises RDRefusal, RDAccountError or RuntimeError with the service's own
+    reason, scrubbed of any key and cut to 200 characters."""
+    key = _rd_key()
+    if not key:
+        raise RuntimeError('the debrid service is not set up')
+    body = None
+    hdrs = {'Authorization': 'Bearer ' + key}
+    if raw is not None:
+        body = raw
+        hdrs['Content-Type'] = 'application/x-bittorrent'
+    elif fields:
+        body = urllib.parse.urlencode(fields).encode()
+        hdrs['Content-Type'] = 'application/x-www-form-urlencoded'
+    req = urllib.request.Request(RD_API + path, data=body, headers=hdrs, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw_in = r.read()
+    except urllib.error.HTTPError as exc:
+        text, code = '', None
+        try:
+            ans = json.loads(exc.read().decode('utf-8', 'replace'))
+            text = str(ans.get('error') or '')
+            code = ans.get('error_code')
+        except ValueError:
+            pass
+        if code is None and exc.code == 401:
+            code = 8
+        if code in _RD_TORRENT_REFUSALS:
+            raise RDRefusal(_scrub_key(text or _RD_TORRENT_REFUSALS[code]))
+        if code in _RD_ACCOUNT_REFUSALS:
+            raise RDAccountError(_scrub_key(text or _RD_ACCOUNT_REFUSALS[code]))
+        if exc.code == 429:
+            raise RDAccountError('Real-Debrid rate limit reached')
+        raise RuntimeError(_scrub_key(text or ('Real-Debrid answered HTTP %d' % exc.code)))
+    if not raw_in.strip():
+        return {}
+    try:
+        ans = json.loads(raw_in)
+    except ValueError:
+        raise RuntimeError('Real-Debrid answered with something that is not JSON')
+    if not isinstance(ans, dict):
+        raise RuntimeError('Real-Debrid answered with something that is not an object')
+    return ans
+
+
+def _rd_add_torrent(kind, payload):
+    """Add this torrent at Real-Debrid and return (id, hash). Choosing the files comes in the tick step."""
+    if kind == 'magnet':
+        ans = realdebrid('POST', '/torrents/addMagnet', fields={'magnet': payload})
+    else:
+        ans = realdebrid('PUT', '/torrents/addTorrent', raw=payload)
+    return ans.get('id'), str(ans.get('hash') or '')
+
+
+def _tb_add_torrent(kind, payload):
+    """Add this torrent at TorBox and return (id, hash)."""
+    if kind == 'magnet':
+        ans = torbox('POST', '/torrents/createtorrent', fields=[('magnet', payload)])
+    else:
+        ans = torbox('POST', '/torrents/createtorrent', files=[('file', payload)])
+    data = ans.get('data') if isinstance(ans.get('data'), dict) else {}
+    return (data.get('torrent_id') or data.get('id')), str(data.get('hash') or '')
+
+
+# Real-Debrid first, TorBox second, always in this order; a provider without a key file is skipped.
+_PROVIDERS = (('realdebrid', 'Real-Debrid', 'rd', _rd_key, _rd_add_torrent),
+              ('torbox', 'TorBox', 'torbox', _torbox_key, _tb_add_torrent))
+
+
 def _indexer_torrent(hit):
     """The torrent of a Prowlarr result: a magnet, or the .torrent bytes the indexer serves.
 
@@ -338,11 +443,19 @@ def _indexer_torrent(hit):
     raise ValueError('the indexer did not give a usable torrent for this result.')
 
 
-def grab_debrid(token):
-    """A Debrid-tab Get: create the torrent at TorBox and remember it as a 'preparing' row.
+def _row_hash(d):
+    """The torrent hash of a preparing row: its debrid object, or the torbox one step 1 wrote first."""
+    debrid = d.get('debrid') if isinstance(d.get('debrid'), dict) else {}
+    old = d.get('torbox') if isinstance(d.get('torbox'), dict) else {}
+    return str(debrid.get('hash') or old.get('hash') or '').lower()
 
-    No fallback to RdtClient: a refusal is TorBox's own reason, at once. A second Get for a torrent
-    whose hash already has a 'preparing' row answers ok without adding it again.
+
+def grab_debrid(token):
+    """A Debrid-tab Get: add the torrent at the debrid services and remember it as a 'preparing' row.
+
+    Real-Debrid is tried first because its downloads are not capped; TorBox gets the same torrent when
+    Real-Debrid will not do it or its account is in the way. Both refusing: a 503 naming both reasons.
+    A second Get for a hash that already has a 'preparing' row answers ok without adding it again.
     """
     with RESULTS_LOCK:
         hit = RESULTS.get(token)
@@ -352,32 +465,43 @@ def grab_debrid(token):
     with _STATE_LOCK:
         state = _load_state()
         existing = next((d for d in state['downloads']
-                         if d.get('state') == 'preparing' and info_hash
-                         and (d.get('torbox') or {}).get('hash') == info_hash), None)
+                         if d.get('state') == 'preparing' and info_hash and _row_hash(d) == info_hash), None)
     if existing:
         return dict(ok=True, title=existing.get('title') or hit.get('title'), via='debrid')
-    # Fetch the torrent bytes/magnet before calling TorBox.
     kind, payload = _indexer_torrent(hit)
-    if kind == 'magnet':
-        ans = torbox('POST', '/torrents/createtorrent', fields=[('magnet', payload)])
-    else:
-        ans = torbox('POST', '/torrents/createtorrent', files=[('file', payload)])
-    data = ans.get('data') if isinstance(ans.get('data'), dict) else {}
-    torrent_id = data.get('torrent_id') or data.get('id')
-    torrent_hash = data.get('hash') or info_hash or ''
-    if not torrent_id:
-        raise RuntimeError('TorBox did not answer with a torrent id')
-    title = _clean_title(hit.get('title') or '') or ('torbox-%s' % torrent_id)
-    row = {'name': 'torbox-%s' % torrent_id, 'state': 'preparing', 'title': title, 'kind': None,
-           'torbox': {'torrent_id': torrent_id, 'hash': str(torrent_hash).lower()},
-           'release': hit.get('title'), 'started': int(time.time()),
-           'prep': {'progress': 0, 'seeds': None, 'files': None, 'cached': False},
-           'dest': None, 'bytes': 0, 'scanned': False, 'scan_error': None, 'error': None}
-    with _STATE_LOCK:
-        state = _load_state()
-        state['downloads'].append(row)
-        _save_state(state)
-    return dict(ok=True, title=title, via='debrid')
+    reasons, tried = [], []
+    for name, display, prefix, key_get, add in _PROVIDERS:
+        if not key_get():
+            continue
+        tried.append(name)
+        try:
+            torrent_id, torrent_hash = add(kind, payload)
+        except (RDRefusal, RDAccountError, RuntimeError, ValueError) as e:
+            reasons.append('%s: %s' % (display, _scrub_key(str(e))))
+            continue
+        except Exception as e:
+            reasons.append('%s: %s' % (display, _scrub_key(str(e))))
+            continue
+        if not torrent_id:
+            reasons.append('%s: it did not answer with a torrent id' % display)
+            continue
+        title = _clean_title(hit.get('title') or '') or ('%s-%s' % (prefix, torrent_id))
+        row = {'name': '%s-%s' % (prefix, torrent_id), 'state': 'preparing', 'provider': name, 'title': title,
+               'kind': None,
+               'debrid': {'id': torrent_id, 'hash': str(torrent_hash or info_hash).lower()},
+               'release': hit.get('title'), 'started': int(time.time()), 'tried': list(tried),
+               'prep': {'progress': 0, 'seeds': None, 'files': None, 'provider': display},
+               'dest': None, 'bytes': 0, 'scanned': False, 'scan_error': None,
+               # The provider that refused first, in the row's own details: Ryan sees why this torrent
+               # did not stay at Real-Debrid.
+               'error': (_scrub_key(reasons[0]) if reasons else None)}
+        with _STATE_LOCK:
+            state = _load_state()
+            state['downloads'].append(row)
+            _save_state(state)
+        return dict(ok=True, title=title, via='debrid')
+    detail = '. '.join(reasons)
+    raise ValueError(_scrub_key(detail) if reasons else 'no debrid key file is set up')
 
 
 def _reply(handler, code, data):
@@ -808,6 +932,10 @@ def _migrate_row(d):
     d.setdefault('scan_error', None)
     d.setdefault('error', None)
     d.setdefault('grounded', None)
+    d.setdefault('provider', None)
+    d.setdefault('debrid', None)
+    d.setdefault('tried', [])
+    d.setdefault('prep', None)
     d.setdefault('unit', 'dl-' + d['name'])
     d.setdefault('state', 'unknown')
     d.setdefault('started', 0)
@@ -1074,6 +1202,7 @@ def _debrid_rows(state):
                         speed=int(d.get('speed') or 0), eta=d.get('eta') or '',
                         scanned=bool(d.get('scanned')), scan_error=d.get('scan_error'),
                         error=d.get('error'), grounded=d.get('grounded'), started=d.get('started'),
+                        prep=d.get('prep'),
                         sampled=d.get('sampled'),
                         # The link stays inside the backend: the panel only learns whether a retry is possible.
                         can_retry=bool(d.get('url')) and st in _RETRY_STATES,
