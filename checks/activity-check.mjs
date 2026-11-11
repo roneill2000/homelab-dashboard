@@ -13,7 +13,7 @@ const go=async v=>{await p.evaluate(v=>{location.hash='#/'+v},v);await p.waitFor
 await go('media');
 const readings=p.locator('.activity-readings');
 await expect(readings.locator('div').filter({has:p.getByText('SABnzbd',{exact:true})})).toContainText('—');
-await expect(readings.locator('div').filter({has:p.getByText('RdtClient',{exact:true})})).toContainText('0MB/s');
+await expect(readings.locator('div').filter({has:p.getByText('Debrid',{exact:true})})).toContainText('0MB/s');
 await go('infra');
 const backup=p.locator('.recovery-card').filter({hasText:'Proxmox backup jobs'});
 const parity=p.locator('.recovery-card').filter({hasText:'Unraid parity'});

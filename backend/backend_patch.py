@@ -429,8 +429,12 @@ def patch_opencode(source):
                     if gone in keys:
                         i = keys.index(gone)
                         del node.value.keys[i], node.value.values[i]
-                # searxng: LXC 102 container behind search.lan (8 Nov 2026, Hermes added it to the installed file by hand)
-                for key, target in (('searxng', "('192.168.0.13', 8888)"),):
+                # searxng: LXC 102 container behind search.lan (8 Nov 2026, Hermes added it to the installed file by hand).
+                # audiobooks/rdt/flaresolverr/files (11 Nov 2026): they showed 'Unmonitored', so Audiobookshelf
+                # crash-looping that day still read 'All clear'. Keys = catalog ids.
+                for key, target in (('searxng', "('192.168.0.13', 8888)"), ('audiobooks', "('192.168.0.4', 13378)"),
+                                    ('rdt', "('192.168.0.13', 6500)"), ('flaresolverr', "('192.168.0.13', 8191)"),
+                                    ('files', "('192.168.0.13', 6501)")):
                     if key not in [getattr(k, 'value', None) for k in node.value.keys]:
                         node.value.keys.append(ast.Constant(key))
                         node.value.values.append(expression(target))

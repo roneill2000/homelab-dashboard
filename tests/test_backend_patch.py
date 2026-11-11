@@ -530,6 +530,9 @@ class OpenCodeRemovalTests(unittest.TestCase):
         for gone in ("'opencode'", "'openhands'", "OpenHands", "'hermes'", "Hermes"):
             self.assertNotIn(gone, out)
         self.assertIn("'searxng': ('192.168.0.13', 8888)", out)
+        for probe in ("'audiobooks': ('192.168.0.4', 13378)", "'rdt': ('192.168.0.13', 6500)",
+                      "'flaresolverr': ('192.168.0.13', 8191)", "'files': ('192.168.0.13', 6501)"):
+            self.assertIn(probe, out)
         self.assertIn("22: ('pi', 'LXC 116', 'https://pi.lan'", out)
         self.assertIn("for i in [2, 22]", out)
         self.assertEqual(out, patch_opencode(out))  # idempotent

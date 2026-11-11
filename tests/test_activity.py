@@ -59,6 +59,18 @@ class ActivityTests(unittest.TestCase):
         snap=a.snapshot(s.connect,900,60,s.aggregate_history)
         self.assertTrue(any(p['sab_bps'] is None for p in snap['history']))
         with s.connect() as db: self.assertEqual(db.execute('SELECT count(*) FROM samples').fetchone()[0],1)
+    def test_worker_rate_counts_fresh_downloading_rows_only(self):
+        rows=[dict(state='downloading',speed=5_000_000,sampled=990),dict(state='downloading',speed=7,sampled=800),
+              dict(state='finished',speed=9,sampled=999),dict(state='downloading',speed=2_000_000,sampled=1000)]
+        f=Path(self.temp.name)/'debrid.json';f.write_text(json.dumps({'downloads':rows}))
+        self.assertEqual(a.worker_rate(str(f),now=1000),7_000_000)
+        self.assertEqual(a.worker_rate(self.temp.name+'/missing.json',now=1000),0)
+    def test_debrid_rate_adds_sources_and_survives_one_failing(self):
+        def boom(): raise OSError('down')
+        self.assertEqual(a.debrid_rate(lambda:3,lambda:4),7)
+        self.assertEqual(a.debrid_rate(boom,lambda:4),4)
+        self.assertEqual(a.debrid_rate(lambda:0,boom),0)
+        with self.assertRaises(ValueError): a.debrid_rate(boom,boom)
     def test_explicit_zero_download_rate_is_numeric(self):
         self.assertTrue(a.numeric(0));self.assertFalse(a.numeric(None));self.assertFalse(a.numeric(float('nan')));self.assertFalse(a.numeric(-1))
     def test_missing_report_is_unavailable_even_when_host_probe_succeeds(self):

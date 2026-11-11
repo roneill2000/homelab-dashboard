@@ -77,7 +77,7 @@ def collect():
         ai_future=pool.submit(ai_monitor.collect)
         gpu_future=pool.submit(gpu_monitor.fetch)
         pc_future=pool.submit(energy_monitor.fetch_pc)
-        downloads = {'sab':pool.submit(activity_monitor.sab_rate), 'rdt':pool.submit(activity_monitor.rdt_rate)}
+        downloads = {'sab':pool.submit(activity_monitor.sab_rate), 'rdt':pool.submit(activity_monitor.debrid_rate)}
         hosts = {}
         for host, future in futures.items():
             try:

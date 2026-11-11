@@ -31,6 +31,14 @@ class AlertTests(unittest.TestCase):
         for k in ('cache-full', 'array-full', 'drives', 'backup'):
             self.assertNotIn(k, c)
 
+    def test_app_port_checks_only_on_fresh_telemetry(self):
+        t = {'updated_at': 1000, 'services': {'audiobooks': False, 'rdt': True, 'files': False}}
+        c = a.checks(t, None, None, 1000)
+        self.assertTrue(c['app:audiobooks'][0]); self.assertFalse(c['app:rdt'][0]); self.assertNotIn('app:files', c)
+        self.assertEqual(a.page_for('app:audiobooks'), 'media')
+        self.assertNotIn('app:audiobooks', a.checks(t, None, None, 1000 + 400))  # stale: homepage-stale instead
+        self.assertNotIn('app:rdt', a.checks({'updated_at': 1000, 'services': {}}, None, None, 1000))
+
 class PiAlertTests(unittest.TestCase):
     def test_pi_checks(self):
         f = {'pi': {'online': True, 'failed_units': [], 'pihole': 'inactive', 'disk_pct': 90, 'temp_c': 50,

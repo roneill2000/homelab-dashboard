@@ -44,6 +44,9 @@ def fetch(path, timeout=60):
         return json.load(r)
 
 
+APP_PORTS = (('audiobooks', 'Audiobookshelf'), ('rdt', 'RdtClient'))  # dashboard services keys
+
+
 def checks(t, s, f, now):
     """Return {key: (bad, title, detail, priority)} for every check that has data. Missing data is not a bad signal."""
     out = {}
@@ -62,6 +65,14 @@ def checks(t, s, f, now):
                 out['speedtest-stale'] = (hours > 12, 'Speed tests failing', f'Last completed test was {int(hours)} h ago.', 3)
             except ValueError:
                 pass
+        # Apps whose container can crash-loop while Docker still calls it running (Audiobookshelf, 11 Nov 2026);
+        # a stopped container is docker:<name> below. Only on fresh telemetry: homepage-stale covers the rest.
+        svc = t.get('services') or {}
+        if age <= 300:
+            for key, name in APP_PORTS:
+                if svc.get(key) is not None:
+                    out[f'app:{key}'] = (svc[key] is False, f'{name} is not answering',
+                                         f"The dashboard's port check of {name} failed.", 3)
     if f is not None:
         guests = f.get('guests') or []
         for g in guests:
@@ -630,7 +641,7 @@ def header_text(text):
 # Dashboard page an alert opens in the Android app (tapping the ntfy notification follows homelab://view/<page>).
 PAGES = (('cloud-', 'infra'), ('config-backup', 'infra'), ('restore-', 'infra'), ('smart-', 'storage'),
          ('lan-', 'network'), ('speedtest-', 'network'), ('llama-', 'ai'), ('strata-', 'ai'), ('broker-', 'ai'), ('updates-', 'updates'),
-         ('docker:', 'hosts'), ('units:', 'hosts'), ('mount:', 'hosts'), ('pi-', 'hosts'))
+         ('docker:', 'hosts'), ('app:', 'media'), ('units:', 'hosts'), ('mount:', 'hosts'), ('pi-', 'hosts'))
 SNOOZE = ('http, Snooze 2 h, http://192.168.0.2/api/action/maintenance, method=POST, headers.X-Dashboard-Action=1, '
           'headers.Content-Type=application/json, body=\'{"minutes":120}\', clear=true')
 

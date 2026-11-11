@@ -62,6 +62,39 @@ def rdt_rate():
     return speed
 
 
+DEBRID_STATE = '/var/lib/homelab-dashboard/debrid.json'
+WORKER_FRESH_S = 120
+
+
+def worker_rate(path=DEBRID_STATE, now=None):
+    """Download worker (aria2c on Proxmox: pasted links and search grabs via Real-Debrid/TorBox).
+
+    Sum of the rows that are downloading and were sampled recently; the tick only rewrites a row when its bytes
+    move, so a stalled download stops counting after WORKER_FRESH_S. No state file yet = nothing downloading.
+    """
+    now = time.time() if now is None else now
+    try:
+        rows = json.loads(Path(path).read_text()).get('downloads') or []
+    except FileNotFoundError:
+        return 0
+    return sum(int(d.get('speed') or 0) for d in rows
+               if d.get('state') == 'downloading' and now - float(d.get('sampled') or 0) < WORKER_FRESH_S)
+
+
+def debrid_rate(rdt=None, worker=None):
+    """Everything coming down from Real-Debrid/TorBox: RdtClient (Sonarr) plus the download worker.
+    One source failing still gives the other's rate; both failing gives no reading."""
+    values = []
+    for fn in (rdt or rdt_rate, worker or worker_rate):
+        try:
+            values.append(fn())
+        except Exception:
+            pass
+    if not values:
+        raise ValueError('No debrid rate')
+    return sum(values)
+
+
 def sab_rate():
     with urllib.request.urlopen(TELEMETRY, timeout=3) as response:
         source = json.load(response).get('media',{}).get('sabnzbd',{})
