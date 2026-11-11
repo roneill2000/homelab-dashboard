@@ -281,6 +281,24 @@ class UnifiedPortTests(unittest.TestCase):
         self.assertEqual(json.loads(g.llama_body(b'{"reasoning_effort":"off"}')),
                          {'reasoning_effort': 'none', 'chat_template_kwargs': {'enable_thinking': False}})
 
+    def test_qwen_27b_family_never_runs_without_thinking(self):
+        for model in ('qwen3.8-27b', 'qwen3.8-27b-long', 'qwen3.8-27b-uncensored', 'qwen3.8-27b-uncensored-fast'):
+            for ask in ({'reasoning_effort': 'off'}, {'reasoning_effort': 'none'},
+                        {'chat_template_kwargs': {'enable_thinking': False}},
+                        {'reasoning_effort': 'none', 'chat_template_kwargs': {'enable_thinking': False, 'x': 1}}):
+                sent = json.loads(g.llama_body(json.dumps({'model': model, **ask}).encode()))
+                self.assertEqual(sent['reasoning_effort'], 'medium', (model, ask))
+                self.assertNotIn('enable_thinking', sent['chat_template_kwargs'], (model, ask))
+                self.assertEqual(sent['chat_template_kwargs']['reasoning_effort'], 'medium')
+        # levels other than off are kept; a plain request is passed through unchanged
+        self.assertEqual(json.loads(g.llama_body(b'{"model":"qwen3.8-27b","reasoning_effort":"low"}'))['reasoning_effort'], 'low')
+        self.assertEqual(g.llama_body(b'{"model":"qwen3.8-27b","messages":[]}'), b'{"model":"qwen3.8-27b","messages":[]}')
+
+    def test_gemma_may_still_turn_thinking_off(self):
+        sent = json.loads(g.llama_body(b'{"model":"gemma-4-26b-a4b","reasoning_effort":"off"}'))
+        self.assertEqual(sent['reasoning_effort'], 'none')
+        self.assertEqual(sent['chat_template_kwargs'], {'enable_thinking': False})
+
     def test_models_lists_every_engine(self):
         with patch.object(g.ai_monitor, 'fetch', return_value={'data': [{'id': 'qwen3.8-27b'}, {'id': 'gemma-4-26b-a4b'}]}):
             c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)

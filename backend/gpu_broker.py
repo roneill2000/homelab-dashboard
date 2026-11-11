@@ -185,23 +185,43 @@ LLAMA_EFFORT = {'off': 'none', 'none': 'none', 'minimal': 'low', 'low': 'low',
                 'medium': 'medium', 'high': 'xhigh', 'xhigh': 'xhigh', 'max': 'xhigh'}
 
 
+# Ryan, 11 Nov 2026: the Qwen 27B models (27B, 27B Long, Cold Fusion, Cold Fusion Fast) never run without reasoning.
+# Without it they repeated one tool call 80-96 times in a row; every turn with thinking on was fine. So a request that
+# asks for no thinking (reasoning_effort none/off, or enable_thinking false) gets medium instead. Gemma is not touched:
+# its template has no levels and it is used for chat.
+ALWAYS_THINK_PREFIX = 'qwen3.8-27b'
+
+
 def llama_body(body):
     """Map reasoning_effort to the levels the 27B / Cold Fusion templates accept (low, medium, xhigh, or none)
-    and mirror it into chat_template_kwargs so Cold Fusion never 500s on 'high'/'minimal'/'max'/'off'."""
+    and mirror it into chat_template_kwargs so Cold Fusion never 500s on 'high'/'minimal'/'max'/'off'.
+    For the Qwen 27B family, 'no thinking' in any form becomes medium (ALWAYS_THINK_PREFIX)."""
     if not body:
         return body
     try:
         data = json.loads(body)
     except ValueError:
         return body
-    if not isinstance(data, dict) or not isinstance(data.get('reasoning_effort'), str):
+    if not isinstance(data, dict):
         return body
-    effort = LLAMA_EFFORT.get(data['reasoning_effort'].strip().lower())
-    if not effort:
-        return body
-    data['reasoning_effort'] = effort
+    always = str(data.get('model') or '').startswith(ALWAYS_THINK_PREFIX)
     kwargs = data.get('chat_template_kwargs')
     kwargs = dict(kwargs) if isinstance(kwargs, dict) else {}
+    raw = data.get('reasoning_effort')
+    effort = LLAMA_EFFORT.get(raw.strip().lower()) if isinstance(raw, str) else None
+    if always:
+        if effort == 'none' or kwargs.get('enable_thinking') is False or kwargs.get('reasoning_effort') in ('none', 'off'):
+            effort = 'medium'
+            kwargs.pop('enable_thinking', None)
+            kwargs['reasoning_effort'] = 'medium'
+        if effort is None:
+            if 'chat_template_kwargs' in data and kwargs != data.get('chat_template_kwargs'):
+                data['chat_template_kwargs'] = kwargs
+                return json.dumps(data).encode()
+            return body
+    elif not effort:
+        return body
+    data['reasoning_effort'] = effort
     if effort == 'none':
         kwargs.setdefault('enable_thinking', False)
     else:
