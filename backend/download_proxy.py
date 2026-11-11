@@ -2095,16 +2095,17 @@ def handle(handler, post=False):
     if kind is not None and kind not in ('movie', 'show'):
         _reply(handler, 400, {'ok': False, 'error': "kind must be 'movie' or 'show'."}); return True
     if isinstance(token, str):
-        if _torbox_key():
-            # A Debrid-tab Get with the key set: straight to TorBox (no RdtClient, no fallback).
+        if _rd_key() or _torbox_key():
+            # A Debrid-tab Get with either key file: Real-Debrid first, TorBox as its fallback (no RdtClient).
             try: _reply(handler, 200, grab_debrid(token))
             except LookupError: _reply(handler, 410, {'ok': False, 'error': 'That result expired. Search again.'})
             except ValueError as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
             except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
             return True
-        # No key: Get behaves exactly as before, through Prowlarr and RdtClient.
-        try: _reply(handler, 200, {'ok': True, 'title': grab(token)})
+        # No key file at all: Get behaves exactly as before, through Prowlarr and RdtClient.
+        try: title = grab(token); _reply(handler, 200, {'ok': True, 'title': title})
         except LookupError: _reply(handler, 410, {'ok': False, 'error': 'That result expired. Search again.'})
+        except Exception: _reply(handler, 503, {'ok': False, 'error': 'Prowlarr could not send it to the downloader.'})
         return True
     if isinstance(url, str):
         url = url.strip()
@@ -2125,10 +2126,5 @@ def handle(handler, post=False):
             _reply(handler, 400, {'ok': False, 'error': 'That is not a magnet link.'}); return True
         try: add_magnet(magnet); _reply(handler, 200, {'ok': True})
         except Exception: _reply(handler, 503, {'ok': False, 'error': 'RdtClient did not accept the magnet.'})
-        return True
-    if isinstance(token, str):
-        try: title = grab(token); _reply(handler, 200, {'ok': True, 'title': title})
-        except LookupError: _reply(handler, 410, {'ok': False, 'error': 'That result expired. Search again.'})
-        except Exception: _reply(handler, 503, {'ok': False, 'error': 'Prowlarr could not send it to the downloader.'})
         return True
     _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True

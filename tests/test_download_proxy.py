@@ -1090,6 +1090,17 @@ class DebridGrabTests(DebridTests):
         self.assertNotIn('search', body2['features'])
         self.assertFalse(os.path.exists(self.state_path))
 
+    def test_no_key_get_reports_a_refused_grab_as_a_503(self):
+        """The old path still answers with its own error text instead of throwing out of the route."""
+        self.no_keys()
+        self.seed('t1b')
+        with patch.object(dp, 'grab', side_effect=RuntimeError('RdtClient is not answering')), \
+             patch.object(dp, 'torbox', side_effect=AssertionError('no key: the debrid path must not run')), \
+             patch.object(dp, 'realdebrid', side_effect=AssertionError('no key: the debrid path must not run')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't1b'})
+        self.assertEqual((codes, body['error']), ([503], 'Prowlarr could not send it to the downloader.'))
+        self.assertFalse(os.path.exists(self.state_path))
+
     def test_a_key_present_offers_search_to_the_panel(self):
         # With a service to send a torrent to, the Debrid tab and its Cancel button appear; with none, Get
         # keeps its old Prowlarr path and they stay away (checked in the no-key test above).
@@ -1119,6 +1130,26 @@ class DebridGrabTests(DebridTests):
         self.assertEqual((row['debrid']['id'], row['debrid']['hash']), (123, self.HASH))
         self.assertEqual(row['prep']['provider'], 'TorBox')
         self.assertIsNone(row['error'])
+
+    def test_only_realdebrid_key_get_goes_straight_to_realdebrid(self):
+        """A Real-Debrid key on its own is enough: the Get takes the debrid path, not RdtClient's.
+        The panel's 'search' feature and this route must agree, or the Debrid tab would be a lie."""
+        os.remove(self.torbox_path)          # only the Real-Debrid key file is left
+        self.reset_key_cache()
+        self.seed('t2b', magnet=self.MAGNET)
+        tb, rd = [], []
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=tb)), \
+             patch.object(dp, 'realdebrid', side_effect=self.fake_rd(calls=rd)), \
+             patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't2b'})
+            _, _, status = call('/api/debrid', OK, post=False)
+        self.assertEqual((codes, body['ok'], body['via']), ([200], True, 'debrid'))
+        self.assertEqual([(c['method'], c['path']) for c in rd], [('POST', '/torrents/addMagnet')])
+        self.assertEqual(tb, [])
+        self.assertIn('search', status['features'])
+        row = self.read_state()[0]
+        self.assertEqual((row['name'], row['state'], row['provider']), ('rd-42', 'preparing', 'realdebrid'))
+        self.assertEqual(row['tried'], ['realdebrid'])
 
     def test_both_keys_get_uses_realdebrid_only(self):
         self.reset_key_cache()
