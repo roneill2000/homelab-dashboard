@@ -1,169 +1,185 @@
-# Spec: search grabs go straight to the debrid service (no RdtClient)
+# Spec: search grabs go straight to the debrid services (no RdtClient)
 
-Written 11 Nov 2026 by Claude for the local agent (pi). Ryan asked for this. **Do `SPEC-downloads-backend.md` first**
-(this spec builds on its Retry and Dismiss work). The screen work for this spec is finished and deployed; do not change
-`src/app.jsx` or the CSS.
+Written 11 Nov 2026 by Claude for the local agent (pi); revised the same day for **Real-Debrid first, TorBox as the
+fallback** (Ryan: Real-Debrid downloads are uncapped, TorBox caps him at 1 Gbps). The screen work for this spec is
+finished and deployed; do not change `src/app.jsx` or the CSS. `SPEC-downloads-backend.md` tasks 1 to 4 are done.
+
+**If you already built step 1 against TorBox, keep it.** That code is the fallback provider below; this revision adds
+Real-Debrid in front of it and a `provider` field on the rows. Rename nothing that already works.
 
 ## What changes for Ryan
 
-Today a search result's **Get** on the Debrid tab goes Prowlarr → RdtClient → debrid service → the `prowlarr` folder.
-Nothing files it under Movies or Shows, nothing asks Jellyfin to scan, and a refused grab shows as a nameless red row.
+Today a search result's **Get** on the Debrid tab goes Prowlarr → RdtClient (set to Real-Debrid) → the `prowlarr`
+folder. Nothing files it under Movies or Shows, nothing asks Jellyfin to scan, and a refused grab shows as a nameless
+red row.
 
-After this spec, **Get** goes dashboard → TorBox (the debrid service) → the same download worker pasted links use. Every
-file is then filed, scanned, shown with progress and can be retried, exactly like a pasted link.
+After this spec, **Get** goes dashboard → **Real-Debrid**, or **TorBox** when Real-Debrid refuses or fails it → the same
+download worker pasted links use. Every file is then filed, scanned, shown with live progress and can be retried.
 
 Out of scope, leave untouched: the Usenet tab (SABnzbd), Sonarr (it keeps using RdtClient), RdtClient itself, and the
-`recent()` list of RdtClient grabs (old grabs still show until they age out).
+`recent()` list of RdtClient grabs.
 
-## Before you write any code: confirm the TorBox API
+## Keys
 
-**Requests: confirmed 11 Nov by Claude** from TorBox's own API description, `https://api.torbox.app/openapi.json`
-(fetch it with `curl`; no key needed. `https://api-docs.torbox.app/` is a script-rendered page and returns almost
-nothing to a fetch). **Answers: not described there; the torrent list was checked live (row below).** To see it yourself:
-`curl -s -H "Authorization: Bearer $KEY" "https://api.torbox.app/v1/api/torrents/mylist?limit=1&bypass_cache=true"`.
-If a step below needs a field that does not exist, stop and tell Ryan.
+- Two private files on LXC 104, each `{"key": "..."}`, mode `0600`, read with `_config()`:
+  `/etc/homelab-dashboard/realdebrid.json` and `/etc/homelab-dashboard/torbox.json`. **Ryan or Claude puts the keys
+  there. Never read RdtClient's settings for a key, never print, log, commit or send a key to the browser.** Do not
+  use `/etc/homelab-dashboard/debrid.json`: that name is an old state-file location.
+- The providers in use are the ones whose key file exists, always in the order Real-Debrid, then TorBox. With neither,
+  everything here is off: `search` is not in `features` and Get works as today (Prowlarr → RdtClient).
+- For read-only checks while building, a key in a 0600 file in your own container is fine (e.g. `/root/.torbox_key`).
+  Delete those files when the feature is deployed.
+- One helper per provider with a 20 s timeout that raises `RuntimeError(<the service's own reason>)`; error text
+  shown to Ryan is that reason, cut to 200 characters, with any key scrubbed out.
 
-Base URL `https://api.torbox.app/v1/api` (the root answers `{"success":true,"detail":"API is running."}`; an unknown
-path answers `{"detail":"Not Found"}` with HTTP 404, so a 404 means a wrong path, not a bad key; a missing key is 401).
-Auth header `Authorization: Bearer <key>`. Your own account is `GET /user/me` (not `/me`).
+## Real-Debrid API (primary)
 
-| Purpose | Call | Status |
-|---|---|---|
-| Add a torrent | `POST /torrents/createtorrent`, **multipart form**: `magnet` or `file` (the .torrent bytes), optional `name`, `seed`, `allow_zip`, `as_queued`, `add_only_if_cached`. | Request confirmed. Answer fields (`torrent_id`, `hash`, `name` per a changelog): verify. |
-| Read one torrent | `GET /torrents/mylist?id=<torrent_id>&bypass_cache=true` (also `offset`, `limit`, `files`, `active`). | Request confirmed. The list is otherwise cached about 10 minutes. |
-| Torrent fields | **Confirmed 11 Nov (live `mylist`, Claude):** envelope `{"success", "error", "detail", "data": [...]}`. Torrent: `id`, `hash`, `name`, `size`, `progress` (0 to 1; a finished one reads `1`), `download_state`, `download_finished`, `download_present`, `cached`, `seeds`, `peers`, `download_speed`, `eta`, `active`, `created_at`, `updated_at`, `expires_at`, `files[]`. File: `id`, `name`, `short_name`, `size`, `mimetype`, `infected`. | Names confirmed. Only `download_state: "cached"` was seen (the account's two torrents were finished); treat finished = `download_finished and download_present`, and read any other state's text as-is. A file with `infected: true` is never handed over. |
-| Link for one file | `GET /torrents/requestdl?token=<key>&torrent_id=<id>&file_id=<id>` (also `zip_link`, `user_ip`, `redirect`, `append_name`). The key goes in `token`, not the header. | Request confirmed. Answer `data` is expected to be the https link: verify. Links expire (1 to 3 hours reported); calls are throttled (about 20 a minute reported). |
-| Many files at once | `GET /torrents/requestdl/batch?token=<key>&torrent_id=<id>&file_ids=<ids>`. | Exists. Optional: it could replace per-file calls for a season pack, but keep the 3 s spacing rule per call. |
-| Is it already cached | `GET /torrents/checkcached?hash=<hash>&format=object&list_files=true`. | Request confirmed. Optional for this spec. |
-| Remove a torrent | `POST /torrents/controltorrent`, **JSON** `{"torrent_id": <id>, "operation": "delete"}` (`all` also exists: never send it). | Request confirmed. |
+**Confirmed 11 Nov by Claude from the official docs page** `https://api.real-debrid.com/` (plain HTML; `curl` it).
+Base `https://api.real-debrid.com/rest/1.0`, header `Authorization: Bearer <key>`. Limit **250 requests a minute**
+(a 429 counts too and repeated ones can block the account). Errors: HTTP status plus JSON `{"error": "<text>",
+"error_code": <int>}`.
 
-**Never use `requestdl` with `redirect=true`.** That form is a permanent link with the API key in it, and the link is
-passed to the worker on a command line and written to its log.
+| Purpose | Call |
+|---|---|
+| Add a magnet | `POST /torrents/addMagnet`, form `magnet=<link>`. 201 → `{"id", "uri"}`. |
+| Add a .torrent | `PUT /torrents/addTorrent`, the raw file bytes as the body. 201 → `{"id", "uri"}`. |
+| Read one torrent | `GET /torrents/info/{id}` → `id`, `filename`, `original_filename`, `hash`, `bytes` (selected files), `original_bytes`, `progress` (**0 to 100**), `status`, `files[]` (`id`, `path` starting with `/`, `bytes`, `selected` 0/1), `links[]` (hoster links, one per selected file), `speed` and `seeders` only in some states. |
+| Statuses | `magnet_error`, `magnet_conversion`, `waiting_files_selection`, `queued`, `downloading`, `downloaded`, `error`, `virus`, `compressing`, `uploading`, `dead`. |
+| Choose files (**required** before it starts) | `POST /torrents/selectFiles/{id}`, form `files=<comma-separated ids>` (or `all`). 204; 202 = already done. |
+| Turn a hoster link into a download | `POST /unrestrict/link`, form `link=<one entry of links[]>` → JSON with `download` (the https file link), `filename`, `filesize`. |
+| Remove a torrent | `DELETE /torrents/delete/{id}`. 204. |
 
-## The key
+Not usable: `GET /torrents/instantAvailability/{hash}` (error_code 37, "Disabled endpoint"). Error codes that mean
+**"Real-Debrid will not do this torrent"** (go to TorBox): 28 File not allowed, 29 Torrent too big, 30 Torrent file
+invalid, 35 Infringing file, 36 Fair Usage Limit, 23 Traffic exhausted, 21 Too many active downloads. A bad key (8, or
+HTTP 401) or account trouble (9, 14) is not a torrent problem: say so to Ryan and use TorBox for this grab.
 
-**For the read-only checks above** a key in a 0600 file in your own container is fine (for example `/root/.torbox_key`),
-read into a variable, never printed. Delete that file when the feature is deployed.
+**`links[]` order.** Real-Debrid lists one hoster link per selected file, in the order of the selected files' `id`s.
+Do not rely on that alone: match each `unrestrict/link` answer to a file by `filename` and `filesize`, and if a torrent
+was packed into one archive (one link for several files, the answer's `filename` ends in `.rar` or `.zip`), fail that
+grab at Real-Debrid and fall back to TorBox.
 
-- TorBox's API key goes in a new private file on LXC 104: `/etc/homelab-dashboard/torbox.json`, `{"key": "..."}`,
-  mode `0600`, read with `_config()` like the other files there. **Ryan or Claude puts the key there. Do not look for
-  it in RdtClient's settings, and never print it, log it, commit it or send it to the browser.**
-- When the file is missing or has no key, everything in this spec is off: `search` is not in `features`, and Get
-  behaves exactly as it does today (Prowlarr → RdtClient).
-- Add a helper `torbox(method, path, ...)` with a 20 s timeout that raises `RuntimeError(detail)` on
-  `success: false` or a bad HTTP status. Error text shown to the user is TorBox's `detail`, cut to 200 characters,
-  with the key scrubbed if it ever appears in it.
+## TorBox API (fallback)
+
+**Requests confirmed 11 Nov by Claude** from `https://api.torbox.app/openapi.json` (no key needed);
+**torrent and file fields confirmed with a live read-only `mylist`.** Base `https://api.torbox.app/v1/api`, header
+`Authorization: Bearer <key>`. A 404 `{"detail":"Not Found"}` means a wrong path; 401 a missing key.
+
+| Purpose | Call |
+|---|---|
+| Add a torrent | `POST /torrents/createtorrent`, multipart form `magnet` or `file` (the .torrent bytes), optional `name`, `seed`, `as_queued`, `add_only_if_cached`. |
+| Read one torrent | `GET /torrents/mylist?id=<id>&bypass_cache=true`. Envelope `{"success", "error", "detail", "data"}`. Torrent: `id`, `hash`, `name`, `size`, `progress` (**0 to 1**), `download_state`, `download_finished`, `download_present`, `cached`, `seeds`, `download_speed`, `eta`, `files[]` (`id`, `name`, `short_name`, `size`, `mimetype`, `infected`). Ready = `download_finished and download_present`. |
+| Link for one file | `GET /torrents/requestdl?token=<key>&torrent_id=<id>&file_id=<id>` (the key goes in `token`). `data` = the https link. Throttled (about 20 a minute reported). **Never `redirect=true`** (a permanent link with the key in it). |
+| Remove a torrent | `POST /torrents/controltorrent`, JSON `{"torrent_id": <id>, "operation": "delete"}`. Never send `all`. |
+
+TorBox downloads are capped at about 1 Gbps on Ryan's plan; that is why it is second.
 
 ## Flow
 
 ### 1. Get (`POST /api/action/download` with `{"result": "<token>"}`, torrent results only)
 
-- `search()` must remember more per result: store `magnetUrl`, `downloadUrl` and `infoHash` from Prowlarr's row in
-  `RESULTS[token]`, next to `guid` and `indexerId`. These stay on the server. `downloadUrl` contains Prowlarr's API
-  key, so it must never be in an answer.
-- On Get, find the torrent: use `magnetUrl` when it starts with `magnet:` (validate with the existing `MAGNET`
-  pattern). Otherwise fetch `downloadUrl` from Prowlarr (it is a `192.168.0.13:9696` address; 15 s timeout, at most
-  5 MB, do not follow redirects automatically). A redirect to a `magnet:` link is that magnet. A body starting with
-  `d8:announce` or `d` and containing `4:info` is a `.torrent` file to upload. Anything else: `503` with
-  `The indexer did not give a usable torrent for this result.`
-- Call `createtorrent`. On failure answer `503` with TorBox's reason (for example a refused file). No fallback to
-  RdtClient: the user sees the real reason at once.
-- On success add one row to the state file (`_load_state` / `_save_state`, under `_STATE_LOCK`):
+- `search()` stores `magnetUrl`, `downloadUrl` and `infoHash` from Prowlarr's row in `RESULTS[token]` (server only;
+  `downloadUrl` contains Prowlarr's API key).
+- Get the torrent: `magnetUrl` when it starts with `magnet:` (check with `MAGNET`); otherwise fetch `downloadUrl`
+  (a `192.168.0.13:9696` address; 15 s, at most 5 MB, no automatic redirects). A redirect to `magnet:` is that magnet;
+  a bencoded body containing `4:info` is a .torrent. Anything else: 503 `The indexer did not give a usable torrent
+  for this result.`
+- **Try Real-Debrid first** (`addMagnet` or `addTorrent`). A "will not do this torrent" error, or account trouble, goes
+  straight to **TorBox** (`createtorrent`). Both refuse: 503 with both reasons, e.g.
+  `Real-Debrid: infringing file. TorBox: <its reason>.`
+- One row in the state file, under `_STATE_LOCK`:
 
 ```json
-{"name": "torbox-<torrent_id>", "state": "preparing", "title": "<cleaned title>", "kind": null,
- "torbox": {"torrent_id": 123, "hash": "..."}, "release": "<raw release name>", "started": 1794400000,
- "prep": {"progress": 0, "seeds": null, "files": null, "cached": false},
+{"name": "rd-<id>" or "torbox-<id>", "state": "preparing", "provider": "realdebrid" or "torbox",
+ "title": "<cleaned title>", "kind": null, "debrid": {"id": "<provider's torrent id>", "hash": "..."},
+ "release": "<raw release name>", "started": 1794400000, "tried": ["realdebrid"],
+ "prep": {"progress": 0, "seeds": null, "files": null, "provider": "Real-Debrid"},
  "dest": null, "bytes": 0, "scanned": false, "scan_error": null, "error": null}
 ```
 
-  `title` comes from `classify()` on the release name (it already strips the technical tail).
-- Answer `{"ok": true, "title": "<title>", "via": "debrid"}`. The panel uses `via` to say where it went.
-- A second Get for a torrent whose hash already has a `preparing` row answers ok without adding it again.
+  (If step 1 already stored a `torbox` object, keep reading it for old rows.) `prep.progress` is always 0 to 1 (divide
+  Real-Debrid's percent by 100). `prep.provider` is shown to Ryan, so use the display names.
+- Answer `{"ok": true, "title": "<title>", "via": "debrid"}`. A second Get for a hash that already has a `preparing`
+  row answers ok without adding it again.
 
-### 2. Waiting at the debrid service (in `_debrid_tick()`)
+### 2. At the debrid service (in `_debrid_tick()`)
 
-- For each `preparing` row, read the torrent (`mylist?id=...&bypass_cache=true`), at most once every 10 seconds per
-  row and at most 6 rows per tick. Update `prep.progress`, `prep.seeds`, `prep.files` (count of media files, see
-  below) and save.
-- The panel shows these rows as "At debrid" with that progress and a Cancel button. `_debrid_rows()` must pass
-  `state`, `title`, `prep` and `name` through, and must drop the `torbox` and `release` fields.
-- A row that has not finished at the debrid service after 24 hours becomes `failed` with
-  `error: "the debrid service did not finish this torrent in 24 hours"`.
-- A torrent TorBox reports as failed (check the real `download_state` values) becomes `failed` with TorBox's text.
+- For each `preparing` row, read its torrent (at most every 10 s per row, at most 6 rows per tick) and copy
+  progress, seeders and the media file count into `prep`.
+- **Real-Debrid `waiting_files_selection`:** pick the media files (rules in step 3) and `selectFiles` with their ids.
+  No media file: fail at Real-Debrid (fallback below).
+- **Fallback to TorBox:** when a Real-Debrid row reaches `magnet_error`, `error`, `virus` or `dead`, or has made no
+  progress for 6 hours, delete it at Real-Debrid, add the same torrent at TorBox, set `provider: "torbox"`, append to
+  `tried`, keep the same row (new `debrid.id`, `name` stays). Keep the magnet or .torrent bytes for this in a private
+  sidecar file next to the state file (`0600`), never in the panel's rows. A TorBox row that fails has nowhere else to
+  go: `failed` with both reasons.
+- 24 hours without finishing at either service: `failed`, `the debrid services did not finish this torrent in 24 hours`.
+- `_debrid_rows()` passes `name`, `state`, `title`, `prep` and `error`, and never `debrid`, `torbox`, `release`,
+  `tried`, magnets, .torrent bytes or links.
 
 ### 3. Handing files to the worker
 
-When the torrent is finished and present at TorBox:
+When the torrent is ready (Real-Debrid `downloaded`; TorBox finished and present):
 
-- **Pick the files.** Keep files whose name ends in one of `MEDIA_EXT`. Drop any file whose name contains `sample`
-  (case-insensitive) or that is smaller than 50 MB when a larger media file exists in the same torrent. No media file
-  left: the row becomes `failed`, `error: "this torrent has no media file"`. More than 60 files: take the first 60 by
-  name and say so in the row's `error` text.
-- **For each file, in name order:** call `requestdl` (space the calls at least 3 seconds apart, across all rows), then
-  run the same plan a pasted link gets: `plan_debrid(url)` style logic with the file's `short_name` as the name. When
-  the file name alone is ambiguous or lacks a title (episode files inside a pack are often just `S02E03.mkv`), classify
-  the **torrent's release name** for the title and kind, and take season and episode from the file name.
-- Start it with the worker (`_download_rpc`, `cmd: "start"`) and add a normal download row, exactly like
-  `add_debrid()` does, plus `"torbox": {"torrent_id": ..., "file_id": ...}` and **no stored `url`**.
-- Hand over at most 2 files per tick so a season pack does not start 20 downloads at once; the rest follow on later
-  ticks. Keep the `preparing` row (with `prep.files` showing what is left) until every file is handed over, then
-  remove it.
-- **Leave the torrent in the TorBox account when done.** (Ryan may later ask for it to be removed; make that one
-  constant, `_TORBOX_DELETE_WHEN_DONE = False`.)
+- **Pick the files:** names ending in one of `MEDIA_EXT`; drop anything with `sample` in the name and anything under
+  50 MB when a larger media file exists; drop TorBox files with `infected: true`. Nothing left: fail at this provider.
+  More than 60: the first 60 by name, said in `error`.
+- **Get each file's link:** Real-Debrid `unrestrict/link` for each `links[]` entry (at least 1 s apart: 250 a minute);
+  TorBox `requestdl` (at least 3 s apart). Then plan and start exactly like a pasted link (`plan_debrid` logic with the
+  file's name; for bare episode names like `S02E03.mkv`, title and kind come from the torrent's release name).
+- Add a normal download row per file, with `provider` and `debrid: {"id": ..., "file": <file id>, "link": <the
+  Real-Debrid hoster link, server only>}` and **no stored `url`** (download links expire).
+- At most 2 files handed over per tick; the `preparing` row stays (with `prep.files` = files left) until the last one,
+  then goes.
+- Leave the torrent in the account when done (`_DEBRID_DELETE_WHEN_DONE = False`).
 
 ### 4. Retry for these rows
 
-`SPEC-downloads-backend.md` task 2 retries with a stored link. A TorBox link has expired by then, so for a row with
-`torbox.torrent_id` and `torbox.file_id`: `can_retry` is true in the same three states, and Retry calls `requestdl`
-again for a fresh link and starts the worker with it. Nothing else about Retry changes.
+`can_retry` is true in the usual three states when the row has `debrid`. Retry asks the same provider for a fresh
+link (Real-Debrid: `unrestrict/link` with the stored hoster link; TorBox: `requestdl`) and starts the worker with it.
 
-### 5. Cancel (`POST /api/debrid` with `{"cancel": "torbox-<id>"}`)
+### 5. Cancel (`POST /api/debrid` with `{"cancel": "<name>"}`)
 
-Only for a row in state `preparing`; anything else is a `400`. Remove the torrent from TorBox (`controltorrent`,
-`delete`) and remove the row. Files already handed to the worker keep downloading: they are their own rows with their
-own Stop. Answer `{"ok": true, "name": "..."}`.
-
-`clear_debrid()` must keep `preparing` rows, the same way it keeps running ones.
+Only for a `preparing` row; otherwise 400. Delete the torrent at its current provider, remove the row and its sidecar
+file. Files already handed over keep their own rows and Stop. `clear_debrid()` keeps `preparing` rows.
 
 ### 6. Turn it on
 
-Add `"search"` to `features` in `GET /api/debrid` only when the key file is present **and** this whole flow is
-deployed. In the same commit, Get for torrent results takes the new path. Usenet results are untouched.
+Add `"search"` to `features` only when at least one key file is present and the whole flow is deployed, in the same
+commit that sends torrent Gets down the new path.
 
-## Tests to add (fakes only, no real TorBox, Prowlarr or worker calls)
+## Tests to add (fakes only: no real Real-Debrid, TorBox, Prowlarr or worker calls)
 
-- No key file: Get calls Prowlarr's grab as today and `search` is not in `features`.
-- With a key: a magnet result calls `createtorrent` once and adds one `preparing` row; a `.torrent` result uploads
-  the bytes; an unusable `downloadUrl` is a 503 and adds nothing; a TorBox refusal is a 503 with its reason.
-- `downloadUrl`, `magnetUrl`, the TorBox key, `torbox` and `release` never appear in any HTTP answer.
-- Tick: progress is copied into `prep`; a finished single-file torrent becomes one normal row with the right
-  destination and the `preparing` row is gone; a 10-episode pack with a sample file hands over 2 files per tick,
-  skips the sample, files every episode under the same show folder with the right season and episode, and removes
-  the `preparing` row only after the last one.
-- `requestdl` is never called with `redirect`; calls are at least 3 seconds apart (inject the clock).
-- Retry on a TorBox row requests a fresh link and never reads a stored `url`.
-- Cancel of a `preparing` row deletes at TorBox and removes the row; Cancel of any other row is a 400.
-- Clear keeps `preparing` rows. The 24-hour limit marks a stuck row failed.
+- No key files: Get uses Prowlarr's grab as today; no `search` in `features`.
+- Both keys: Get calls Real-Debrid only; on error_code 35 it calls TorBox and the row says `provider: "torbox"`; both
+  refusing is a 503 naming both. Only the TorBox key: Get goes straight to TorBox.
+- `waiting_files_selection` selects only the media ids (sample skipped). A `dead` Real-Debrid torrent moves to TorBox
+  once; a failing TorBox row is `failed` with both reasons.
+- Progress from Real-Debrid percent becomes 0 to 1 in `prep`.
+- Ready: a single-file torrent becomes one row in the right folder; a 10-episode pack hands over 2 per tick under one
+  show folder with the right seasons and episodes; an archive answer from `unrestrict/link` falls back to TorBox.
+- Spacing: Real-Debrid calls at least 1 s apart, TorBox `requestdl` at least 3 s (inject the clock); no `redirect`.
+- No key, magnet, .torrent byte, Prowlarr `downloadUrl`, hoster link, `debrid`, `tried` or `release` in any HTTP
+  answer. The sidecar file is `0600`.
+- Retry asks the row's provider for a fresh link. Cancel deletes at the current provider; Cancel of a non-preparing
+  row is 400. Clear keeps `preparing` rows.
 
 ## Rules
 
-- **Tools in Pi Pocket:** the web tools are named `mcp__webfetch__webfetch` and `mcp__searxng__web_search` there
-  (a call to plain `webfetch` is printed instead of run, and the turn ends). For the API description, `bash` with
-  `curl` is simplest.
-
-- Same as `SPEC-downloads-backend.md`: pull and rebase first, small commits, no AI credit, build + `npm run check`
-  (`ALL CHECKS OK`) + `npm test` before each commit, deploy with `scripts/deploy.py`, one line per deploy in
-  `/mnt/share/hermes-changes.md`.
-- **One real end-to-end test is needed at the end, and only Ryan starts it.** When the unit tests pass and it is
-  deployed, ask Ryan to press Get on one small, well-seeded result and watch the row. Do not grab anything yourself.
-- If the real TorBox API cannot do what a step needs, stop and write down what you found for Ryan.
+- **Tools:** the web tools are `mcp__webfetch__webfetch` and `mcp__searxng__web_search` (plain `webfetch` does not
+  exist). For API docs, `bash` with `curl` is simplest.
+- Pull and rebase first, small commits (no AI credit), `npm run build`, `npm run check` (`ALL CHECKS OK`) and
+  `npm test` before each, deploy only when Ryan asks, one line per deploy in `/mnt/share/hermes-changes.md`.
+- Use the 262k Coder or the 100k 27B Long for this work; the 64k 27B compacts too often for a two-file change.
+- **One real test at the end, started only by Ryan:** Get on one small, well-seeded result. Do not grab anything.
+- If a service's real behaviour contradicts a step here, stop and tell Ryan what you found.
 
 ## How to tell it worked
 
 | Step | What Ryan sees on Media & downloads |
 |---|---|
-| Get on a Debrid-tab result | Toast "Sent to debrid. It shows under Downloads." and a row "At debrid" with progress and Cancel. |
-| The debrid service finishes | That row is replaced by normal download rows (one per file), each filed under Movies or its show folder. |
+| Get on a Debrid-tab result | Toast "Sent to debrid. It shows under Downloads." and an "At debrid" row with progress, seeders, files and Cancel. |
+| Real-Debrid refuses | The same row carries on at TorBox (its reason is in the row's details). |
+| The service finishes | One normal download row per file, filed under Movies or its show folder, with live progress. |
 | A download finishes | "Adding to library", then "In library". |
-| A refused torrent | An error message at once, with the debrid service's reason. No nameless red row. |
+| Both refuse | An error at once naming both services' reasons. No nameless red row. |
