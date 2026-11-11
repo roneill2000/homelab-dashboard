@@ -44,7 +44,7 @@ TERMINAL_SCANNABLE = ('finished', 'present')
 # download reads as 34 GB on disk seconds after it starts, and the size says nothing about how far
 # it got. It also avoids writing that phantom size across the CIFS mount.
 ARIA2_FLAGS = ('-x16', '-s16', '-k1M', '--continue=true', '--auto-file-renaming=false',
-               '--allow-overwrite=true', '--file-allocation=none', '--summary-interval=10')
+               '--allow-overwrite=true', '--file-allocation=none', '--summary-interval=3')
 # Both sides check this list: the dashboard rejects a non-media link early, the worker has the final
 # word on .3. tests/test_debrid_parity.py fails if one side changes it alone.
 MEDIA_EXT = {'.mkv', '.mp4', '.m4v', '.mov', '.avi', '.wmv', '.flv', '.webm', '.m4a', '.mp3', '.flac', '.epub'}

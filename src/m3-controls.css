@@ -164,7 +164,9 @@
 .m3-btn .material-symbols-rounded{font-size:20px!important}
 .m3-btn--outlined{color:var(--md-sys-color-on-surface-variant)}
 .segments button:active,.m3-segment:active{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,var(--md-sys-color-surface-container))}
-.segments button.selected:active,.segments button[aria-pressed=true]:active{background:color-mix(in srgb,var(--md-sys-color-on-primary) 10%,var(--md-sys-color-primary))}
+/* Held down on the button that has just been chosen: keep the chosen fill under its dark label (the plain :active fill
+   above is dark too, which hid the label until the finger lifted). */
+.segments button.selected:active,.segments button[aria-pressed=true]:active,.m3-segment[aria-pressed=true]:active{background:color-mix(in srgb,var(--md-sys-color-on-primary) 10%,var(--md-sys-color-primary))}
 .issue-chip{padding:0 16px;gap:8px}
 .issue-chip.soft{border:1px solid var(--md-sys-color-outline-variant)}
 @media (max-width:599px){

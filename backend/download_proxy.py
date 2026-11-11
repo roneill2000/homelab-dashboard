@@ -784,6 +784,7 @@ def _debrid_tick():
                 d['state'], d['bytes'] = state_word, int(j.get('bytes') or 0)
                 d['total_bytes'], d['speed'] = int(j.get('total_bytes') or 0), int(j.get('speed_bytes') or 0)
                 d['eta'] = str(j.get('eta') or '')[:40]
+                d['sampled'] = time.time()    # when these numbers were true: the panel moves the bar on from here
                 changed = True
             if j.get('error') and d.get('error') != str(j['error'])[:200]:
                 d['error'] = str(j['error'])[:200]
@@ -868,6 +869,7 @@ def _debrid_rows(state):
                         speed=int(d.get('speed') or 0), eta=d.get('eta') or '',
                         scanned=bool(d.get('scanned')), scan_error=d.get('scan_error'),
                         error=d.get('error'), grounded=d.get('grounded'), started=d.get('started'),
+                        sampled=d.get('sampled'),
                         # The link stays inside the backend: the panel only learns whether a retry is possible.
                         can_retry=bool(d.get('url')) and st in _RETRY_STATES,
                         age=max(0, int(time.time()) - int(d.get('started') or 0))))
@@ -971,6 +973,19 @@ def debrid_status():
 _DEBRID_LOOP = {'started': False}
 
 
+_DEBRID_TICK_LIVE = 3
+_DEBRID_TICK_IDLE = 25
+
+
+def _debrid_live() -> bool:
+    """True while any row is downloading, so the loop refreshes progress quickly."""
+    try:
+        with _STATE_LOCK:
+            return any(d.get('state') == 'downloading' for d in _load_state()['downloads'])
+    except Exception:
+        return False
+
+
 def start_debrid_loop():
     """Background loop (dashboard host only): pull download state from the n100 worker, fire a Jellyfin scan on finish."""
     if not os.path.exists(_DOWNLOAD_KEY) or _DEBRID_LOOP['started']:
@@ -979,7 +994,9 @@ def start_debrid_loop():
 
     def loop():
         while True:
-            time.sleep(25)
+            # Every 3 s while something downloads (the panel shows live progress; one check is ~0.2 s of SSH),
+            # every 25 s otherwise (only finishes and library scans to catch).
+            time.sleep(_DEBRID_TICK_LIVE if _debrid_live() else _DEBRID_TICK_IDLE)
             try:
                 _debrid_tick()
             except Exception:
