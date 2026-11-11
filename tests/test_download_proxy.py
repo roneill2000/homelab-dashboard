@@ -482,7 +482,8 @@ class DebridTests(unittest.TestCase):
         with patch.object(dp, '_download_rpc', side_effect=lambda *a, **k: self.fail('the worker must not be asked')):
             _, codes, body = call('/api/debrid', OK, post=False)
         self.assertEqual(codes, [200])
-        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss'])
+        # 'search' rides with the key files, so only the other three are checked here
+        self.assertEqual([f for f in body['features'] if f != 'search'], ['preview', 'retry', 'dismiss'])
 
     # ------------------------------------------------- name discovery (TorBox) ---
     def test_a_name_in_the_headers_is_read_out_of_content_disposition(self):
@@ -1089,15 +1090,16 @@ class DebridGrabTests(DebridTests):
         self.assertNotIn('search', body2['features'])
         self.assertFalse(os.path.exists(self.state_path))
 
-    def test_a_key_present_keeps_search_off_until_the_whole_flow_is_deployed(self):
+    def test_a_key_present_offers_search_to_the_panel(self):
+        # With a service to send a torrent to, the Debrid tab and its Cancel button appear; with none, Get
+        # keeps its old Prowlarr path and they stay away (checked in the no-key test above).
         self.reset_key_cache()
         self.seed('t9', magnet=self.MAGNET)
         with patch.object(dp, 'realdebrid', side_effect=self.fake_rd()), \
              patch.object(dp, 'torbox', side_effect=self.fake_torbox()):
             call('/api/action/download', OK, {'result': 't9'})
             _, codes, body = call('/api/debrid', OK, post=False)
-        self.assertNotIn('search', body['features'])
-        self.assertIn('preview', body['features'])
+        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss', 'search'])
 
     # --------------------------------------------------------------- which provider ---
     def test_only_torbox_key_get_goes_straight_to_torbox(self):
@@ -1779,8 +1781,8 @@ class DebridHandoverTests(DebridTests):
         calls = calls if calls is not None else []
         link = link or 'https://tb-dl-invalid.dl/dld/uuid?token=abc'
 
-        def call(method, path, fields=(), files=(), timeout=20):
-            calls.append({'method': method, 'path': path, 'fields': fields})
+        def call(method, path, fields=(), files=(), timeout=20, json_body=None):
+            calls.append({'method': method, 'path': path, 'fields': fields, 'json_body': json_body})
             if path.startswith('/torrents/mylist'):
                 return {'success': True, 'data': [{'id': 7, 'download_state': 'cached', 'progress': 1,
                                                   'seeds': 4, 'download_finished': True, 'download_present': True,
@@ -1928,3 +1930,127 @@ class DebridHandoverTests(DebridTests):
         self.assertEqual(len(self.started), 4)
         self.assertEqual(len(self.waits), 2)   # the second file of each tick waited
         self.assertTrue(all(w >= dp._TB_CALL_SPACING for w in self.waits))
+
+
+class DebridFinishTests(DebridHandoverTests):
+    """Flow steps 4, 5 and 6: retry re-asks the row's provider, Cancel frees the torrent, the panel
+    learns the flow is there. Same fakes as step 3: the services, the worker and the sleeps."""
+
+    # ------------------------------------------------------------------ Cancel
+    def test_cancel_frees_the_torrent_at_realdebrid_and_leaves_no_row_behind(self):
+        self.prep_row(name='rd-1')
+        dp._sidecar_store('rd-1', 'magnet', 'magnet:?xt=urn:btih:' + self.HASH)
+        rd = []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_service([self.MOVIE], calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=AssertionError('a Real-Debrid row is freed at Real-Debrid')):
+            _, codes, body = call('/api/debrid', OK, {'cancel': 'rd-1'})
+        self.assertEqual(codes, [200], body)
+        self.assertTrue(body['ok'])
+        self.assertEqual([c['method'] + c['path'] for c in rd], ['DELETE/torrents/delete/1'])
+        self.assertEqual(dp._load_state()['downloads'], [])
+        self.assertEqual(dp._sidecar_load(), {})
+        self.assertNotIn('cancel', json.dumps(rd))   # the key file, the magnet and the release stay out
+
+    def test_cancel_at_torbox_uses_its_controltorrent_call(self):
+        self.prep_row(provider='torbox', tid=7, name='torbox-7')
+        tb = []
+        with patch.object(dp, 'torbox', side_effect=self.tb_service([self.MOVIE], calls=tb)), \
+             patch.object(dp, 'realdebrid', side_effect=AssertionError('not this row')):
+            _, codes, body = call('/api/debrid', OK, {'cancel': 'torbox-7'})
+        asked = [(c['method'], c['path']) for c in tb]
+        self.assertEqual(asked, [('POST', '/torrents/controltorrent')])
+        self.assertEqual(tb[0]['json_body'], {'torrent_id': 7, 'operation': 'delete'})
+        self.assertEqual(dp._load_state()['downloads'], [])
+
+    def test_a_row_that_already_handed_its_files_over_is_not_cancellable(self):
+        self.write_state([dict(name=self.MOVIE, state='downloading', kind='movie', title='Big Buck Bunny',
+                               dest='/mnt/unraid/Movies', debrid={'id': 1, 'file': 1, 'link': 'https://x.invalid/a'},
+                               bytes=1, started=int(time.time()))])
+        _, codes, body = call('/api/debrid', OK, {'cancel': self.MOVIE})
+        self.assertEqual(codes, [400])
+        self.assertIn('Cancel is for a row still waiting at its service', body['error'])
+
+    def test_clear_keeps_a_row_that_is_still_at_its_service(self):
+        self.prep_row(name='rd-2')
+        self.write_state([d for d in dp._load_state()['downloads']] +
+                         [dict(name='Old.Broken.mkv', state='failed', kind='movie', title='Old Broken',
+                               dest='/mnt/unraid/Movies', bytes=0, started=int(time.time()),
+                               error='link dead', url=None, retried=False, torbox=None)])
+        _, codes, body = call('/api/debrid', OK, {'clear': True})
+        self.assertEqual(body['cleared'], 1)
+        self.assertEqual([d['name'] for d in dp._load_state()['downloads']], ['rd-2'])
+
+    def test_a_service_refusal_still_frees_the_row_and_says_so(self):
+        self.prep_row(name='rd-3')
+
+        def refusing(method, path, fields=None, raw=None, timeout=20):
+            raise RuntimeError('torrent is being downloaded')
+        with patch.object(dp, 'realdebrid', side_effect=refusing):
+            _, codes, body = call('/api/debrid', OK, {'cancel': 'rd-3'})
+        self.assertEqual(codes, [200])
+        self.assertIn('Real-Debrid did not free its torrent', body['message'])
+        self.assertEqual(dp._load_state()['downloads'], [])
+
+    # ------------------------------------------------------------------ Retry
+    def test_retry_asks_realdebrid_again_for_a_link_and_starts_it(self):
+        self.write_state([dict(name=self.MOVIE, state='failed', kind='movie', title='Big Buck Bunny',
+                               dest='/mnt/unraid/Movies', bytes=0, started=int(time.time()), error='link died',
+                               url=None, retried=False, provider='realdebrid',
+                               debrid={'id': 1, 'file': 1, 'link': 'https://rd-lan-invalid.dl/l/1'},
+                               state_since=0, scanned=True, scan_error=None, grounded=None,
+                               total_bytes=self.SIZE, speed=0, eta='', prep=None, tried=['realdebrid'])])
+        seen = []
+
+        def unrestrict(method, path, fields=None, raw=None, timeout=20):
+            seen.append(fields)
+            return {'download': 'https://rd-dl-invalid.dl/f/9/%s' % self.MOVIE, 'filename': self.MOVIE,
+                    'filesize': self.SIZE}
+        with patch.object(dp, 'realdebrid', side_effect=unrestrict):
+            codes, body = call('/api/debrid', OK, {'retry': self.MOVIE})[1], call('/api/debrid', OK, {'retry': self.MOVIE})[2]
+        self.assertEqual(codes, [200])
+        self.assertEqual(seen, [{'link': 'https://rd-lan-invalid.dl/l/1'}])   # the stored hoster link, re-asked
+        self.assertEqual(len(self.started), 1)
+        self.assertEqual(self.started[0]['url'], 'https://rd-dl-invalid.dl/f/9/%s' % self.MOVIE)
+        self.assertEqual(self.started[0]['dest'], '/mnt/unraid/Movies')
+        row = dp._load_state()['downloads'][0]
+        self.assertEqual(row['state'], 'downloading')
+        self.assertIsNone(row['url'])   # still no dead link kept: a second retry re-asks too
+        self.assertEqual(row['debrid']['link'], 'https://rd-lan-invalid.dl/l/1')
+
+    def test_a_handed_over_row_offers_retry_in_the_panel(self):
+        self.write_state([dict(name=self.MOVIE, state='failed', kind='movie', title='Big Buck Bunny',
+                               dest='/mnt/unraid/Movies', bytes=0, started=int(time.time()), error='link died',
+                               url=None, retried=False, provider='realdebrid',
+                               debrid={'id': 1, 'file': 1, 'link': 'https://rd-lan-invalid.dl/l/1'})])
+        _, _, body = call('/api/debrid', OK, post=False)
+        self.assertTrue(body['downloads'][0]['can_retry'])
+        self.assertNotIn('debrid', json.dumps(body['downloads'][0]))
+        self.assertNotIn('rd-lan-invalid', json.dumps(body['downloads'][0]))
+
+    def test_torbox_retry_asks_its_requestdl_again_by_id(self):
+        self.write_state([dict(name=self.MOVIE, state='stopped', kind='movie', title='Big Buck Bunny',
+                               dest='/mnt/unraid/Movies', bytes=0, started=int(time.time()), error='stopped by hand',
+                               url=None, retried=False, provider='torbox',
+                               debrid={'id': 7, 'file': 3, 'link': None})])
+        tb = []
+
+        def answer(method, path, fields=(), files=(), timeout=20):
+            tb.append({'method': method, 'path': path, 'fields': fields})
+            return {'success': True, 'data': 'https://tb-dl-invalid.dl/dld/second?token=abc'}
+        with patch.object(dp, 'torbox', side_effect=answer), \
+             patch.object(dp, 'realdebrid', side_effect=AssertionError('a TorBox row re-asks TorBox')):
+            dp.retry_debrid(self.MOVIE)
+        self.assertEqual(len(tb), 1)
+        self.assertIn('/torrents/requestdl', tb[0]['path'])
+        self.assertIn('torrent_id=7', tb[0]['path'])
+        self.assertIn('file_id=3', tb[0]['path'])
+        self.assertNotIn('redirect', tb[0]['path'])
+        self.assertEqual(self.started[0]['url'], 'https://tb-dl-invalid.dl/dld/second?token=abc')
+
+    def test_a_row_with_neither_a_link_nor_a_service_call_is_refused(self):
+        self.write_state([dict(name='Old.Thing.mkv', state='failed', kind='movie', title='Old Thing',
+                               dest='/mnt/unraid/Movies', bytes=0, started=int(time.time()), error='link died',
+                               url=None, retried=False, torbox=None)])
+        _, codes, body = call('/api/debrid', OK, {'retry': 'Old.Thing.mkv'})
+        self.assertEqual(codes, [400])
+        self.assertIn('paste a fresh one', body['error'])

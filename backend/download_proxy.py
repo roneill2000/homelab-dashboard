@@ -304,13 +304,14 @@ def _scrub_key(text):
     return text[:200]
 
 
-def torbox(method, path, fields=(), files=(), timeout=20):
-    """One TorBox API call (multipart form). Raises RuntimeError with TorBox's own reason, scrubbed and cut to 200 chars."""
+def torbox(method, path, fields=(), files=(), timeout=20, json_body=None):
+    """One TorBox API call: a multipart form, or one JSON body when json_body is given (controltorrent wants
+    JSON). Raises RuntimeError with TorBox's own reason, scrubbed and cut to 200 chars."""
     key = _torbox_key()
     if not key:
         raise RuntimeError('the debrid service is not set up')
     boundary = '----homelab' + secrets.token_hex(16)
-    buf = io.BytesIO()
+    buf = io.BytesIO() if (fields or files) else None
     for name, value in fields:
         buf.write(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n' % (boundary, name, value)).encode())
     for item in files:
@@ -322,14 +323,16 @@ def torbox(method, path, fields=(), files=(), timeout=20):
             buf.write(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n' % (boundary, name)).encode())
         buf.write(data)
         buf.write(b'\r\n')
-    buf.write(('--%s--\r\n' % boundary).encode())
     hdrs = {'Authorization': 'Bearer ' + key}
-    if fields or files:
+    payload = None
+    if json_body is not None:
+        payload = json.dumps(json_body).encode()
+        hdrs['Content-Type'] = 'application/json'
+    elif buf is not None:
+        buf.write(('--%s--\r\n' % boundary).encode())
+        payload = buf.getvalue()
         hdrs['Content-Type'] = 'multipart/form-data; boundary=' + boundary
-    else:
-        buf = None   # a GET with nothing in it: no body, no content type
-    req = urllib.request.Request(TORBOX_API + path, data=(buf.getvalue() if buf is not None else None),
-                                headers=hdrs, method=method)
+    req = urllib.request.Request(TORBOX_API + path, data=payload, headers=hdrs, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read()
@@ -1482,6 +1485,80 @@ def _rd_link_for(view, torrent_id, wanted, now):
     return links[index], link, name, size
 
 
+def _retry_link(d):
+    """A fresh download link for a row that came from a torrent.
+
+    Real-Debrid is asked to unrestrict the hoster link that row kept; TorBox answers requestdl again from the
+    torrent and file ids it kept. Both wait their turn (_pace), and neither link is ever shown to the panel.
+    """
+    debrid, provider = d.get('debrid'), _row_provider(d) or 'realdebrid'
+    torrent_id = _row_torrent_id(d)
+    if not isinstance(debrid, dict) or not torrent_id:
+        raise ValueError('that row kept no service call to re-ask; paste a fresh link')
+    if provider == 'realdebrid':
+        if not debrid.get('link'):
+            raise ValueError('that row kept no Real-Debrid link to re-ask; paste a fresh link')
+        link, _name, _size = _rd_link(torrent_id, str(debrid['link']), time.time())
+    else:
+        if not debrid.get('file'):
+            raise ValueError('that row kept no TorBox file id to re-ask; paste a fresh link')
+        link, _name, _size = _tb_link(torrent_id, int(debrid['file']), time.time())
+    return _safe_url(link)
+
+
+def _row_key(name):
+    """A row's key, which is not always a file name: a watching row is called rd-9 or torbox-3 until its
+    files arrive. Short, one line, no path - that is all Cancel needs, since the name only picks the row."""
+    name = str(name).strip()
+    if not 1 <= len(name) <= 200 or any(c in name for c in ('\r', '\n', '/', chr(92))) or '..' in name:
+        raise ValueError('that name cannot be a row in the list')
+    return name
+
+
+def cancel_debrid(name):
+    """Cancel on an 'At debrid' row: free the torrent at its service, then drop the row and its sidecar.
+
+    Only a preparing row answers to Cancel: a row that already handed its files over has download rows of their
+    own, and Stop is the control for those. A refusal from the service does not keep the row here - the panel
+    list is what Cancel clears, and the torrent itself can still be freed in the service's own site - so the
+    reason rides in the reply text. The service call sits outside _STATE_LOCK, as everywhere in this file.
+    """
+    name = _row_key(name)
+    with _STATE_LOCK:
+        row = next((d for d in _load_state()['downloads'] if d['name'] == name), None)
+        if row is None:
+            raise ValueError('that row is not in the list anymore')
+        if row.get('state') != 'preparing':
+            raise ValueError('that row is %s; Cancel is for a row still waiting at its service' % (row.get('state') or 'unknown'))
+        provider, torrent_id = _row_provider(row), _row_torrent_id(row)
+    reason = None
+    if torrent_id:
+        try:
+            _free_torrent(provider, torrent_id)
+        except Exception as exc:
+            reason = _scrub_key(str(exc))
+    with _STATE_LOCK:
+        state = _load_state()
+        keep = [d for d in state['downloads'] if d['name'] != name]
+        gone = len(state['downloads']) - len(keep)
+        if gone:
+            state['downloads'] = keep
+            _save_state(state)
+    _sidecar_forget(name)
+    message = 'stopped ' + name
+    if reason:
+        message += ('; %s did not free its torrent: %s' % ('Real-Debrid' if provider == 'realdebrid' else 'TorBox', reason))
+    return dict(ok=True, name=name, message=message, cancelled=gone)
+
+
+def _free_torrent(provider, torrent_id):
+    """Ask the service to drop a torrent it is still holding for this row."""
+    if provider == 'realdebrid':
+        realdebrid('DELETE', '/torrents/delete/%d' % int(torrent_id), timeout=20)
+        return
+    torbox('POST', '/torrents/controltorrent', json_body={'torrent_id': int(torrent_id), 'operation': 'delete'})
+
+
 def _prep_reasons(d):
     """Every reason the services gave this row, oldest first, for the text Ryan sees."""
     out = []
@@ -1794,7 +1871,7 @@ def _debrid_rows(state):
                         prep=d.get('prep'),
                         sampled=d.get('sampled'),
                         # The link stays inside the backend: the panel only learns whether a retry is possible.
-                        can_retry=bool(d.get('url')) and st in _RETRY_STATES,
+                        can_retry=(bool(d.get('url')) or bool(d.get('debrid'))) and st in _RETRY_STATES,
                         age=max(0, int(time.time()) - int(d.get('started') or 0))))
     return out
 
@@ -1830,8 +1907,10 @@ def retry_debrid(name):
     """Restart a failed, stopped or interrupted download with the link its row stored.
 
     The same start call add_debrid() makes: the worker revalidates everything and aria2c continues
-    the partial file (its .aria2 control file is what makes --continue safe). Raises ValueError
-    (no such row, no stored link, or a state that cannot be retried) or RuntimeError (worker).
+    the partial file (its .aria2 control file is what makes --continue safe). A row that came from a torrent
+    stores no url of its own - those links go dead - so retry asks the provider it names for a fresh one.
+    Raises ValueError (no such row, nothing to re-ask, or a state that cannot be retried) or RuntimeError
+    (the worker, or the service refusing).
 
     The state lock is held around the rows only, never around the worker call (same pattern as
     stop_debrid); the row is looked up again after the call because the tick loop can rewrite it.
@@ -1841,11 +1920,13 @@ def retry_debrid(name):
         row = next((d for d in _load_state()['downloads'] if d['name'] == name), None)
         if row is None:
             raise ValueError('that download is not in the list anymore')
-        if not row.get('url'):
-            raise ValueError('no link is stored for that download; paste a fresh one')
         if row.get('state') not in _RETRY_STATES:
             raise ValueError('that download is %s; only failed, stopped or interrupted can be retried' % row.get('state'))
-        url, dest = row['url'], row['dest']
+        if not row.get('url') and not _row_torrent_id(row):
+            raise ValueError('no link is stored for that download; paste a fresh one')
+        url, dest = row.get('url'), row['dest']
+    if not url:
+        url = _retry_link(row)   # fresh from the provider this row came from, at that service's own pace
     out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': url, 'dest': dest, 'name': name})
     state_word = out.get('state') if out.get('state') in _DEBRID_STATE_WORDS else 'downloading'
     with _STATE_LOCK:
@@ -1875,22 +1956,28 @@ def clear_debrid() -> dict:
     with _STATE_LOCK:
         state = _load_state()
         keep = [d for d in state['downloads'] if d.get('state') == 'downloading'
+                or d.get('state') == 'preparing'   # Clear is not Cancel: a row at its service stays
                 or (d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned'))]
         cleared = len(state['downloads']) - len(keep)
         state['downloads'] = keep
         _save_state(state)
     message = 'Cleared %d download%s.' % (cleared, '' if cleared == 1 else 's')
-    message += (' Kept %d still downloading or waiting for Jellyfin.' % len(keep)) if keep else ' The files stay on the share.'
+    message += (' Kept %d downloading, at its service or waiting for Jellyfin.' % len(keep)) if keep else ' The files stay on the share.'
     return {'ok': True, 'cleared': cleared, 'kept': len(keep), 'message': message}
 
 def debrid_status():
     with _STATE_LOCK:
         state = _load_state()
-    # 'preview', 'retry' and 'dismiss' go live with the routes that answer them, in the same commits; the panel only
-    # offers a control when its name is here, because an older backend would run the new request as a
+    # 'preview', 'retry' and 'dismiss' go live with the routes that answer them, in the same commits; the panel
+    # only offers a control when its name is here, because an older backend would run the new request as a
     # real download.
+    features = ['preview', 'retry', 'dismiss']
+    # 'search' (the Debrid tab and its Cancel button) needs a service to send a torrent to. With no key file,
+    # Get keeps working exactly as it always did - Prowlarr to RdtClient - and the tab would be a dead control.
+    if _rd_key() or _torbox_key():
+        features.append('search')
     return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated'),
-            'features': ['preview', 'retry', 'dismiss']}
+            'features': features}
 
 
 _DEBRID_LOOP = {'started': False}
@@ -1989,6 +2076,12 @@ def handle(handler, post=False):
             _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True
         if body.get('clear') is True:
             try: _reply(handler, 200, clear_debrid())
+            except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
+            except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
+            return True
+        cancel = body.get('cancel')
+        if isinstance(cancel, str):
+            try: _reply(handler, 200, cancel_debrid(cancel))
             except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
             except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
             return True
