@@ -679,6 +679,42 @@ class DebridTests(unittest.TestCase):
         self.assertEqual(len(out['downloads']), dp._DEBRID_ROWS)
         self.assertEqual(out['downloads'][0]['name'], 'f69.mkv')  # newest first
 
+    def test_the_state_file_is_private_before_its_first_byte(self):
+        """These rows hold pasted links with their access tokens: the tmp file must already be 0600
+        when the first byte lands in it, not chmodded once the whole write is done."""
+        seen = []
+        real_open = open
+
+        def spy_open(path, mode='r', *a, **kw):
+            f = real_open(path, mode, *a, **kw)
+            if not str(path).endswith('.tmp'):
+                return f
+
+            class _Spy:
+                def __init__(self):
+                    self._f = f
+                def write(self, s):
+                    seen.append(os.stat(path).st_mode & 0o777)   # the mode at the first byte written
+                    return self._f.write(s)
+                def __enter__(self):
+                    return self
+                def __exit__(self, *exc):
+                    return self._f.__exit__(*exc)
+                def __getattr__(self, name):
+                    return getattr(self._f, name)
+            return _Spy()
+
+        row = {'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'kind': 'movie', 'title': 'a', 'season': None,
+               'episode': None, 'started': 1, 'state': 'downloading', 'scanned': False,
+               'url': 'https://download.invalid/f.mkv?token=S3CRET'}
+        with patch.object(dp, 'open', spy_open, create=True):
+            with dp._STATE_LOCK:
+                dp._save_state({'downloads': [row]})
+        self.assertTrue(seen, 'the tmp file was never written')
+        self.assertEqual(sorted(set(seen)), [0o600])
+        self.assertEqual(os.stat(self.state_path).st_mode & 0o777, 0o600)
+        self.assertFalse(os.path.exists(self.state_path + '.tmp'))
+
     def test_the_library_scan_runs_with_the_state_lock_free(self):
         self.write_state([{'dest': dp.MOVIES_DIR, 'name': 'a.mkv', 'kind': 'movie', 'title': 'a',
                            'season': None, 'episode': None, 'started': 1, 'state': 'downloading', 'scanned': False}])

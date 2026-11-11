@@ -987,18 +987,18 @@ def _load_state():
 def _save_state(state):
     """Write the rows in one step: tmp file, fsync, rename. Only ever called with _STATE_LOCK held.
 
-    The mode is set on the tmp file before the rename, so the real file is never briefly world
-    readable: it carries the pasted links with their access tokens.
+    The mode is set on the tmp file before a single byte is written, so this file is never
+    world-readable while it holds anything: it carries the pasted links with their access tokens.
     """
     state['downloads'] = state['downloads'][-_DEBRID_KEEP:]
     state['updated'] = int(time.time())
     os.makedirs(os.path.dirname(DEBRID_STATE), exist_ok=True)
     tmp = DEBRID_STATE + '.tmp'
     with open(tmp, 'w') as f:
+        os.chmod(tmp, 0o600)
         json.dump(state, f)
         f.flush()
         os.fsync(f.fileno())
-    os.chmod(tmp, 0o600)
     os.replace(tmp, DEBRID_STATE)
 
 
