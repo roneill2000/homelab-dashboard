@@ -6,6 +6,8 @@ import tempfile
 import time
 import unittest
 import urllib.error
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -965,3 +967,201 @@ class DebridTests(unittest.TestCase):
     def test_other_paths_still_fall_through(self):
         self.assertFalse(call('/api/debrid/other', OK, post=False)[0])
         self.assertFalse(call('/api/other', OK, post=True)[0])
+
+
+class TorBoxGrabTests(DebridTests):
+    """Flow step 1: a Debrid-tab Get creates the TorBox torrent and the 'preparing' row. Fakes only."""
+
+    KEY = '2559c10a-d8ab-4e42-b7fe-a86195c9edd8'
+    HASH = 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c'
+    MAGNET = 'magnet:?xt=urn:btih:' + HASH + '&dn=Big+Buck+Bunny'
+
+    def setUp(self):
+        super().setUp()
+        self.key_path = os.path.join(self.tmp.name, 'torbox.json')
+        with open(self.key_path, 'w') as f:
+            json.dump({'key': self.KEY}, f)
+        self.pk = patch.object(dp, 'TORBOX', self.key_path)
+        self.pk.start()
+        self.addCleanup(self.pk.stop)
+        self.addCleanup(dp.RESULTS.clear)
+
+    def reset_key_cache(self):
+        dp.TORBOX_KEY = None
+        dp.TORBOX_KEY_AT = 0
+
+    def seed(self, token, magnet=None, download=None, info_hash=HASH, title='Big Buck Bunny 2008 720p'):
+        dp.RESULTS[token] = {'at': time.time(), 'guid': 'g', 'indexerId': 6, 'title': title,
+                             'magnetUrl': magnet, 'downloadUrl': download, 'infoHash': info_hash}
+
+    def fake_torbox(self, answer=None, calls=None):
+        calls = calls if calls is not None else []
+
+        def call(method, path, fields=(), files=(), timeout=20):
+            calls.append({'method': method, 'path': path, 'fields': dict(fields), 'files': [f[0] for f in files]})
+            return answer if answer is not None else {'success': True, 'data': {'torrent_id': 123, 'hash': self.HASH}}
+        return call
+
+    def indexer_fake(self, body=b'', code=200, location='', url=None):
+        """One fake answer from _indexer_get: (code, Location, body) for one download URL."""
+        def get(url_):
+            assert url_ == url, ('asked for the wrong URL', url_)
+            return code, location, body
+        return get
+
+    # --------------------------------------------------------------- no key ---
+    def test_no_key_get_goes_to_prowlarr_and_search_is_not_a_feature(self):
+        # No key file at all: Get stays on the old Prowlarr + RdtClient path.
+        self.reset_key_cache()
+        self.seed('t1')
+        with patch.object(dp, 'TORBOX', os.path.join(self.tmp.name, 'no-torbox.json')):
+          with patch.object(dp, 'prowlarr') as pr, patch.object(dp, 'torbox', side_effect=AssertionError('TorBox must not be called')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't1'})
+            _, codes2, body2 = call('/api/debrid', OK, post=False)
+        self.assertEqual((codes, body['title']), ([200], 'Big Buck Bunny 2008 720p'))
+        pr.assert_called_once_with('/api/v1/search', {'guid': 'g', 'indexerId': 6})
+        self.assertNotIn('search', body2['features'])
+        self.assertFalse(os.path.exists(self.state_path))
+
+    # --------------------------------------------------------------- with key ---
+    def test_magnet_result_creates_the_torrent_and_one_preparing_row(self):
+        self.reset_key_cache()
+        self.seed('t1', magnet=self.MAGNET)
+        calls = []
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=calls)),              patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't1'})
+        self.assertEqual(codes, [200])
+        self.assertEqual((body['ok'], body['via'], body['title']), (True, 'debrid', 'Big Buck Bunny'))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((calls[0]['method'], calls[0]['path']), ('POST', '/torrents/createtorrent'))
+        self.assertEqual(calls[0]['fields'], {'magnet': self.MAGNET})
+        self.assertEqual(calls[0]['files'], [])
+        rows = self.read_state()
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row['name'], row['state'], row['kind'], row['title']), ('torbox-123', 'preparing', None, 'Big Buck Bunny'))
+        self.assertEqual(row['torbox'], {'torrent_id': 123, 'hash': self.HASH})
+        self.assertEqual(row['release'], 'Big Buck Bunny 2008 720p')
+        self.assertEqual(row['prep'], {'progress': 0, 'seeds': None, 'files': None, 'cached': False})
+        self.assertIsNone(row['dest'])
+        self.assertEqual((row['bytes'], row['scanned'], row['error']), (0, False, None))
+        self.assertGreater(row['started'], 1_000_000_000)
+
+    def test_a_torrent_file_result_uploads_the_bytes(self):
+        self.reset_key_cache()
+        self.seed('t2', download='http://192.168.0.13:9696/1/download?apikey=secret')
+        torrent_bytes = b'd8:announce12:tracker.com4:infod4:name6:movie4:file2.mkve'
+        calls = []
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=calls)),              patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')),              patch.object(dp, '_indexer_get', side_effect=self.indexer_fake(body=torrent_bytes, url='http://192.168.0.13:9696/1/download?apikey=secret')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't2'})
+        self.assertEqual(codes, [200])
+        self.assertEqual((body['ok'], body['via']), (True, 'debrid'))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]['files'], ['file'])
+        self.assertEqual(calls[0]['fields'], {})
+        rows = self.read_state()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['state'], 'preparing')
+
+    def test_a_redirect_to_a_magnet_is_that_magnet(self):
+        self.reset_key_cache()
+        self.seed('t3', download='http://192.168.0.13:9696/2/download?apikey=secret')
+        calls = []
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=calls)),              patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')),              patch.object(dp, '_indexer_get', side_effect=self.indexer_fake(code=302, location=self.MAGNET, url='http://192.168.0.13:9696/2/download?apikey=secret')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't3'})
+        self.assertEqual(codes, [200])
+        self.assertEqual(calls[0]['fields'], {'magnet': self.MAGNET})
+        self.assertEqual(calls[0]['files'], [])
+
+    def test_a_real_indexer_redirect_to_a_magnet_is_that_magnet(self):
+        """No mocks: a real HTTP 302 to a magnet: must not be followed, and must be read as that magnet."""
+        self.reset_key_cache()
+        magnet = self.MAGNET
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header('Location', magnet)
+                self.end_headers()
+            def log_message(self, *a):
+                pass
+        srv = HTTPServer(('127.0.0.1', 0), H)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.handle_request)
+        t.start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(t.join, 5)
+        self.seed('tr', download='http://127.0.0.1:%d/7/download?apikey=secret' % port)
+        calls = []
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=calls)), \
+             patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')):
+            _, codes, body = call('/api/action/download', OK, {'result': 'tr'})
+        self.assertEqual(codes, [200])
+        self.assertEqual(calls[0]['fields'], {'magnet': magnet})
+        self.assertEqual(calls[0]['files'], [])
+
+    def test_an_unusable_download_url_is_a_503_and_adds_nothing(self):
+        self.reset_key_cache()
+        self.seed('t4', download='http://192.168.0.13:9696/3/download?apikey=secret')
+        calls = []
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=calls)),              patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')),              patch.object(dp, '_indexer_get', side_effect=self.indexer_fake(body=b'this is not a torrent', url='http://192.168.0.13:9696/3/download?apikey=secret')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't4'})
+        self.assertEqual(codes, [503])
+        self.assertIn('usable torrent', body['error'])
+        self.assertEqual(calls, [])
+        self.assertFalse(os.path.exists(self.state_path))
+
+    def test_a_torrent_file_over_the_size_cap_is_refused(self):
+        self.reset_key_cache()
+        self.seed('t9', download='http://192.168.0.13:9696/9/download?apikey=secret')
+        big = b'd8:announce' + b'4:info' + b'x' * dp._TORBOX_MAX_TORRENT_BYTES
+        calls = []
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=calls)),              patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')),              patch.object(dp, '_indexer_get', side_effect=self.indexer_fake(body=big[:dp._TORBOX_MAX_TORRENT_BYTES + 1], url='http://192.168.0.13:9696/9/download?apikey=secret')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't9'})
+        self.assertEqual(codes, [503])
+        self.assertEqual(calls, [])
+        self.assertFalse(os.path.exists(self.state_path))
+
+    def test_a_torbox_refusal_is_a_503_with_its_reason(self):
+        self.reset_key_cache()
+        self.seed('t5', magnet=self.MAGNET)
+        with patch.object(dp, 'torbox', side_effect=RuntimeError('Infringing file')),              patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't5'})
+        self.assertEqual(codes, [503])
+        self.assertIn('Infringing file', body['error'])
+        self.assertFalse(os.path.exists(self.state_path))
+
+    def test_a_second_get_for_the_same_hash_adds_nothing(self):
+        self.reset_key_cache()
+        self.seed('t6', magnet=self.MAGNET)
+        self.seed('t7', magnet=self.MAGNET)   # the same torrent, a new search token
+        calls = []
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=calls)),              patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')):
+            _, codes1, body1 = call('/api/action/download', OK, {'result': 't6'})
+            _, codes2, body2 = call('/api/action/download', OK, {'result': 't7'})
+        self.assertEqual((codes1, codes2), ([200], [200]))
+        self.assertEqual((body1['ok'], body2['ok'], body2['via']), (True, True, 'debrid'))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(self.read_state()), 1)
+
+    # --------------------------------------------------------------- no leaks ---
+    def test_nothing_sensitive_is_in_any_answer(self):
+        self.reset_key_cache()
+        self.seed('t8', magnet=self.MAGNET, download='http://192.168.0.13:9696/8/download?apikey=secret')
+        with patch.object(dp, 'torbox', side_effect=self.fake_torbox()),              patch.object(dp, 'prowlarr', side_effect=AssertionError('Prowlarr must not be asked to grab')):
+            _, codes, body = call('/api/action/download', OK, {'result': 't8'})
+            _, codes2, body2 = call('/api/debrid', OK, post=False)
+        blob = json.dumps(body) + json.dumps(body2)
+        self.assertNotIn(self.KEY, blob)
+        self.assertNotIn('apikey=secret', blob)
+        self.assertNotIn('downloadUrl', blob)
+        self.assertNotIn('magnetUrl', blob)
+        for row in body2['downloads']:
+            self.assertNotIn('torbox', row)
+            self.assertNotIn('release', row)
+
+    def test_an_expired_token_is_a_410(self):
+        self.reset_key_cache()
+        with patch.object(dp, 'torbox', side_effect=AssertionError('TorBox must not be called')):
+            _, codes, body = call('/api/action/download', OK, {'result': 'nope'})
+        self.assertEqual(codes, [410])
+        self.assertFalse(os.path.exists(self.state_path))

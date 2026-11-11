@@ -5,6 +5,7 @@ the same path its own Search page uses. Magnets go straight to RdtClient in that
 indexer URLs or API keys: search results are handed out as short-lived tokens.
 """
 import http.cookiejar
+import io
 import json
 import os
 import re
@@ -20,6 +21,7 @@ import qwen_proxy
 
 RDT = '/etc/homelab-dashboard/rdt.json'
 PROWLARR = '/etc/homelab-dashboard/prowlarr.json'
+TORBOX = '/etc/homelab-dashboard/torbox.json'
 CATEGORY = 'prowlarr'
 MAGNET = re.compile(r'magnet:\?[\x21-\x7e]*xt=urn:bt(ih|mh):[0-9A-Za-z]{32,68}[\x21-\x7e]*')
 RESULTS = {}; RESULTS_LOCK = threading.Lock()
@@ -68,8 +70,17 @@ _DEBRID_AGE = 7 * 86400   # how long a finished row stays on the homepage list
 _DEBRID_ROWS = 15      # rows the homepage shows
 _DEBRID_CHECK_MAX = 40 # downloads in one check call
 _DEBRID_SCAN_UNTIL = ('finished', 'present')   # states that mean "ask Jellyfin to look"
-_DEBRID_STATE_WORDS = ('downloading', 'finished', 'failed', 'stopped', 'interrupted', 'present', 'missing', 'unknown')
+_DEBRID_STATE_WORDS = ('downloading', 'finished', 'failed', 'stopped', 'interrupted', 'present', 'missing', 'preparing', 'unknown')
 _RETRY_STATES = ('failed', 'stopped', 'interrupted')   # a stored link can be run again in these
+# A Debrid-tab Get sends the torrent straight to TorBox and remembers it here as a 'preparing' row.
+# The panel polls /api/debrid; the tick loop (the next step of the spec) picks the row up once TorBox
+# has the files. The key file decides whether this path is on at all: without it, Get behaves exactly
+# as before (Prowlarr -> RdtClient) and 'search' is not in features.
+TORBOX_API = 'https://api.torbox.app/v1/api'
+TORBOX_KEY = None
+TORBOX_KEY_AT = 0
+_TORBOX_KEY_LOCK = threading.Lock()
+_TORBOX_MAX_TORRENT_BYTES = 5 * 1024 * 1024   # the indexer's .torrent file, at most
 # aria2c 22 (the server refused the URL) and 24 (HTTP auth/authorization error) are what an
 # expired debrid access token looks like. Only counted after a retry, where the link itself is the suspect.
 _EXPIRED_LINK = re.compile(r'aria2c exited with code (?:22|24)\b')
@@ -155,7 +166,11 @@ def search(query, kind):
         for r in rows or []:
             if r.get('protocol') != kind or not r.get('guid') or not isinstance(r.get('indexerId'), int): continue
             token = secrets.token_urlsafe(12)
-            RESULTS[token] = {'at': now, 'guid': r['guid'], 'indexerId': r['indexerId'], 'title': r.get('title')}
+            # magnetUrl, downloadUrl and infoHash stay server-side: downloadUrl carries Prowlarr's API
+            # key, so none of them may ever be in an HTTP answer. Get needs them to reach TorBox.
+            RESULTS[token] = {'at': now, 'guid': r['guid'], 'indexerId': r['indexerId'], 'title': r.get('title'),
+                              'magnetUrl': r.get('magnetUrl'), 'downloadUrl': r.get('downloadUrl'),
+                              'infoHash': r.get('infoHash')}
             info = r.get('infoUrl') if str(r.get('infoUrl', '')).startswith(('https://', 'http://')) else None
             out.append({'id': token, 'title': r.get('title'), 'size': r.get('size'), 'seeders': r.get('seeders'),
                         'leechers': r.get('leechers'), 'grabs': r.get('grabs'), 'indexer': r.get('indexer'),
@@ -208,6 +223,161 @@ def grab(token):
     if not hit: raise LookupError
     prowlarr('/api/v1/search', {'guid': hit['guid'], 'indexerId': hit['indexerId']})
     return hit['title']
+
+
+# --- TorBox: a Debrid-tab Get goes straight to the debrid service --------------------------
+# TorBox keeps the torrent and the files; the panel watches it under Downloads. The key lives in
+# its own 0600 file on the dashboard host and is never printed, logged or sent to the browser.
+# Without it, nothing here runs and Get behaves exactly as before.
+
+class _NoFollow(urllib.request.HTTPRedirectHandler):
+    """Redirects are not followed: a redirect to a magnet: link is read as that magnet, anything else is unusable."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _indexer_get(url):
+    """One GET of an indexer download URL, with redirects not followed: (code, Location, body).
+
+    The body is read only up to the size cap. A redirect lands in the HTTPError, like every other
+    HTTP answer: its Location is returned so a magnet: redirect can be used.
+    """
+    opener = urllib.request.build_opener(_NoFollow)
+    try:
+        with opener.open(urllib.request.Request(url), timeout=15) as r:
+            return r.getcode(), (r.headers.get('Location') or ''), r.read(_TORBOX_MAX_TORRENT_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        return exc.code, ((exc.headers.get('Location') or '') if exc.headers else ''), b''
+    except Exception:
+        raise ValueError('the indexer did not give a usable torrent for this result.')
+
+
+def _torbox_key():
+    """The TorBox key from its own file, or None when the file is missing or empty. Re-read after 60 s."""
+    global TORBOX_KEY, TORBOX_KEY_AT
+    with _TORBOX_KEY_LOCK:
+        if TORBOX_KEY is None and time.time() - TORBOX_KEY_AT > 60:
+            TORBOX_KEY_AT = time.time()
+            try:
+                with open(TORBOX) as f:
+                    TORBOX_KEY = (json.load(f).get('key') or '').strip() or None
+            except Exception:
+                TORBOX_KEY = None
+        return TORBOX_KEY
+
+
+def _scrub_key(text):
+    key = _torbox_key()
+    if key and key in text:
+        text = text.replace(key, '***')
+    return text[:200]
+
+
+def torbox(method, path, fields=(), files=(), timeout=20):
+    """One TorBox API call (multipart form). Raises RuntimeError with TorBox's own reason, scrubbed and cut to 200 chars."""
+    key = _torbox_key()
+    if not key:
+        raise RuntimeError('the debrid service is not set up')
+    boundary = '----homelab' + secrets.token_hex(16)
+    buf = io.BytesIO()
+    for name, value in fields:
+        buf.write(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n' % (boundary, name, value)).encode())
+    for item in files:
+        name, data = item[0], item[-1]
+        if len(item) == 3:
+            buf.write(('--%s\r\nContent-Disposition: form-data; name="%s"; filename="%s"\r\nContent-Type: application/octet-stream\r\n\r\n'
+                       % (boundary, name, item[1])).encode())
+        else:
+            buf.write(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n' % (boundary, name)).encode())
+        buf.write(data)
+        buf.write(b'\r\n')
+    buf.write(('--%s--\r\n' % boundary).encode())
+    hdrs = {'Authorization': 'Bearer ' + key, 'Content-Type': 'multipart/form-data; boundary=' + boundary}
+    req = urllib.request.Request(TORBOX_API + path, data=buf.getvalue(), headers=hdrs, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode('utf-8', 'replace')
+        try:
+            detail = json.loads(detail).get('detail') or detail
+        except ValueError:
+            pass
+        raise RuntimeError(_scrub_key(detail or ('TorBox answered HTTP %d' % exc.code)))
+    try:
+        ans = json.loads(raw)
+    except ValueError:
+        raise RuntimeError('TorBox answered with something that is not JSON')
+    if not isinstance(ans, dict) or ans.get('success') is not True:
+        detail = str(ans.get('detail') or ans.get('error') or 'TorBox refused the request') if isinstance(ans, dict) else 'TorBox refused the request'
+        raise RuntimeError(_scrub_key(detail))
+    return ans
+
+
+def _indexer_torrent(hit):
+    """The torrent of a Prowlarr result: a magnet, or the .torrent bytes the indexer serves.
+
+    The magnet wins when it is there and usable. Otherwise the downloadUrl (Prowlarr's own download
+    endpoint on 192.168.0.13:9696) is fetched with redirects off: a redirect to a magnet: link is
+    that magnet, a body that starts a bencoded .torrent is the file itself. Anything else is not
+    usable, and so is a file over the size cap.
+    """
+    magnet = hit.get('magnetUrl') or ''
+    if magnet.startswith('magnet:') and MAGNET.fullmatch(magnet):
+        return 'magnet', magnet
+    url = hit.get('downloadUrl') or ''
+    if not url.startswith(('http://', 'https://')):
+        raise ValueError('the indexer did not give a usable torrent for this result.')
+    code, location, body = _indexer_get(url)
+    if location.startswith('magnet:') and MAGNET.fullmatch(location):
+        return 'magnet', location
+    if body[:11] == b'd8:announce' or (body[:1] == b'd' and b'4:info' in body):
+        if len(body) > _TORBOX_MAX_TORRENT_BYTES:
+            raise ValueError('the indexer did not give a usable torrent for this result.')
+        return 'torrent', body
+    raise ValueError('the indexer did not give a usable torrent for this result.')
+
+
+def grab_debrid(token):
+    """A Debrid-tab Get: create the torrent at TorBox and remember it as a 'preparing' row.
+
+    No fallback to RdtClient: a refusal is TorBox's own reason, at once. A second Get for a torrent
+    whose hash already has a 'preparing' row answers ok without adding it again.
+    """
+    with RESULTS_LOCK:
+        hit = RESULTS.get(token)
+    if not hit:
+        raise LookupError
+    info_hash = (hit.get('infoHash') or '').lower()
+    with _STATE_LOCK:
+        state = _load_state()
+        existing = next((d for d in state['downloads']
+                         if d.get('state') == 'preparing' and info_hash
+                         and (d.get('torbox') or {}).get('hash') == info_hash), None)
+    if existing:
+        return dict(ok=True, title=existing.get('title') or hit.get('title'), via='debrid')
+    # Fetch the torrent bytes/magnet before calling TorBox.
+    kind, payload = _indexer_torrent(hit)
+    if kind == 'magnet':
+        ans = torbox('POST', '/torrents/createtorrent', fields=[('magnet', payload)])
+    else:
+        ans = torbox('POST', '/torrents/createtorrent', files=[('file', payload)])
+    data = ans.get('data') if isinstance(ans.get('data'), dict) else {}
+    torrent_id = data.get('torrent_id') or data.get('id')
+    torrent_hash = data.get('hash') or info_hash or ''
+    if not torrent_id:
+        raise RuntimeError('TorBox did not answer with a torrent id')
+    title = _clean_title(hit.get('title') or '') or ('torbox-%s' % torrent_id)
+    row = {'name': 'torbox-%s' % torrent_id, 'state': 'preparing', 'title': title, 'kind': None,
+           'torbox': {'torrent_id': torrent_id, 'hash': str(torrent_hash).lower()},
+           'release': hit.get('title'), 'started': int(time.time()),
+           'prep': {'progress': 0, 'seeds': None, 'files': None, 'cached': False},
+           'dest': None, 'bytes': 0, 'scanned': False, 'scan_error': None, 'error': None}
+    with _STATE_LOCK:
+        state = _load_state()
+        state['downloads'].append(row)
+        _save_state(state)
+    return dict(ok=True, title=title, via='debrid')
 
 
 def _reply(handler, code, data):
@@ -668,7 +838,7 @@ def _load_state():
     rows = state.get('downloads') if isinstance(state, dict) else None
     if not isinstance(rows, list):
         return {'downloads': []}
-    return {'downloads': [_migrate_row(d) for d in rows if isinstance(d, dict) and d.get('dest') and d.get('name')]}
+    return {'downloads': [_migrate_row(d) for d in rows if isinstance(d, dict) and d.get('name') and (d.get('dest') or d.get('state') == 'preparing')]}
 
 
 def _save_state(state):
@@ -1131,6 +1301,18 @@ def handle(handler, post=False):
     kind = body.get('kind')
     if kind is not None and kind not in ('movie', 'show'):
         _reply(handler, 400, {'ok': False, 'error': "kind must be 'movie' or 'show'."}); return True
+    if isinstance(token, str):
+        if _torbox_key():
+            # A Debrid-tab Get with the key set: straight to TorBox (no RdtClient, no fallback).
+            try: _reply(handler, 200, grab_debrid(token))
+            except LookupError: _reply(handler, 410, {'ok': False, 'error': 'That result expired. Search again.'})
+            except ValueError as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
+            except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
+            return True
+        # No key: Get behaves exactly as before, through Prowlarr and RdtClient.
+        try: _reply(handler, 200, {'ok': True, 'title': grab(token)})
+        except LookupError: _reply(handler, 410, {'ok': False, 'error': 'That result expired. Search again.'})
+        return True
     if isinstance(url, str):
         url = url.strip()
         if not DEBRID_HTTP.fullmatch(url):
