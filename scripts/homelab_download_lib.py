@@ -47,11 +47,12 @@ TERMINAL_SCANNABLE = ('finished', 'present')
 # --allow-overwrite=false: a finished file is never replaced. Resuming a partial file still works
 # because --continue=true keys off the .aria2 control file, and start_debrid() already answers
 # "already finished" for a whole file with no control file, so aria2c rarely sees the case at all.
-# --max-redirect=0: run() follows redirects itself (each hop through safe_url); aria2c must not
-# follow a chain this worker has not checked.
+# Redirects: run() resolves them itself first (resolve_redirects, each hop through safe_url) and hands
+# aria2c the final URL, which answered without a redirect. aria2c has no option to switch redirects
+# off (1.37.0 rejects --max-redirect: "unrecognized option", so every download failed at start), so
+# a server that redirects aria2c again later is the remaining, accepted gap.
 ARIA2_FLAGS = ('-x16', '-s16', '-k1M', '--continue=true', '--auto-file-renaming=false',
-               '--allow-overwrite=false', '--file-allocation=none', '--summary-interval=3',
-               '--max-redirect=0')
+               '--allow-overwrite=false', '--file-allocation=none', '--summary-interval=3')
 # Both sides check this list: the dashboard rejects a non-media link early, the worker has the final
 # word on .3. tests/test_debrid_parity.py fails if one side changes it alone.
 MEDIA_EXT = {'.mkv', '.mp4', '.m4v', '.mov', '.avi', '.wmv', '.flv', '.webm', '.m4a', '.mp3', '.flac', '.epub'}
@@ -262,7 +263,7 @@ def resolve_redirects(url: str) -> str:
 
     safe_url only ever tests the first host. A debrid link usually 302s to a different CDN host,
     and aria2c used to follow any chain it was handed - possibly to a LAN address. run() hands
-    aria2c --max-redirect=0, so this is the only thing that follows redirects. The probe is a GET
+    aria2c the final URL, so every hop it would follow has been checked here first. The probe is a GET
     for the first byte only (some CDNs answer HEAD with nothing useful); the byte is thrown away,
     aria2c downloads the final URL itself. A non-redirect error answer keeps the URL (the GET
     may still work); a hop that leaves the public internet fails the job in one sentence.

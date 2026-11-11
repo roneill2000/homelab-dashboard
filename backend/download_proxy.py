@@ -187,7 +187,7 @@ def search(query, kind):
             # key, so none of them may ever be in an HTTP answer. Get needs them to reach TorBox.
             RESULTS[token] = {'at': now, 'guid': r['guid'], 'indexerId': r['indexerId'], 'title': r.get('title'),
                               'magnetUrl': r.get('magnetUrl'), 'downloadUrl': r.get('downloadUrl'),
-                              'infoHash': r.get('infoHash')}
+                              'infoHash': r.get('infoHash'), 'protocol': r.get('protocol')}
             info = r.get('infoUrl') if str(r.get('infoUrl', '')).startswith(('https://', 'http://')) else None
             out.append({'id': token, 'title': r.get('title'), 'size': r.get('size'), 'seeders': r.get('seeders'),
                         'leechers': r.get('leechers'), 'grabs': r.get('grabs'), 'indexer': r.get('indexer'),
@@ -2097,7 +2097,11 @@ def handle(handler, post=False):
     if kind is not None and kind not in ('movie', 'show'):
         _reply(handler, 400, {'ok': False, 'error': "kind must be 'movie' or 'show'."}); return True
     if isinstance(token, str):
-        if _rd_key() or _torbox_key():
+        with RESULTS_LOCK:
+            protocol = (RESULTS.get(token) or {}).get('protocol')
+        # Only a torrent result can go to a debrid service. A Usenet result (an NZB) keeps going through
+        # Prowlarr to SABnzbd, keys or not; before 11 Nov evening every Usenet Get with a key file 503'd here.
+        if protocol == 'torrent' and (_rd_key() or _torbox_key()):
             # A Debrid-tab Get with either key file: Real-Debrid first, TorBox as its fallback (no RdtClient).
             try: _reply(handler, 200, grab_debrid(token))
             except LookupError: _reply(handler, 410, {'ok': False, 'error': 'That result expired. Search again.'})

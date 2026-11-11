@@ -1081,9 +1081,11 @@ class DebridGrabTests(DebridTests):
         os.remove(self.torbox_path)
         self.reset_key_cache()
 
-    def seed(self, token, magnet=None, download=None, info_hash=HASH, title='Big Buck Bunny 2008 720p'):
+    def seed(self, token, magnet=None, download=None, info_hash=HASH, title='Big Buck Bunny 2008 720p',
+             protocol='torrent'):
         dp.RESULTS[token] = {'at': time.time(), 'guid': 'g', 'indexerId': 6, 'title': title,
-                             'magnetUrl': magnet, 'downloadUrl': download, 'infoHash': info_hash}
+                             'magnetUrl': magnet, 'downloadUrl': download, 'infoHash': info_hash,
+                             'protocol': protocol}
 
     def fake_torbox(self, answer=None, calls=None, error=None):
         calls = calls if calls is not None else []
@@ -1124,6 +1126,19 @@ class DebridGrabTests(DebridTests):
         self.assertEqual((codes, body['title']), ([200], 'Big Buck Bunny 2008 720p'))
         pr.assert_called_once_with('/api/v1/search', {'guid': 'g', 'indexerId': 6})
         self.assertNotIn('search', body2['features'])
+        self.assertFalse(os.path.exists(self.state_path))
+
+    def test_a_usenet_get_goes_to_prowlarr_even_with_both_keys(self):
+        """An NZB is not a torrent: a Usenet result keeps the Prowlarr -> SABnzbd path when keys exist."""
+        self.seed('u1', download='http://192.168.0.13:9696/1/download?apikey=x', info_hash=None, protocol='usenet')
+        with patch.object(dp, 'prowlarr') as pr, \
+             patch.object(dp, '_indexer_get', side_effect=AssertionError('an NZB must not be fetched as a torrent')), \
+             patch.object(dp, 'torbox', side_effect=AssertionError('TorBox must not be called')), \
+             patch.object(dp, 'realdebrid', side_effect=AssertionError('Real-Debrid must not be called')):
+            _, codes, body = call('/api/action/download', OK, {'result': 'u1'})
+        self.assertEqual(codes, [200])
+        self.assertNotEqual(body.get('via'), 'debrid')
+        pr.assert_called_once_with('/api/v1/search', {'guid': 'g', 'indexerId': 6})
         self.assertFalse(os.path.exists(self.state_path))
 
     def test_no_key_get_reports_a_refused_grab_as_a_503(self):

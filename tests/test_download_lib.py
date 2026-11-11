@@ -7,6 +7,8 @@ from real logs on .3.
 import contextlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import types
@@ -834,7 +836,7 @@ class StopDownload(unittest.TestCase):
 
 
 class RunHardening(unittest.TestCase):
-    """run() follows redirects itself (each hop through safe_url, aria2c gets --max-redirect=0),
+    """run() follows redirects itself (each hop through safe_url) and hands aria2c the final URL,
     and a finished file can never be overwritten (--allow-overwrite=false). Nothing here reaches
     the network, systemd, aria2c or DNS: the probe opener, the job records and the subprocess
     are all fakes."""
@@ -897,7 +899,6 @@ class RunHardening(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(len(argvs), 1)
         self.assertEqual(argvs[0][-1], 'https://cdn2.example.com/x.mkv')
-        self.assertIn('--max-redirect=0', argvs[0])
         self.assertIn('--allow-overwrite=false', argvs[0])
 
     def test_a_non_redirect_answer_from_the_probe_keeps_the_original_url(self):
@@ -905,10 +906,18 @@ class RunHardening(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(argvs[0][-1], URL)
 
-    def test_the_flags_aria2c_gets_forbid_overwrite_and_foreign_redirects(self):
-        self.assertIn('--max-redirect=0', lib.ARIA2_FLAGS)
+    def test_the_flags_aria2c_gets_forbid_overwrite(self):
         self.assertIn('--allow-overwrite=false', lib.ARIA2_FLAGS)
         self.assertNotIn('--allow-overwrite=true', lib.ARIA2_FLAGS)
+
+    @unittest.skipUnless(shutil.which('aria2c'), 'aria2c is not installed here')
+    def test_the_installed_aria2c_accepts_every_flag(self):
+        # 11 Nov: --max-redirect=0 (a wget option) made aria2c 1.37.0 exit at once on every download.
+        # --dry-run checks the options and fetches nothing; a refused option exits 28 with "unrecognized".
+        with tempfile.TemporaryDirectory() as d:
+            out = subprocess.run(['aria2c', *lib.ARIA2_FLAGS, '--dry-run=true', '-d', d, 'http://127.0.0.1:9/x.mkv'],
+                                 capture_output=True, text=True, timeout=30)
+        self.assertNotIn('unrecognized option', out.stdout + out.stderr)
 
     def test_a_whole_file_without_control_file_is_never_replaced(self):
         # decide_state calls this job finished; start_debrid answers and no unit is ever started,
