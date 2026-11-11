@@ -408,7 +408,9 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--md-sys-color-outline-variant)}
 .dl-row__text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .dl-row__text>strong{font-weight:500;overflow-wrap:anywhere}
-.dl-row__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.dl-row__head>strong{font-weight:500;overflow-wrap:anywhere;min-width:0}.dl-row__head>.badge{flex:none}.dl-row__meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.dl-row__meta>small{flex:1;min-width:0}.dl-row__meta>.m3-btn{margin:-6px -12px -6px 0}
+.dl-row__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.dl-row__head>strong{font-weight:500;overflow-wrap:anywhere;min-width:0}.dl-row__head>.badge{flex:none}
+/* One right edge for the panel: plain status text, Stop / Cancel / Retry and Clear all end on the same line as the bars and the coloured pills. */
+.dl-row__head>.badge.neutral{padding-right:0}.dl-subhead-row>.m3-btn{margin-right:-12px}.dl-row__meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.dl-row__meta>small{flex:1;min-width:0}.dl-row__meta>.m3-btn{margin:-6px -12px -6px 0}
 .dl-row__text small{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size)}
 .dl-row .m3-btn{flex:none}
 /* Search results: every row is exactly three lines (title, quality tags, details), so the list scans evenly. */
