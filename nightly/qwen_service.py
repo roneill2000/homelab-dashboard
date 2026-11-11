@@ -357,7 +357,7 @@ def main():
             subprocess.Popen(['/usr/bin/python3',str(Path(__file__).resolve())],stdin=subprocess.DEVNULL,
                              stdout=sink,stderr=sink,start_new_session=True,close_fds=True)
         return
-    singleton=open(r.ROOT/'qwen-service.lock','a')
+    singleton=open('/run/qwen-service.lock','a')  # RAM: never pins /mnt/disk1 at array stop
     try:fcntl.flock(singleton,fcntl.LOCK_EX|fcntl.LOCK_NB)
     except BlockingIOError:return
     # Python waits for the non-daemon inference worker to clean up on termination.
