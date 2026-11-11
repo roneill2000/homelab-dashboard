@@ -1401,3 +1401,290 @@ class DebridGrabTests(DebridTests):
         row = self.read_state()[0]
         self.assertNotIn(self.RD_KEY, json.dumps(row))
         self.assertIn('***', row['error'])
+
+
+class DebridWatchTests(DebridTests):
+    """Flow step 2: the tick watches a 'preparing' row at its debrid service.
+
+    Only the services, the worker and the clock are faked; the row logic runs as written, with the
+    shapes the live services answer in (checked against Real-Debrid and TorBox on 11 Nov 2026).
+    """
+
+    HASH = 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c'
+    MAGNET = 'magnet:?xt=urn:btih:' + HASH + '&dn=Big+Buck+Bunny'
+
+    def setUp(self):
+        super().setUp()
+        self.p_tb = patch.object(dp, 'TORBOX', os.path.join(self.tmp.name, 'torbox.json'))
+        self.p_rd = patch.object(dp, 'REALDEBRID', os.path.join(self.tmp.name, 'realdebrid.json'))
+        self.p_tb.start()
+        self.p_rd.start()
+        self.addCleanup(self.p_tb.stop)
+        self.addCleanup(self.p_rd.stop)
+        with open(os.path.join(self.tmp.name, 'torbox.json'), 'w') as f:
+            json.dump({'key': 'tb-key'}, f)
+        with open(os.path.join(self.tmp.name, 'realdebrid.json'), 'w') as f:
+            json.dump({'key': 'rd-key'}, f)
+        self.addCleanup(dp.RESULTS.clear)
+
+    def prep_row(self, name='rd-1', provider='realdebrid', tid=1, started=None, tried=None, error=None, **over):
+        """One preparing row in the state file, in the shape Get writes."""
+        row = {'name': name, 'state': 'preparing', 'provider': provider, 'title': 'Big Buck Bunny', 'kind': None,
+               'debrid': {'id': tid, 'hash': self.HASH}, 'release': 'Big.Buck.Bunny.2008.1080p.x264.mkv',
+               'started': started if started is not None else int(time.time()), 'tried': list(tried or [provider]),
+               'prep': {'progress': 0, 'seeds': None, 'files': None,
+                        'provider': 'Real-Debrid' if provider == 'realdebrid' else 'TorBox'},
+               'dest': None, 'bytes': 0, 'scanned': False, 'scan_error': None, 'error': error}
+        row.update(over)
+        self.write_state([row])
+        return row
+
+    def rd_fake(self, info=None, calls=None, fail=None):
+        """Real-Debrid answers, in its own shapes: info, selectFiles, delete."""
+        calls = calls if calls is not None else []
+
+        def call(method, path, fields=None, raw=None, timeout=20):
+            calls.append((method, path, fields))
+            if not dp._STATE_LOCK.acquire(blocking=False):
+                raise AssertionError('the state lock is held across a service call')
+            dp._STATE_LOCK.release()
+            if fail is not None:
+                raise fail
+            if path.startswith('/torrents/info'):
+                return info if info is not None else {'id': 1, 'status': 'downloading', 'progress': 40,
+                                                      'seeders': 12, 'files': [], 'links': []}
+            return {}   # selectFiles, delete: 204 with no body
+        return call
+
+    def tb_fake(self, data=None, calls=None, fail=None):
+        """TorBox answers, in its own envelope: mylist, createtorrent."""
+        calls = calls if calls is not None else []
+
+        def call(method, path, fields=(), files=(), timeout=20):
+            calls.append((method, path, fields))
+            if fail is not None:
+                raise fail
+            if path.startswith('/torrents/mylist'):
+                return {'success': True, 'data': data if data is not None else
+                         [{'id': 7, 'download_state': 'queued', 'progress': 0.2, 'seeds': 30,
+                           'download_finished': False, 'download_present': False, 'files': []}]}
+            return {'success': True, 'data': {'torrent_id': 7, 'hash': self.HASH}}
+        return call
+
+    def rd_info(self, status, progress, files, **over):
+        info = {'id': 1, 'status': status, 'progress': progress, 'seeders': 12, 'files': files, 'links': [],
+                'hash': self.HASH, 'filename': 'Big.Buck.Bunny.2008.1080p.x264.mkv', 'bytes': 0,
+                'original_bytes': 800 * 1024 * 1024}
+        info.update(over)
+        return info
+
+    def files_of(self, *entries):
+        return [{'id': i, 'path': '/' + n, 'bytes': b, 'selected': 0} for i, (n, b) in enumerate(entries, 1)]
+
+    # ------------------------------------------------------------------ progress
+    def test_a_preparing_row_copies_progress_seeds_and_the_media_count(self):
+        self.prep_row()
+        info = self.rd_info('downloading', 40, self.files_of(('Big.Buck.Bunny.2008.1080p.x264.mkv', 800 << 20),
+                                                          ('Big.Buck.Bunny.2008.1080p.x264.en.srt', 40 << 10)))
+        rd, tb = [], []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info, calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=self.tb_fake(calls=tb)), \
+             patch.object(dp, '_download_rpc', side_effect=AssertionError('the worker is not for a preparing row')):
+            dp._debrid_tick()
+        row = self.read_state()[0]
+        self.assertEqual(row['state'], 'preparing')
+        self.assertEqual((row['prep']['progress'], row['prep']['seeds'], row['prep']['files']), (0.4, 12, 1))
+        self.assertEqual(row['prep']['provider'], 'Real-Debrid')
+        self.assertEqual(rd[0][:2], ('GET', '/torrents/info/1'))
+        self.assertFalse(rd[0][2])
+        self.assertEqual(tb, [])
+
+    def test_the_subtitle_and_the_small_trailer_are_not_media(self):
+        self.prep_row()
+        big = 800 << 20
+        info = self.rd_info('downloading', 10, self.files_of(('Show.S01E01.1080p.x264.mkv', big),
+                                                             ('Show.S01E01.SAMPLE.mkv', 120 << 20),
+                                                             ('Show.S01E01.en.srt', 40 << 10),
+                                                             ('trailer.mkv', 30 << 20),
+                                                             ('extra.nfo', 4 << 10)))
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info)):
+            dp._debrid_tick()
+        row = self.read_state()[0]
+        self.assertEqual(row['prep']['files'], 1)   # only the episode itself: the sample, the subs, the
+        # trailer and the .nfo all fall out of the media rule
+        self.assertEqual(row['files_small'], 1)     # the 30 MB trailer, because an 800 MB file exists
+        self.assertNotIn('files_cut', row)         # nothing was left out for the 60 file cap
+
+    def test_a_realdebrid_row_asks_for_the_media_ids_only(self):
+        self.prep_row()
+        big = 800 << 20
+        files = self.files_of(('Show.S01E01.1080p.x264.mkv', big), ('Show.S01E01.SAMPLE.mkv', 300 << 20),
+                              ('Show.S01E01.en.srt', 40 << 10))
+        info = self.rd_info('waiting_files_selection', 0, files)
+        rd = []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info, calls=rd)):
+            dp._debrid_tick()
+        paths = [(m, p) for m, p, _ in rd]
+        self.assertEqual(paths, [('GET', '/torrents/info/1'), ('POST', '/torrents/selectFiles/1')])
+        self.assertEqual(rd[1][2], {'files': '1'})
+        self.assertEqual(self.read_state()[0]['selected'], [1])
+
+    def test_a_torrent_with_no_media_file_in_it_moves_off_realdebrid(self):
+        self.prep_row()
+        self.move_sidecar('rd-1')
+        info = self.rd_info('waiting_files_selection', 0, self.files_of(('poster.jpg', 40 << 10), ('subs.srt', 4 << 10)))
+        rd, tb = [], []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info, calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=self.tb_fake(calls=tb)):
+            dp._debrid_tick()
+        row = self.read_state()[0]
+        self.assertEqual((row['state'], row['provider']), ('preparing', 'torbox'))
+        self.assertIn('no media file', row['error'])
+        self.assertEqual([m + p for m, p, _ in rd], ['GET/torrents/info/1', 'DELETE/torrents/delete/1'])
+        self.assertTrue(any(p.startswith('/torrents/createtorrent') for _m, p, _ in tb))
+
+    # ------------------------------------------------------------------ fallback
+    def test_a_dead_realdebrid_torrent_moves_to_torbox_once(self):
+        self.prep_row()
+        self.move_sidecar('rd-1')
+        info = self.rd_info('dead', 0, [])
+        rd, tb = [], []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info, calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=self.tb_fake(calls=tb)):
+            dp._debrid_prep_tick(time.time())
+        first = self.read_state()[0]
+        self.assertEqual((first['name'], first['state'], first['provider']), ('rd-1', 'preparing', 'torbox'))
+        self.assertEqual(first['tried'], ['realdebrid', 'torbox'])
+        self.assertEqual(first['debrid'], {'id': 7, 'hash': self.HASH})
+        self.assertEqual(first['prep']['provider'], 'TorBox')
+        self.assertIn('Real-Debrid: dead', first['error'])
+        self.assertEqual(rd[1][:2], ('DELETE', '/torrents/delete/1'))
+        self.assertEqual(tb[0][:2], ('POST', '/torrents/createtorrent'))
+        self.assertEqual(tb[0][2][0], ('magnet', self.MAGNET))
+        rd2, tb2 = [], []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(calls=rd2)), \
+             patch.object(dp, 'torbox', side_effect=self.tb_fake(calls=tb2)):
+            dp._debrid_prep_tick(time.time() + dp._DEBRID_PREP_READ + 1)
+        self.assertEqual(rd2, [])   # the row is at TorBox now: Real-Debrid is not asked again
+        self.assertEqual(len([1 for m, p, _ in tb2 if p.startswith('/torrents/mylist')]), 1)
+        self.assertEqual(len([1 for m, p, _ in tb2 if p.startswith('/torrents/createtorrent')]), 0)
+
+    def test_a_realdebrid_row_that_made_no_progress_for_6_hours_moves(self):
+        now = time.time()
+        self.prep_row(started=int(now - dp._DEBRID_PREP_STALL - 120))
+        self.move_sidecar('rd-1')
+        info = self.rd_info('downloading', 0, [])
+        rd, tb = [], []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info, calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=self.tb_fake(calls=tb)):
+            dp._debrid_prep_tick(now)
+        row = self.read_state()[0]
+        self.assertEqual(row['provider'], 'torbox')
+        self.assertIn('no progress for 6 hours', row['error'])
+        self.assertEqual(rd[1][:2], ('DELETE', '/torrents/delete/1'))
+
+    def test_a_realdebrid_row_that_cannot_be_moved_fails_with_both_reasons(self):
+        self.prep_row(error='Real-Debrid: infringing file')   # no sidecar entry: nothing to hand on
+        info = self.rd_info('error', 0, [])
+        rd, tb = [], []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info, calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=self.tb_fake(calls=tb)):
+            dp._debrid_prep_tick(time.time())
+        row = self.read_state()[0]
+        self.assertEqual(row['state'], 'failed')
+        self.assertIn('infringing file', row['error'])
+        self.assertIn('the torrent for the fallback is gone', row['error'])
+        self.assertEqual(tb, [])   # nothing reached TorBox
+
+    def test_a_torbox_row_that_fails_has_nowhere_left_and_carries_both_reasons(self):
+        self.prep_row(provider='torbox', tid=7, tried=['realdebrid', 'torbox'], error='Real-Debrid: infringing file')
+        self.move_sidecar('rd-1')
+        tb = []
+        with patch.object(dp, 'torbox', side_effect=self.tb_fake(
+            data=[{'id': 7, 'download_state': 'error', 'progress': 0, 'seeds': 0,
+                   'download_finished': False, 'download_present': False, 'files': []}], calls=tb)):
+            dp._debrid_prep_tick(time.time())
+        row = self.read_state()[0]
+        self.assertEqual(row['state'], 'failed')
+        self.assertIn('infringing file', row['error'])
+        self.assertIn('TorBox: error', row['error'])
+        self.assertEqual(self.read_sidecar().get('rd-1'), None)   # the private torrent goes with the row
+
+    def test_a_row_at_one_service_for_24_hours_fails_with_that_one_sentence(self):
+        now = time.time()
+        self.prep_row(started=int(now - dp._DEBRID_PREP_AGING - 60))
+        self.move_sidecar('rd-1')
+        info = self.rd_info('downloading', 40, [])
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info)):
+            dp._debrid_prep_tick(now)
+        row = self.read_state()[0]
+        self.assertEqual(row['state'], 'failed')
+        self.assertEqual(row['error'], 'the debrid services did not finish this torrent in 24 hours')
+        self.assertEqual(self.read_sidecar().get('rd-1'), None)
+
+    # ------------------------------------------------------------------ private data
+    def move_sidecar(self, name):
+        dp._sidecar_store(name, 'magnet', self.MAGNET)
+
+    def read_sidecar(self):
+        with open(dp.DEBRID_STATE + '.prep') as f:
+            return json.load(f)
+
+    def test_the_sidecar_file_holds_the_magnet_and_is_never_world_readable(self):
+        self.prep_row()
+        self.move_sidecar('rd-1')
+        mode = os.stat(dp.DEBRID_STATE + '.prep').st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+        self.assertEqual(self.read_sidecar()['rd-1'], {'kind': 'magnet', 'magnet': self.MAGNET})
+        rows = dp._debrid_rows(dp._load_state())
+        blob = json.dumps(rows)
+        self.assertNotIn('magnet', blob)
+        self.assertNotIn('debrid', json.dumps(rows[0]).replace('"state": "preparing"', ''))
+
+    def test_a_service_read_failure_is_kept_without_ending_the_row(self):
+        self.prep_row()
+        with patch.object(dp, 'realdebrid', side_effect=RuntimeError('Real-Debrid is down right now')):
+            dp._debrid_prep_tick(time.time())
+        row = self.read_state()[0]
+        self.assertEqual(row['state'], 'preparing')
+        self.assertIn('Real-Debrid is down right now', row['prep_error'])
+
+    def test_no_row_is_read_twice_inside_10_seconds_and_only_6_rows_per_tick(self):
+        now = time.time()
+        rows = [dict(self.prep_row(name='rd-%d' % i, tid=i), read=now - (i * 2)) for i in range(1, 8)]
+        self.write_state(rows)
+        seen = []
+
+        def info_call(method, path, fields=None, raw=None, timeout=20):
+            seen.append(path)
+            return self.rd_info('downloading', 1, [])
+        with patch.object(dp, 'realdebrid', side_effect=info_call):
+            dp._debrid_prep_tick(now)
+        self.assertLessEqual(len(seen), dp._DEBRID_PREP_ROWS)
+        self.assertEqual(len(seen), len(set(seen)))
+        seen2 = []
+        with patch.object(dp, 'realdebrid', side_effect=lambda *a, **k: seen2.append(a[1]) or {}):
+            dp._debrid_prep_tick(now + 1)
+        self.assertEqual(seen2, [])   # every row was read inside the last 10 s
+
+    def test_the_download_tick_never_asks_the_worker_about_a_preparing_row(self):
+        self.prep_row()
+        self.write_state([{'name': 'rd-1', 'state': 'preparing', 'provider': 'realdebrid', 'title': 'T',
+                          'kind': None, 'debrid': {'id': 1, 'hash': self.HASH}, 'dest': None, 'bytes': 0,
+                          'started': int(time.time()), 'scanned': False, 'tried': ['realdebrid'],
+                          'release': 'r', 'prep': {'progress': 0, 'seeds': None, 'files': None,
+                                                  'provider': 'Real-Debrid'}, 'error': None},
+                         {'name': 'Dune.2021.mkv', 'state': 'finished', 'dest': '/mnt/unraid/Movies',
+                          'bytes': 1 << 30, 'scanned': False, 'started': int(time.time())}])
+        jobs = []
+
+        def rpc(payload, timeout=45):
+            jobs.append(payload['jobs'])
+            return {'ok': True, 'jobs': [{'dest': '/mnt/unraid/Movies', 'name': 'Dune.2021.mkv',
+                                         'state': 'finished', 'bytes': 1 << 30, 'total_bytes': 1 << 30}]}
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=self.rd_info('downloading', 5, []))), \
+             patch.object(dp, '_download_rpc', side_effect=rpc), \
+             patch.object(dp, '_jellyfin_scan', return_value=True):
+            dp._debrid_tick()
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0], [{'dest': '/mnt/unraid/Movies', 'name': 'Dune.2021.mkv'}])

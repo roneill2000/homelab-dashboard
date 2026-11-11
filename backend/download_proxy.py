@@ -4,6 +4,7 @@ Grabs go through Prowlarr, which sends torrents to RdtClient and NZBs to SABnzbd
 the same path its own Search page uses. Magnets go straight to RdtClient in that category. The browser never sees
 indexer URLs or API keys: search results are handed out as short-lived tokens.
 """
+import base64
 import http.cookiejar
 import io
 import json
@@ -322,8 +323,13 @@ def torbox(method, path, fields=(), files=(), timeout=20):
         buf.write(data)
         buf.write(b'\r\n')
     buf.write(('--%s--\r\n' % boundary).encode())
-    hdrs = {'Authorization': 'Bearer ' + key, 'Content-Type': 'multipart/form-data; boundary=' + boundary}
-    req = urllib.request.Request(TORBOX_API + path, data=buf.getvalue(), headers=hdrs, method=method)
+    hdrs = {'Authorization': 'Bearer ' + key}
+    if fields or files:
+        hdrs['Content-Type'] = 'multipart/form-data; boundary=' + boundary
+    else:
+        buf = None   # a GET with nothing in it: no body, no content type
+    req = urllib.request.Request(TORBOX_API + path, data=(buf.getvalue() if buf is not None else None),
+                                headers=hdrs, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read()
@@ -494,6 +500,7 @@ def grab_debrid(token):
                'debrid': {'id': torrent_id, 'hash': str(torrent_hash or info_hash).lower()},
                'release': hit.get('title'), 'started': int(time.time()), 'tried': list(tried),
                'prep': {'progress': 0, 'seeds': None, 'files': None, 'provider': display},
+           'prep_at': int(time.time()),   # the stall clock the fallback step watches
                'dest': None, 'bytes': 0, 'scanned': False, 'scan_error': None,
                # The provider that refused first, in the row's own details: Ryan sees why this torrent
                # did not stay at Real-Debrid.
@@ -502,6 +509,8 @@ def grab_debrid(token):
             state = _load_state()
             state['downloads'].append(row)
             _save_state(state)
+        # The private half of the row: the same torrent, so the fallback service can be given it later.
+        _sidecar_store(row['name'], kind, payload)
         return dict(ok=True, title=title, via='debrid')
     detail = '. '.join(reasons)
     raise ValueError(_scrub_key(detail) if reasons else 'no debrid key file is set up')
@@ -1094,8 +1103,10 @@ def _debrid_tick():
     _age_out_rows()
     with _STATE_LOCK:
         state = _load_state()
-        due = [d for d in state['downloads'] if d['state'] not in _DEBRID_SCAN_UNTIL or not d.get('scanned')]
+        due = [d for d in state['downloads'] if d['state'] != 'preparing'
+                and (d['state'] not in _DEBRID_SCAN_UNTIL or not d.get('scanned'))]
         jobs = [{'dest': d['dest'], 'name': d['name']} for d in due[-_DEBRID_CHECK_MAX:]]
+    _debrid_prep_tick(time.time())
     if not jobs:
         return
     try:
@@ -1154,6 +1165,393 @@ def _debrid_tick():
                 touched = True
         if touched:
             _save_state(state)
+
+
+# --- Flow step 2: an 'At debrid' row, watched at the debrid service by the tick -------------------
+#
+# A preparing row is not a download yet: its files are still being fetched by Real-Debrid or TorBox.
+# The tick reads it at that service (never at the download worker), copies progress, seeders and the
+# media file count into prep, chooses the files at Real-Debrid, and moves the torrent to the fallback
+# service when Real-Debrid is dead on it. The magnet or .torrent bytes a row might need for that live
+# in a sidecar file of their own: a panel row never carries them.
+
+_DEBRID_PREP_READ = 10           # seconds between two reads of one preparing row
+_DEBRID_PREP_ROWS = 6            # preparing rows read in one tick
+_DEBRID_PREP_STALL = 6 * 3600    # no progress at Real-Debrid for this long: the fallback takes the torrent
+_DEBRID_PREP_AGING = 24 * 3600   # neither service finished in this long: the row fails
+_DEBRID_PREP_KEEP = 20
+_DEBRID_FILES_MAX = 60                 # files of one torrent; more than this, the first 60 by name
+_DEBRID_MIN_BYTES = 50 * 1024 * 1024   # a smaller media file is an extra when a bigger one exists
+_DEBRID_HANDOVER = 2                   # files handed to the download worker per tick (flow step 3)
+_RD_CALL_SPACING = 1.0                 # Real-Debrid: one call per second at least (250 a minute)
+_TB_CALL_SPACING = 3.0                 # TorBox requestdl: throttled at about 20 a minute
+_RD_TORRENT_DEAD = ('magnet_error', 'error', 'virus', 'dead')
+_TB_TORRENT_DEAD = ('error', 'failed', 'expired', 'canceled')
+
+
+def _sidecar_path():
+    """The sidecar sits next to the state file, so it follows wherever the state file lives."""
+    return DEBRID_STATE + '.prep'
+
+
+def _sidecar_load():
+    """The private half of the preparing rows: how to hand the same torrent to another service."""
+    try:
+        with open(_sidecar_path()) as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _sidecar_save(data):
+    """One write, 0600, in the same tmp-fsync-rename shape the state file uses: it can hold a magnet
+    and 5 MB of torrent bytes."""
+    sidecar = _sidecar_path()
+    os.makedirs(os.path.dirname(sidecar), exist_ok=True)
+    tmp = sidecar + '.tmp'
+    with open(tmp, 'w') as f:
+        os.chmod(tmp, 0o600)
+        json.dump(data, f, separators=(',', ':'))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, sidecar)
+    try:
+        os.chmod(sidecar, 0o600)
+    except OSError:
+        pass
+
+
+def _sidecar_store(name, kind, payload):
+    """Remember the torrent of one preparing row, keyed by that row's name."""
+    data = _sidecar_load()
+    item = {'kind': kind}
+    if kind == 'magnet':
+        item['magnet'] = payload
+    else:
+        item['torrent'] = base64.b64encode(payload).decode()
+    data[name] = item
+    _sidecar_save(dict(list(data.items())[-_DEBRID_PREP_KEEP:]))
+
+
+def _sidecar_payload(name):
+    """(kind, payload) for one row, or None when nothing was stored for it."""
+    item = _sidecar_load().get(name)
+    if not isinstance(item, dict):
+        return None
+    if item.get('kind') == 'magnet' and item.get('magnet'):
+        return 'magnet', item['magnet']
+    if item.get('kind') == 'torrent' and item.get('torrent'):
+        try:
+            return 'torrent', base64.b64decode(item['torrent'])
+        except Exception:
+            return None
+    return None
+
+
+def _sidecar_forget(name):
+    """Drop one row's torrent: its story is closed, so the bytes and the magnet go with it."""
+    data = _sidecar_load()
+    if data.pop(name, None) is not None:
+        _sidecar_save(data)
+
+
+def _row_provider(d):
+    """Which service a row is at now. Rows step 1 wrote before this flow only imply it."""
+    provider = d.get('provider')
+    if provider in ('realdebrid', 'torbox'):
+        return provider
+    return 'torbox' if isinstance(d.get('torbox'), dict) else None
+
+
+def _row_torrent_id(d):
+    """The service's own torrent id for a row, from its debrid object or the older torbox one."""
+    for holder in ('debrid', 'torbox'):
+        item = d.get(holder)
+        if isinstance(item, dict):
+            for field in ('id', 'torrent_id'):
+                value = item.get(field)
+                if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
+                    return int(value)
+    return None
+
+
+def _rd_view(info):
+    """One Real-Debrid torrent, in the shape the tick uses. progress becomes 0 to 1."""
+    if not isinstance(info, dict):
+        info = {}
+    files = []
+    for f in info.get('files') or []:
+        if not isinstance(f, dict):
+            continue
+        path = str(f.get('path') or '')
+        files.append({'id': f.get('id'), 'name': path.rsplit('/', 1)[-1], 'bytes': int(f.get('bytes') or 0),
+                      'infected': False})
+    try:
+        progress = min(1.0, max(0.0, float(info.get('progress') or 0) / 100.0))
+    except (TypeError, ValueError):
+        progress = 0.0
+    seeds = info.get('seeders')
+    return {'status': str(info.get('status') or ''),
+            'progress': progress,
+            'seeds': int(seeds) if seeds is not None else None,
+            'files': files,
+            'links': [str(x) for x in (info.get('links') or []) if isinstance(x, str)],
+            'name': str(info.get('filename') or info.get('original_filename') or ''),
+            'bytes': int(info.get('original_bytes') or info.get('bytes') or 0),
+            'ready': str(info.get('status') or '') == 'downloaded'}
+
+
+def _tb_view(data):
+    """One TorBox torrent, in the same shape. Its progress is already 0 to 1; ready means the
+    files are finished and present."""
+    if not isinstance(data, dict):
+        data = {}
+    files = []
+    for f in data.get('files') or []:
+        if not isinstance(f, dict):
+            continue
+        files.append({'id': f.get('id'),
+                      'name': str(f.get('name') or f.get('short_name') or ''),
+                      'bytes': int(f.get('size') or 0),
+                      'infected': bool(f.get('infected'))})
+    try:
+        progress = min(1.0, max(0.0, float(data.get('progress') or 0)))
+    except (TypeError, ValueError):
+        progress = 0.0
+    seeds = data.get('seeds')
+    return {'status': str(data.get('download_state') or ''),
+            'progress': progress,
+            'seeds': int(seeds) if seeds is not None else None,
+            'files': files,
+            'links': [],
+            'name': str(data.get('name') or ''),
+            'bytes': int(data.get('size') or 0),
+            'ready': bool(data.get('download_finished') and data.get('download_present'))}
+
+
+def _media_pick(files):
+    """The media files of a torrent, in the order the worker gets them.
+
+    A name must end in a known media extension; a name with 'sample' in it goes, and so does a file
+    TorBox marked infected. When at least one media file is 50 MB or bigger, the smaller ones go too:
+    they are trailers and bonus tracks. More than 60: the first 60 by name, and how many were left out.
+    """
+    keep = [f for f in files
+            if isinstance(f.get('name'), str) and _is_media_name(f['name'])
+            and 'sample' not in f['name'].lower() and not f.get('infected')]
+    if not keep:
+        return [], 0, 0
+    biggest = max(int(f.get('bytes') or 0) for f in keep)
+    small = 0
+    if biggest >= _DEBRID_MIN_BYTES:
+        big = [f for f in keep if int(f.get('bytes') or 0) >= _DEBRID_MIN_BYTES]
+        if big:
+            small = len(keep) - len(big)
+            keep = big
+    keep.sort(key=lambda f: f['name'].lower())
+    overflow = max(0, len(keep) - _DEBRID_FILES_MAX)
+    return keep[:_DEBRID_FILES_MAX], small, overflow
+
+
+def _is_media_name(name):
+    return os.path.splitext(name)[1].lower() in MEDIA_EXT
+
+
+def _read_provider(provider, torrent_id):
+    """One read of a preparing row's torrent at its own service. Raises what the service raises."""
+    if provider == 'realdebrid':
+        return _rd_view(realdebrid('GET', '/torrents/info/%d' % torrent_id))
+    ans = torbox('GET', '/torrents/mylist?id=%d&bypass_cache=true' % torrent_id)
+    data = ans.get('data') if isinstance(ans, dict) else None
+    entry = (data[0] if isinstance(data, list) and data else {})
+    return _tb_view(entry)
+
+
+def _prep_display(provider):
+    return 'Real-Debrid' if provider == 'realdebrid' else 'TorBox'
+
+
+def _prep_reasons(d):
+    """Every reason the services gave this row, oldest first, for the text Ryan sees."""
+    out = []
+    for part in (d.get('error'), d.get('prep_error')):
+        if part and str(part) not in out:
+            out.append(str(part)[:200])
+    return out
+
+
+def _debrid_prep_tick(now):
+    """Flow step 2 once: at most 6 preparing rows, no row read twice inside 10 s. Runs in the tick loop."""
+    with _STATE_LOCK:
+        rows = [d for d in _load_state()['downloads'] if d.get('state') == 'preparing'][-_DEBRID_PREP_ROWS:]
+    for row in rows:
+        try:
+            if now - float(row.get('read') or 0) >= _DEBRID_PREP_READ:
+                _prep_refresh(row['name'], now)
+        except Exception:
+            pass   # one bad row must not stop the others, and never stop the download tick
+
+
+def _prep_update(name, mutate):
+    """Write one preparing row after the service answered, with the state lock free during the call."""
+    with _STATE_LOCK:
+        state = _load_state()
+        row = next((d for d in state['downloads'] if d['name'] == name), None)
+        if row is None or row.get('state') != 'preparing':
+            return False
+        mutate(row)
+        _save_state(state)
+    return True
+
+
+def _prep_note(row, text):
+    """Keep a service's reason on the row without ending its story: the 24 h clock still runs."""
+    if text:
+        row['prep_error'] = str(text)[:200]
+
+
+def _prep_close(row, now, text, solo=False):
+    """End a preparing row: it failed, and the reason is what the services said about it.
+
+    Every reason the row collected goes in, oldest first, so a row that moved on to the fallback still
+    says why the first service let go. solo=True keeps only this text: the 24 hour clock says it all.
+    """
+    parts = [text] if solo else (_prep_reasons(row) + ([text] if text and text not in _prep_reasons(row) else []))
+    row['state'], row['state_since'] = 'failed', int(now)
+    row['error'] = _scrub_key('; '.join(str(p) for p in parts)) or 'the debrid service did not finish this torrent'
+    _sidecar_forget(row['name'])
+
+
+def _prep_note(row, text):
+    """Keep a service's reason on the row without ending its story: the 24 hour clock still runs."""
+    if text:
+        row['prep_error'] = str(text)[:200]
+
+
+def _prep_update(name, mutate):
+    """Write one preparing row, with the state lock held only around the rows themselves."""
+    with _STATE_LOCK:
+        state = _load_state()
+        row = next((d for d in state['downloads'] if d['name'] == name), None)
+        if row is None or row.get('state') != 'preparing':
+            return False
+        mutate(row)
+        _save_state(state)
+    return True
+
+
+def _prep_refresh(name, now):
+    """One preparing row: read it at its service, then write what that answer said.
+
+    Anything else a service call is needed for - choosing the files at Real-Debrid, moving the torrent
+    to the fallback - happens before the row is written: the state lock is never held across a call
+    to Real-Debrid or TorBox.
+    """
+    with _STATE_LOCK:
+        row = next((d for d in _load_state()['downloads'] if d['name'] == name), None)
+        row = dict(row) if row is not None else None
+    if row is None or row.get('state') != 'preparing':
+        return
+    provider, torrent_id = _row_provider(row), _row_torrent_id(row)
+    if provider is None or torrent_id is None:
+        _prep_update(name, lambda d: _prep_close(d, now, 'this row names no torrent to watch'))
+        return
+    view, read_error = None, None
+    try:
+        view = _read_provider(provider, torrent_id)
+    except Exception as exc:
+        read_error = _scrub_key(str(exc))
+    if view is None:
+        _prep_update(name, lambda d: _prep_note(d, read_error))
+        return
+
+    media, small, overflow = _media_pick(view['files'])
+    select_ids, select_error = None, None
+    if provider == 'realdebrid' and view['status'] == 'waiting_files_selection':
+        # Real-Debrid starts nothing until the files are chosen: hand it the media ids now.
+        if not media:
+            select_error = 'no media file in this torrent'
+        else:
+            ids = ','.join(str(f['id']) for f in media if f.get('id') is not None)
+            try:
+                realdebrid('POST', '/torrents/selectFiles/%d' % torrent_id, fields={'files': ids})
+                select_ids = [f['id'] for f in media]
+            except Exception as exc:
+                select_error = _scrub_key(str(exc))
+
+    # What this answer means. Only a Real-Debrid row can be handed to the fallback: a TorBox row that
+    # goes wrong has nowhere left to go, and the 24 hour clock ends either kind.
+    close_it, move, why, solo = False, False, None, False
+    started = float(row.get('started') or 0)
+    if started > 1e9 and now - started > _DEBRID_PREP_AGING:
+        close_it, solo = True, True
+        why = 'the debrid services did not finish this torrent in 24 hours'
+    elif provider == 'realdebrid':
+        if view['status'] in _RD_TORRENT_DEAD:
+            move, why = True, 'Real-Debrid: %s' % view['status']
+        elif select_error:
+            move, why = True, 'Real-Debrid: %s' % select_error
+        elif (view['progress'] <= float(row.get('prep_progress') or 0)
+              and now - float(row.get('prep_at') or row.get('started') or now) > _DEBRID_PREP_STALL):
+            move, why = True, 'Real-Debrid: no progress for 6 hours'
+    elif view['status'] in _TB_TORRENT_DEAD:
+        close_it, why = True, 'TorBox: %s' % view['status']
+
+    # Moving to the fallback is its own pair of calls, made before the row changes.
+    moved_id, moved_error = None, None
+    if move:
+        payload = _sidecar_payload(name)
+        if payload is None:
+            moved_error = 'the torrent for the fallback is gone'
+        else:
+            try:
+                realdebrid('DELETE', '/torrents/delete/%d' % torrent_id)
+            except Exception:
+                pass   # already gone at Real-Debrid: TorBox can take the torrent either way
+            try:
+                moved_id, moved_hash = _tb_add_torrent(payload[0], payload[1])
+                if not moved_id:
+                    moved_id, moved_error = None, 'TorBox did not answer with a torrent id'
+            except Exception as exc:
+                moved_id, moved_error = None, _scrub_key(str(exc))
+
+    def apply(d):
+        d['read'] = now
+        prep = dict(d.get('prep') or {})
+        prep['progress'] = view['progress']
+        prep['seeds'] = view['seeds']
+        prep['files'] = len(media)
+        prep['provider'] = _prep_display(_row_provider(d) or provider)
+        d['prep'] = prep
+        d['ready'] = bool(view['ready'])
+        if small:
+            d['files_small'] = small
+        if overflow:
+            d['files_cut'] = overflow
+        if select_ids is not None:
+            d['selected'] = select_ids
+        if read_error:
+            _prep_note(d, read_error)
+            return
+        if close_it:
+            _prep_close(d, now, why, solo=solo)
+            return
+        if move:
+            if moved_error:
+                _prep_close(d, now, '%s; %s' % (why or '', moved_error))
+                return
+            d['provider'] = 'torbox'
+            d['debrid'] = {'id': moved_id, 'hash': _row_hash(d)}
+            d['tried'] = list(d.get('tried') or []) + ['torbox']
+            d['prep']['provider'] = 'TorBox'   # the row now lives at the fallback service
+            d['error'] = _scrub_key(why or '')
+            _prep_note(d, why)
+            return
+        if view['progress'] > float(d.get('prep_progress') or 0):
+            d['prep_progress'], d['prep_at'] = view['progress'], now
+
+    _prep_update(name, apply)
 
 
 def _aged_out(row, now) -> bool:
