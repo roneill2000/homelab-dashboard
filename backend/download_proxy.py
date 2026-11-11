@@ -1582,24 +1582,6 @@ def _debrid_prep_tick(now):
             pass   # one bad row must not stop the others, and never stop the download tick
 
 
-def _prep_update(name, mutate):
-    """Write one preparing row after the service answered, with the state lock free during the call."""
-    with _STATE_LOCK:
-        state = _load_state()
-        row = next((d for d in state['downloads'] if d['name'] == name), None)
-        if row is None or row.get('state') != 'preparing':
-            return False
-        mutate(row)
-        _save_state(state)
-    return True
-
-
-def _prep_note(row, text):
-    """Keep a service's reason on the row without ending its story: the 24 h clock still runs."""
-    if text:
-        row['prep_error'] = str(text)[:200]
-
-
 def _prep_close(row, now, text, solo=False):
     """End a preparing row: it failed, and the reason is what the services said about it.
 
