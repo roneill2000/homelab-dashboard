@@ -478,3 +478,4 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 }
 /* Tablet and desktop: the pin star keeps its 36 px look but gets a 48 px hit area. */
 @media(min-width:600px){.pin-button::after{content:"";position:absolute;inset:-6px}}
+.issue-chip--clear{gap:4px;background:transparent;box-shadow:inset 0 0 0 1px currentColor}
