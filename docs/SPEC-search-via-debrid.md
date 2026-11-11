@@ -19,7 +19,7 @@ Out of scope, leave untouched: the Usenet tab (SABnzbd), Sonarr (it keeps using 
 
 **Requests: confirmed 11 Nov by Claude** from TorBox's own API description, `https://api.torbox.app/openapi.json`
 (fetch it with `curl`; no key needed. `https://api-docs.torbox.app/` is a script-rendered page and returns almost
-nothing to a fetch). **Answers: not described there.** Read the real field names with one read-only call before coding:
+nothing to a fetch). **Answers: not described there; the torrent list was checked live (row below).** To see it yourself:
 `curl -s -H "Authorization: Bearer $KEY" "https://api.torbox.app/v1/api/torrents/mylist?limit=1&bypass_cache=true"`.
 If a step below needs a field that does not exist, stop and tell Ryan.
 
@@ -31,7 +31,7 @@ Auth header `Authorization: Bearer <key>`. Your own account is `GET /user/me` (n
 |---|---|---|
 | Add a torrent | `POST /torrents/createtorrent`, **multipart form**: `magnet` or `file` (the .torrent bytes), optional `name`, `seed`, `allow_zip`, `as_queued`, `add_only_if_cached`. | Request confirmed. Answer fields (`torrent_id`, `hash`, `name` per a changelog): verify. |
 | Read one torrent | `GET /torrents/mylist?id=<torrent_id>&bypass_cache=true` (also `offset`, `limit`, `files`, `active`). | Request confirmed. The list is otherwise cached about 10 minutes. |
-| Torrent fields | Expected: `id`, `name`, `size`, `progress` (0 to 1), `download_state`, `download_finished`, `download_present`, `seeds`, `download_speed`, `files[]` with `id`, `name`, `short_name`, `size`. | **Not described. Verify every name and the `download_state` values with the call above.** |
+| Torrent fields | **Confirmed 11 Nov (live `mylist`, Claude):** envelope `{"success", "error", "detail", "data": [...]}`. Torrent: `id`, `hash`, `name`, `size`, `progress` (0 to 1; a finished one reads `1`), `download_state`, `download_finished`, `download_present`, `cached`, `seeds`, `peers`, `download_speed`, `eta`, `active`, `created_at`, `updated_at`, `expires_at`, `files[]`. File: `id`, `name`, `short_name`, `size`, `mimetype`, `infected`. | Names confirmed. Only `download_state: "cached"` was seen (the account's two torrents were finished); treat finished = `download_finished and download_present`, and read any other state's text as-is. A file with `infected: true` is never handed over. |
 | Link for one file | `GET /torrents/requestdl?token=<key>&torrent_id=<id>&file_id=<id>` (also `zip_link`, `user_ip`, `redirect`, `append_name`). The key goes in `token`, not the header. | Request confirmed. Answer `data` is expected to be the https link: verify. Links expire (1 to 3 hours reported); calls are throttled (about 20 a minute reported). |
 | Many files at once | `GET /torrents/requestdl/batch?token=<key>&torrent_id=<id>&file_ids=<ids>`. | Exists. Optional: it could replace per-file calls for a season pack, but keep the 3 s spacing rule per call. |
 | Is it already cached | `GET /torrents/checkcached?hash=<hash>&format=object&list_files=true`. | Request confirmed. Optional for this spec. |
