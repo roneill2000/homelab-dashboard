@@ -26,6 +26,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
+import urllib.request
 
 SHARE_ROOT = '/mnt/unraid'
 MOVIES_DIR = '/mnt/unraid/Movies'
@@ -43,8 +44,14 @@ TERMINAL_SCANNABLE = ('finished', 'present')
 # --file-allocation=none: aria2c otherwise reserves the whole target size up front, so a 34 GB
 # download reads as 34 GB on disk seconds after it starts, and the size says nothing about how far
 # it got. It also avoids writing that phantom size across the CIFS mount.
+# --allow-overwrite=false: a finished file is never replaced. Resuming a partial file still works
+# because --continue=true keys off the .aria2 control file, and start_debrid() already answers
+# "already finished" for a whole file with no control file, so aria2c rarely sees the case at all.
+# --max-redirect=0: run() follows redirects itself (each hop through safe_url); aria2c must not
+# follow a chain this worker has not checked.
 ARIA2_FLAGS = ('-x16', '-s16', '-k1M', '--continue=true', '--auto-file-renaming=false',
-               '--allow-overwrite=true', '--file-allocation=none', '--summary-interval=3')
+               '--allow-overwrite=false', '--file-allocation=none', '--summary-interval=3',
+               '--max-redirect=0')
 # Both sides check this list: the dashboard rejects a non-media link early, the worker has the final
 # word on .3. tests/test_debrid_parity.py fails if one side changes it alone.
 MEDIA_EXT = {'.mkv', '.mp4', '.m4v', '.mov', '.avi', '.wmv', '.flv', '.webm', '.m4a', '.mp3', '.flac', '.epub'}
@@ -233,6 +240,50 @@ def safe_url(url, resolve=True) -> str:
     if resolve and private_host(host):
         raise BadDownload('the download host is not on the public internet')
     return url.strip()
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirects are followed one hop at a time, so every hop passes safe_url."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _probe_opener():
+    opener = urllib.request.build_opener(_NoRedirect)
+    opener.addheaders = [('User-Agent', 'homelab-download/1.0')]
+    return opener
+
+
+_MAX_REDIRECT_HOPS = 4
+
+
+def resolve_redirects(url: str) -> str:
+    """The real download address, with at most 4 redirects, each hop checked by safe_url.
+
+    safe_url only ever tests the first host. A debrid link usually 302s to a different CDN host,
+    and aria2c used to follow any chain it was handed - possibly to a LAN address. run() hands
+    aria2c --max-redirect=0, so this is the only thing that follows redirects. The probe is a GET
+    for the first byte only (some CDNs answer HEAD with nothing useful); the byte is thrown away,
+    aria2c downloads the final URL itself. A non-redirect error answer keeps the URL (the GET
+    may still work); a hop that leaves the public internet fails the job in one sentence.
+    """
+    target = url
+    for _ in range(_MAX_REDIRECT_HOPS + 1):
+        req = urllib.request.Request(target, headers={'Range': 'bytes=0-0'})
+        try:
+            with _probe_opener().open(req, timeout=15):
+                return target                      # an answer, not a redirect: this is the final URL
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (301, 302, 303, 307, 308):
+                return target                      # 403 on the probe is not a redirect
+            hop = urllib.parse.urljoin(target, exc.headers.get('Location') or '')
+            try:
+                target = safe_url(hop)
+            except BadDownload:
+                raise BadDownload('the link redirects to a host that is not on the public internet')
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return target                      # probe cannot reach it; aria2c will state its own reason
+    raise BadDownload('the link redirects more than four times')
 
 
 def unit_name(name: str) -> str:
@@ -587,8 +638,15 @@ def run(unit: str, url, dest, name) -> int:
     signal.signal(signal.SIGTERM, on_term)
 
     write_job(unit, state='running', dest=dest, name=name, started=time.time(), error=None)
+    try:
+        final_url = resolve_redirects(url)
+    except BadDownload as exc:
+        # The link itself is the problem; nothing was fetched and aria2c never starts.
+        write_job(unit, state='failed', finished=time.time(), error=str(exc))
+        print('FAILED ' + str(exc), flush=True)
+        return 1
     print(f'start aria2c -> {dest}/{name}', flush=True)
-    argv = ['aria2c', *ARIA2_FLAGS, '--out=' + name, '-d', dest, url]
+    argv = ['aria2c', *ARIA2_FLAGS, '--out=' + name, '-d', dest, final_url]
     # aria2c writes its own progress and summaries to the unit's log file (fd level, so no reader
     # thread is needed); the prints above go to that file and to the journal.
     rc = subprocess.run(argv, stdout=handle, stderr=subprocess.STDOUT).returncode

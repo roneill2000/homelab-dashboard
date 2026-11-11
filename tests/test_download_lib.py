@@ -4,16 +4,25 @@ Nothing here touches the share, systemd, aria2c, or DNS: the state machine is a 
 function, file and log checks run in a temporary folder, and log fixtures are copied
 from real logs on .3.
 """
+import contextlib
 import json
 import os
 import sys
 import tempfile
+import types
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 import homelab_download_lib as lib
 
 URL = 'https://nyk7-4.download.real-debrid.com/d/abcdef/Memento.2000.BluRay.1080p.mkv'
+
+
+class NoNetworkOpener:
+    """A probe opener that answers as if the host replied directly: no redirect, no network."""
+    def open(self, req, timeout=None):
+        return contextlib.nullcontext()
 
 # Copied from the real debrid log on .3 (dl-Memento...log), trimmed.
 ARIA2_LOG = """start aria2c -> /mnt/unraid/Movies/Memento.mkv
@@ -634,7 +643,8 @@ class WorkerRun(unittest.TestCase):
                         patch.object(lib, 'SHOWS_DIR', os.path.join(root, 'Shows')),
                         patch.object(lib, 'LOG_DIR', self.logs), patch.object(lib, 'JOB_DIR', self.jobs),
                         patch.object(lib, 'mount_ok', return_value=True),
-                        patch.object(lib, 'private_host', return_value=False)]
+                        patch.object(lib, 'private_host', return_value=False),
+                        patch.object(lib, '_probe_opener', lambda: NoNetworkOpener())]
         for p in self.patches:
             p.start()
         self.out, self.err = sys.__stdout__, sys.__stderr__
@@ -820,6 +830,95 @@ class StopDownload(unittest.TestCase):
             for bad in ('../escape.mkv', 'a/b.mkv', '', '.', 5):
                 with self.assertRaises(lib.BadDownload):
                     lib.stop_download(bad)
+        run.assert_not_called()
+
+
+class RunHardening(unittest.TestCase):
+    """run() follows redirects itself (each hop through safe_url, aria2c gets --max-redirect=0),
+    and a finished file can never be overwritten (--allow-overwrite=false). Nothing here reaches
+    the network, systemd, aria2c or DNS: the probe opener, the job records and the subprocess
+    are all fakes."""
+
+    def setUp(self):
+        self.jobs = []
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        for name, target in (('LOG_DIR', self.tmp.name), ('mount_ok', lambda: True),
+                             ('safe_dest', lambda d: d), ('file_state', lambda d, n: (True, 123, False)),
+                             ('progress_for', lambda u: {}), ('private_host', lambda h: False),
+                             ('write_job', lambda unit, **kw: self.jobs.append(kw | {'unit': unit}))):
+            patcher = patch.object(lib, name, target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def fake_opener(self, script):
+        """One answer per probe: (redirect code, Location) or (0, None) for a plain answer."""
+        seq = list(script)
+        class Fake:
+            def open(self, req, timeout=None):
+                code, loc = seq.pop(0) if seq else (0, None)
+                if code:
+                    raise urllib.error.HTTPError(req.full_url, code, '', {'Location': loc}, None)
+                return contextlib.nullcontext()
+        return Fake()
+
+    def run_run(self, script):
+        argvs = []
+        opener = self.fake_opener(script)   # one opener: the script answers probe by probe
+
+        def sub(cmd, **kw):
+            argvs.append(list(cmd))
+            return types.SimpleNamespace(returncode=0)
+
+        with patch.object(lib, '_probe_opener', lambda: opener), \
+             patch.object(lib.subprocess, 'run', side_effect=sub):
+            orig_out, orig_err = sys.stdout, sys.stderr
+            try:
+                rc = lib.run('dl-x.mkv', URL, '/mnt/unraid/Movies', 'x.mkv')
+            finally:
+                sys.stdout, sys.stderr = orig_out, orig_err   # run() tees the process's stdout
+        return rc, argvs
+
+    def test_a_redirect_to_a_lan_host_fails_the_job_and_aria2c_never_runs(self):
+        rc, argvs = self.run_run([(302, 'https://192.168.0.4/x.mkv')])
+        self.assertEqual((rc, argvs), (1, []))
+        self.assertEqual(self.jobs[0]['state'], 'running')
+        self.assertEqual(self.jobs[-1]['state'], 'failed')
+        self.assertEqual(self.jobs[-1]['error'], 'the link redirects to a host that is not on the public internet')
+
+    def test_five_hops_fail_the_job(self):
+        script = [(302, f'https://hop{n}.example.com/x.mkv') for n in range(1, 6)]
+        rc, argvs = self.run_run(script)
+        self.assertEqual((rc, argvs), (1, []))
+        self.assertEqual(self.jobs[-1]['error'], 'the link redirects more than four times')
+
+    def test_a_public_hop_is_handed_to_aria2c_as_the_final_url(self):
+        rc, argvs = self.run_run([(302, 'https://cdn2.example.com/x.mkv'), (0, None)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(argvs), 1)
+        self.assertEqual(argvs[0][-1], 'https://cdn2.example.com/x.mkv')
+        self.assertIn('--max-redirect=0', argvs[0])
+        self.assertIn('--allow-overwrite=false', argvs[0])
+
+    def test_a_non_redirect_answer_from_the_probe_keeps_the_original_url(self):
+        rc, argvs = self.run_run([(403, None)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(argvs[0][-1], URL)
+
+    def test_the_flags_aria2c_gets_forbid_overwrite_and_foreign_redirects(self):
+        self.assertIn('--max-redirect=0', lib.ARIA2_FLAGS)
+        self.assertIn('--allow-overwrite=false', lib.ARIA2_FLAGS)
+        self.assertNotIn('--allow-overwrite=true', lib.ARIA2_FLAGS)
+
+    def test_a_whole_file_without_control_file_is_never_replaced(self):
+        # decide_state calls this job finished; start_debrid answers and no unit is ever started,
+        # so the finished file cannot be touched even by aria2c with --continue=true.
+        with patch.object(lib, 'job_state', return_value={'state': 'finished', 'unit': 'dl-x.mkv',
+                                                          'dest': '/mnt/unraid/Movies', 'name': 'x.mkv'}), \
+             patch.object(lib.subprocess, 'run', side_effect=AssertionError('no unit may be started')) as run:
+            out = lib.start_debrid(URL, '/mnt/unraid/Movies', 'x.mkv')
+        self.assertEqual((out['ok'], out['state']), (True, 'finished'))
+        self.assertIn('already finished', out['message'])
         run.assert_not_called()
 
 
