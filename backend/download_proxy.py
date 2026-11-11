@@ -1570,14 +1570,16 @@ def _prep_reasons(d):
 
 def _debrid_prep_tick(now):
     """Flow steps 2 and 3 once: at most 6 preparing rows read, no row twice inside 10 s, and at
-    most 2 files handed to the download worker for the whole tick. Runs in the tick loop."""
+    most 2 files handed to the download worker for the whole tick. The two limits are separate: a row
+    is still read once the hand-over budget is spent, so its progress keeps moving in the panel.
+    Runs in the tick loop."""
     with _STATE_LOCK:
         rows = [d for d in _load_state()['downloads'] if d.get('state') == 'preparing'][-_DEBRID_PREP_ROWS:]
     budget = _DEBRID_HANDOVER
     for row in rows:
         try:
-            if budget > 0 and now - float(row.get('read') or 0) >= _DEBRID_PREP_READ:
-                budget -= _prep_refresh(row['name'], now, budget)
+            if now - float(row.get('read') or 0) >= _DEBRID_PREP_READ:
+                budget = max(0, budget - _prep_refresh(row['name'], now, budget))
         except Exception:
             pass   # one bad row must not stop the others, and never stop the download tick
 
@@ -1678,7 +1680,7 @@ def _prep_refresh(name, now, budget=2):
         row = next((d for d in _load_state()['downloads'] if d['name'] == name), None)
         row = dict(row) if row is not None else None
     if row is None or row.get('state') != 'preparing':
-        return
+        return 0    # the row left the list (Cancel, Clear, another tick): it handed over nothing
     provider, torrent_id = _row_provider(row), _row_torrent_id(row)
     if provider is None or torrent_id is None:
         _prep_update(name, lambda d: _prep_close(d, now, 'this row names no torrent to watch'))

@@ -1736,6 +1736,12 @@ class DebridWatchTests(DebridTests):
             dp._debrid_prep_tick(now + 1)
         self.assertEqual(seen2, [])   # every row was read inside the last 10 s
 
+    def test_a_row_that_is_gone_hands_over_nothing(self):
+        """A row that left the list between the tick's read and its refresh hands over 0 files, and a
+        vanished row is never read at a service."""
+        with patch.object(dp, 'realdebrid', side_effect=AssertionError('no row, no read')):
+            self.assertEqual(dp._prep_refresh('rd-not-here', time.time(), 2), 0)
+
     def test_the_download_tick_never_asks_the_worker_about_a_preparing_row(self):
         self.prep_row()
         self.write_state([{'name': 'rd-1', 'state': 'preparing', 'provider': 'realdebrid', 'title': 'T',
@@ -1861,6 +1867,42 @@ class DebridHandoverTests(DebridTests):
         return call
 
     # ------------------------------------------------------------------ one file
+    def test_a_second_watching_row_is_still_read_when_one_row_hands_two_files(self):
+        """The hand-over budget is not the read budget: a row that already spent both files this tick
+        must not freeze the other watching rows' progress."""
+        now = time.time()
+        names = ['Film.A.2008.1080p.x264.mkv', 'Film.B.2008.1080p.x264.mkv']
+        one = self.prep_row(name='rd-1', tid=1, release=names[0], read=now - 60)
+        two = self.prep_row(name='rd-2', tid=2, release=names[1], read=now - 60)
+        self.write_state([one, two])
+        seen = []
+
+        def call(method, path, fields=None, raw=None, timeout=20):
+            seen.append(method + ' ' + path)
+            if path == '/torrents/info/1':
+                return {'id': 1, 'status': 'downloaded', 'progress': 100, 'hash': self.HASH,
+                        'files': self.rd_files(names),
+                        'links': ['https://rd-lan-invalid.dl/l/1', 'https://rd-lan-invalid.dl/l/2'],
+                        'filename': names[0], 'bytes': self.SIZE * 2, 'original_bytes': self.SIZE * 2}
+            if path == '/torrents/info/2':
+                return {'id': 2, 'status': 'downloading', 'progress': 22, 'seeders': 5, 'hash': 'b' * 40,
+                        'files': [{'id': 1, 'path': '/' + names[1], 'bytes': self.SIZE, 'selected': 1}],
+                        'links': [], 'filename': names[1], 'bytes': self.SIZE, 'original_bytes': self.SIZE}
+            if path == '/unrestrict/link':
+                n = len([c for c in seen if c.endswith('/unrestrict/link')])
+                return {'download': 'https://rd-dl-invalid.dl/f/%d/x.mkv' % n, 'filename': names[n - 1],
+                        'filesize': self.SIZE}
+            return {}
+        with patch.object(dp, 'realdebrid', side_effect=call):
+            dp._debrid_prep_tick(now)
+        rows = {r['name']: r for r in self.read_state()}
+        self.assertIn('GET /torrents/info/2', seen)      # read, even with the hand-over budget spent
+        self.assertEqual((rows['rd-2']['prep']['progress'], rows['rd-2']['prep']['seeds']), (0.22, 5))
+        self.assertEqual(len(self.started), 2)          # and still at most two files this tick
+        self.assertEqual(sorted(c['name'] for c in self.started), sorted(names))
+        self.assertNotIn('rd-1', rows)                    # both files went, so rd-1's watching row retired
+        self.assertEqual(rows['rd-2']['state'], 'preparing')
+
     def test_a_ready_torrent_becomes_one_download_row_under_movies(self):
         self.prep_row(release=self.MOVIE)
         rd = []
