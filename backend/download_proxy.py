@@ -1858,6 +1858,7 @@ def _debrid_rows(state):
                         speed=int(d.get('speed') or 0), eta=d.get('eta') or '',
                         scanned=bool(d.get('scanned')), scan_error=d.get('scan_error'),
                         error=d.get('error'), grounded=d.get('grounded'), started=d.get('started'),
+                        files_small=d.get('files_small'), files_cut=d.get('files_cut'),
                         prep=d.get('prep'),
                         sampled=d.get('sampled'),
                         # The link stays inside the backend: the panel only learns whether a retry is possible.

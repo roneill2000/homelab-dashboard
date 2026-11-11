@@ -1599,6 +1599,19 @@ class DebridWatchTests(DebridTests):
         self.assertEqual(row['files_small'], 1)     # the 30 MB trailer, because an 800 MB file exists
         self.assertNotIn('files_cut', row)         # nothing was left out for the 60 file cap
 
+    def test_the_file_cap_and_the_small_files_are_said_to_the_panel(self):
+        self.prep_row()
+        big = 800 << 20
+        files = self.files_of(*[('Film.%02d.2008.1080p.x264.mkv' % i, big) for i in range(1, 62)],
+                             ('trailer.mkv', 30 << 20))
+        info = self.rd_info('downloading', 40, files)
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_fake(info=info)):
+            dp._debrid_tick()
+        row = self.read_state()[0]
+        self.assertEqual((row['files_small'], row['files_cut']), (1, 1))
+        panel = dp._debrid_rows(dp._load_state())
+        self.assertEqual((panel[0]['files_small'], panel[0]['files_cut']), (1, 1))
+
     def test_a_realdebrid_row_asks_for_the_media_ids_only(self):
         self.prep_row()
         big = 800 << 20
