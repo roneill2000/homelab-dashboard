@@ -651,10 +651,17 @@ def _jellyfin_scan():
         return False
 
 
-def add_debrid(url):
-    """Start a debrid download on the n100 and remember it. Raises ValueError (bad input) or RuntimeError (worker)."""
+def plan_debrid(url, kind=None):
+    """Everything a debrid download does before it starts the worker: link checks, the file name,
+    film-or-series, the destination folder. Nothing is sent, nothing is written.
+
+    kind ('movie' or 'show') wins over everything: it skips classify's ambiguity, the library and the
+    search engine. Any other value is a ValueError (400). Returns the plan the start and the preview share.
+    """
     if not isinstance(url, str) or not DEBRID_HTTP.fullmatch(url.strip()):
         raise ValueError('paste a direct https download link')
+    if kind is not None and kind not in ('movie', 'show'):
+        raise ValueError("kind must be 'movie' or 'show'")
     url = _safe_url(url)
     try:
         name = _safe_name(_name_from_url(url))  # _safe_name already requires a media extension
@@ -666,20 +673,47 @@ def add_debrid(url):
             raise ValueError('this link does not name a media file (.mkv, .mp4, .epub, ...) - %s' % exc)
     info = classify(name)
     grounded = None
-    source = 'name'                                   # the file name itself stated a season/episode
-    if info['ambiguous']:
-        grounded = library_hint(info['title'])
-        if grounded:
-            source = 'library'
-        else:
-            grounded = searxng_ground(info['title'], info['year'])
-            if grounded:
-                source = 'search'
-        if grounded == 'show':
+    if kind:
+        source = 'user'
+        if kind == 'show':
             info['kind'], info['show_dir'] = 'show', _safe_show_dir(info['title'])
+        else:
+            info['kind'], info['show_dir'] = 'movie', None
+    else:
+        source = 'name'                                   # the file name itself stated a season/episode
+        if info['ambiguous']:
+            grounded = library_hint(info['title'])
+            if grounded:
+                source = 'library'
+            else:
+                grounded = searxng_ground(info['title'], info['year'])
+                if grounded:
+                    source = 'search'
+            if grounded == 'show':
+                info['kind'], info['show_dir'] = 'show', _safe_show_dir(info['title'])
     show_dir = info['show_dir'] or _safe_show_dir(info['title'])
     dest = _safe_dest(MOVIES_DIR if info['kind'] == 'movie' else os.path.join(SHOWS_DIR, show_dir))
-    out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': url, 'dest': dest, 'name': name})
+    return dict(url=url, name=name, info=info, dest=dest, source=source, grounded=grounded)
+
+
+def preview_debrid(url, kind=None):
+    """Say where a pasted link would be saved, without starting it: no worker call, no state file.
+
+    The panel treats any answer without 'preview': true as a failed check, so it is always in the answer.
+    """
+    plan = plan_debrid(url, kind)
+    info = plan['info']
+    return dict(ok=True, preview=True, kind=info['kind'], title=info['title'], season=info['season'],
+                episode=info['episode'], year=info['year'], dest=plan['dest'], name=plan['name'],
+                kind_source=plan['source'], grounded=plan['grounded'])
+
+
+def add_debrid(url, kind=None):
+    """Start a debrid download on the n100 and remember it. Raises ValueError (bad input) or RuntimeError (worker)."""
+    plan = plan_debrid(url, kind)
+    info = plan['info']
+    dest, name, source, grounded = plan['dest'], plan['name'], plan['source'], plan['grounded']
+    out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': plan['url'], 'dest': dest, 'name': name})
     row = {'dest': dest, 'name': name, 'unit': out.get('unit') or 'dl-' + name, 'kind': info['kind'],
            'title': info['title'], 'season': info['season'], 'episode': info['episode'],
            'year': info['year'], 'kind_source': source,
@@ -864,7 +898,9 @@ def clear_debrid() -> dict:
 def debrid_status():
     with _STATE_LOCK:
         state = _load_state()
-    return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated')}
+    # 'preview' goes live with the preview route in this same commit; the panel only offers the control
+    # when the name is here, because an older backend would run a preview request as a real download.
+    return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated'), 'features': ['preview']}
 
 
 _DEBRID_LOOP = {'started': False}
@@ -951,11 +987,20 @@ def handle(handler, post=False):
     except (ValueError, OSError):
         _reply(handler, 400, {'ok': False, 'error': 'Invalid request.'}); return True
     magnet, token, url = body.get('magnet'), body.get('result'), body.get('url')
+    kind = body.get('kind')
+    if kind is not None and kind not in ('movie', 'show'):
+        _reply(handler, 400, {'ok': False, 'error': "kind must be 'movie' or 'show'."}); return True
     if isinstance(url, str):
         url = url.strip()
         if not DEBRID_HTTP.fullmatch(url):
             _reply(handler, 400, {'ok': False, 'error': 'That is not a download URL.'}); return True
-        try: _reply(handler, 200, add_debrid(url))
+        if body.get('preview'):
+            # Preview only: nothing reaches the worker, the state file is not touched.
+            try: _reply(handler, 200, preview_debrid(url, kind))
+            except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
+            except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
+            return True
+        try: _reply(handler, 200, add_debrid(url, kind))
         except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
         return True
     if isinstance(magnet, str):

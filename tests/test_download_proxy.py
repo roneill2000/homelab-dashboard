@@ -309,6 +309,78 @@ class DebridTests(unittest.TestCase):
                     dp.add_debrid(bad)
         self.assertEqual(calls, [])
 
+    # ---------------------------------------------------------------- preview ---
+    def test_preview_says_the_folder_without_touching_the_worker_or_the_state(self):
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)):
+            _, codes, body = call('/api/action/download', OK,
+                                   {'url': 'https://nyk.example.com/d/abc/Game.Of.Thrones.S01E03.2160p.mkv', 'preview': True})
+        self.assertEqual(codes, [200])
+        self.assertIs(body['preview'], True)   # the panel treats any answer without this as a failed check
+        self.assertEqual((body['kind'], body['dest'], body['name'], body['kind_source']),
+                         ('show', dp.SHOWS_DIR + '/Game Of Thrones', 'Game.Of.Thrones.S01E03.2160p.mkv', 'name'))
+        self.assertEqual((body['season'], body['episode'], body['year']), (1, 3, None))
+        self.assertEqual(calls, [])
+        self.assertFalse(os.path.exists(self.state_path))
+
+    def test_a_user_kind_beats_an_unambiguous_name(self):
+        _, codes, body = call('/api/action/download', OK,
+                              {'url': 'https://nyk.example.com/d/abc/Breaking.Bad.S05E02.720p.mkv',
+                               'preview': True, 'kind': 'movie'})
+        self.assertEqual(codes, [200])
+        self.assertEqual((body['kind'], body['dest'], body['kind_source']), ('movie', dp.MOVIES_DIR, 'user'))
+
+    def test_a_user_kind_beats_an_ambiguous_name_and_skips_every_lookup(self):
+        asked = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc()), \
+             patch.object(dp, 'library_hint', side_effect=lambda *a: asked.append(a) or None), \
+             patch.object(dp, 'searxng_ground', side_effect=lambda *a: asked.append(a) or None):
+            _, codes, body = call('/api/action/download', OK,
+                                  {'url': 'https://nyk.example.com/d/abc/Some.Show.2019.1080p.mkv',
+                                   'preview': True, 'kind': 'movie'})
+        self.assertEqual(codes, [200])
+        self.assertEqual((body['kind'], body['dest'], body['kind_source']), ('movie', dp.MOVIES_DIR, 'user'))
+        self.assertEqual(asked, [])   # no library, no search engine
+
+    def test_a_start_with_a_user_kind_records_it(self):
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)):
+            _, codes, body = call('/api/action/download', OK,
+                                  {'url': 'https://nyk.example.com/d/abc/Dune.2021.2160p.mkv', 'kind': 'show'})
+        self.assertEqual(codes, [200])
+        self.assertEqual((body['kind'], body['dest'], body['kind_source']), ('show', dp.SHOWS_DIR + '/Dune', 'user'))
+        self.assertEqual(calls[0]['dest'], dp.SHOWS_DIR + '/Dune')
+        rows = self.read_state()
+        self.assertEqual((rows[0]['kind'], rows[0]['kind_source']), ('show', 'user'))
+
+    def test_a_bad_kind_is_refused_before_anything_runs(self):
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)):
+            for kind in ('film', 'SHOW', 'show '):
+                for body in ({'url': 'https://nyk.example.com/d/abc/Memento.2000.mkv', 'preview': True, 'kind': kind},
+                             {'url': 'https://nyk.example.com/d/abc/Memento.2000.mkv', 'kind': kind}):
+                    self.assertEqual(call('/api/action/download', OK, body)[1], [400], str(body))
+        self.assertEqual(calls, [])
+
+    def test_preview_of_a_link_that_names_no_media_file_is_a_400(self):
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)), \
+             patch.object(dp, '_discover_name',
+                          side_effect=ValueError('the server did not say what the file is called')):
+            handled, codes, body = call('/api/action/download', OK,
+                                        {'url': 'https://torbox.example/dld/4fb4e907?token=t', 'preview': True})
+        self.assertEqual(codes, [400])
+        self.assertIn('does not name a media file', body['error'])
+        self.assertEqual(calls, [])
+        self.assertFalse(os.path.exists(self.state_path))
+
+    def test_debrid_status_offers_the_preview_feature(self):
+        self.write_state([])
+        with patch.object(dp, '_download_rpc', side_effect=lambda *a, **k: self.fail('the worker must not be asked')):
+            _, codes, body = call('/api/debrid', OK, post=False)
+        self.assertEqual(codes, [200])
+        self.assertEqual(body['features'], ['preview'])
+
     # ------------------------------------------------- name discovery (TorBox) ---
     def test_a_name_in_the_headers_is_read_out_of_content_disposition(self):
         cases = {
@@ -706,7 +778,7 @@ class DebridTests(unittest.TestCase):
                                                           'episode': None, 'dest': dp.MOVIES_DIR, 'name': 'x.mkv',
                                                           'grounded': None, 'started': 'started dl-x'}) as add:
             self.assertEqual(call('/api/action/download', OK, {'url': url})[1], [200])
-        add.assert_called_once_with(url)
+        add.assert_called_once_with(url, None)
 
     def test_url_route_rejects_non_url(self):
         with patch.object(dp, 'add_debrid') as add:
