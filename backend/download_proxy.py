@@ -1013,7 +1013,7 @@ def _jellyfin_scan():
         return False
 
 
-def plan_debrid(url, kind=None):
+def plan_debrid(url, kind=None, name=None):
     """Everything a debrid download does before it starts the worker: link checks, the file name,
     film-or-series, the destination folder. Nothing is sent, nothing is written.
 
@@ -1025,14 +1025,19 @@ def plan_debrid(url, kind=None):
     if kind is not None and kind not in ('movie', 'show'):
         raise ValueError("kind must be 'movie' or 'show'")
     url = _safe_url(url)
-    try:
-        name = _safe_name(_name_from_url(url))  # _safe_name already requires a media extension
-    except ValueError:
-        # A TorBox nexus link is /dld/<uuid>?token=...: the name is only in the server's headers.
+    if name:
+        # A debrid service names its own files: a torrent's file name is already known, and the
+        # download link it hands out does not name the file at all.
+        name = _safe_name(name)
+    else:
         try:
-            name = _safe_name(_discover_name(url))
-        except ValueError as exc:
-            raise ValueError('this link does not name a media file (.mkv, .mp4, .epub, ...) - %s' % exc)
+            name = _safe_name(_name_from_url(url))  # _safe_name already requires a media extension
+        except ValueError:
+            # A TorBox nexus link is /dld/<uuid>?token=...: the name is only in the server's headers.
+            try:
+                name = _safe_name(_discover_name(url))
+            except ValueError as exc:
+                raise ValueError('this link does not name a media file (.mkv, .mp4, .epub, ...) - %s' % exc)
     info = classify(name)
     grounded = None
     if kind:
@@ -1297,6 +1302,7 @@ def _rd_view(info):
             'seeds': int(seeds) if seeds is not None else None,
             'files': files,
             'links': [str(x) for x in (info.get('links') or []) if isinstance(x, str)],
+            'selected': [f['id'] for f in (info.get('files') or []) if isinstance(f, dict) and f.get('selected')],
             'name': str(info.get('filename') or info.get('original_filename') or ''),
             'bytes': int(info.get('original_bytes') or info.get('bytes') or 0),
             'ready': str(info.get('status') or '') == 'downloaded'}
@@ -1372,6 +1378,110 @@ def _prep_display(provider):
     return 'Real-Debrid' if provider == 'realdebrid' else 'TorBox'
 
 
+_RD_CALL_AT = 0.0
+_TB_CALL_AT = 0.0
+
+
+def _sleep(seconds):
+    """One wait between service calls. A test replaces it to see the spacing without feeling it."""
+    time.sleep(seconds)
+
+
+def _pace(kind, now):
+    """Hold the distance that service demands between its own calls: Real-Debrid 250 a minute,
+    TorBox's download-link call about 20 a minute. Returns the time the call now happens at."""
+    global _RD_CALL_AT, _TB_CALL_AT
+    if kind == 'rd':
+        spacing, last = _RD_CALL_SPACING, _RD_CALL_AT
+    else:
+        spacing, last = _TB_CALL_SPACING, _TB_CALL_AT
+    if last and now - last < spacing:
+        wait = spacing - (now - last)
+        _sleep(wait)
+        now = now + wait
+    if kind == 'rd':
+        _RD_CALL_AT = now
+    else:
+        _TB_CALL_AT = now
+    return now
+
+
+def _rd_link(torrent_id, hoster_link, now):
+    """Real-Debrid's own step: one hoster link becomes one https download link."""
+    now = _pace('rd', now)
+    ans = realdebrid('POST', '/unrestrict/link', fields={'link': hoster_link})
+    link = str(ans.get('download') or '') if isinstance(ans, dict) else ''
+    if not link:
+        raise RuntimeError('Real-Debrid did not answer with a download link')
+    return link, str(ans.get('filename') or ''), int(ans.get('filesize') or 0)
+
+
+def _tb_link(torrent_id, file_id, now):
+    """TorBox's download link for one file. The key rides in the token parameter, and redirect=true is
+    never asked for: that answer is a permanent link with the key inside it."""
+    key = _torbox_key()
+    if not key:
+        raise RuntimeError('the debrid service is not set up')
+    now = _pace('tb', now)
+    ans = torbox('GET', '/torrents/requestdl?token=%s&torrent_id=%d&file_id=%d' % (key, torrent_id, file_id))
+    data = ans.get('data') if isinstance(ans, dict) else None
+    link = str(data.get('download') or data.get('link') or '') if isinstance(data, dict) else str(data or '')
+    if not DEBRID_HTTP.fullmatch(link):
+        raise RuntimeError('TorBox did not answer with a download link')
+    return link, '', 0
+
+
+_ARCHIVE_EXT = ('.rar', '.zip', '.7z', '.tar', '.gz', '.001', '.r00')
+_TORRENT_DELETE_WHEN_DONE = False   # a finished torrent stays in the account: Ryan may want the files again
+
+
+def _plan_handover(row, file_name, link):
+    """Plan one torrent file as a pasted link would be planned, and fix the names that need the release.
+
+    A provider's file name is handed straight to plan_debrid: the download link it gives out names
+    nothing. When the name is only a tag (S02E03.mkv from a pack), the show, the year and film-or-series
+    come from the torrent's release name, while the season and episode stay as the file name stated them.
+    """
+    plan = plan_debrid(link, name=file_name)
+    info = plan['info']
+    stem = os.path.splitext(file_name)[0]
+    bare = not info['title'] or info['title'].lower() == file_name.lower() or info['title'].lower() == stem.lower()
+    if not bare:
+        return plan
+    release = str(row.get('release') or row.get('title') or '').rsplit('/', 1)[-1]
+    rel = classify(os.path.basename(release))
+    title = rel['title'] or info['title']
+    year = rel['year'] or info['year']
+    # The file name stated a season or an episode: that is series evidence whatever the release name
+    # says, so the release only lends its title and its year.
+    if info['kind'] == 'show' or rel['kind'] == 'show':
+        show_dir = _safe_show_dir(title)
+        plan['dest'] = _safe_dest(os.path.join(SHOWS_DIR, show_dir))
+        plan['info'] = dict(info, kind='show', title=title, year=year, show_dir=show_dir)
+    else:
+        plan['dest'] = _safe_dest(MOVIES_DIR)
+        plan['info'] = dict(info, kind='movie', title=title, year=year, show_dir=None)
+    plan['source'] = 'torrent'
+    return plan
+
+
+def _rd_link_for(view, torrent_id, wanted, now):
+    """Real-Debrid's hoster link for one selected file: links[] follows the selected ids, and the
+    answer is checked against that file by name and size."""
+    selected, links = view.get('selected') or [], view.get('links') or []
+    # links[] follows the selected file ids in order, so file N sits at index N-1
+    index = selected.index(wanted['id']) if wanted.get('id') in selected else None
+    if index is None or index >= len(links):
+        raise ValueError('Real-Debrid gave no hoster link for this file')
+    link, name, size = _rd_link(torrent_id, links[index], now)   # links[index] is the hoster link a retry re-asks
+    answer_name = name.lower()
+    if answer_name.endswith(_ARCHIVE_EXT):
+        raise ValueError('packed into an archive: %s' % name[-8:])
+    if answer_name != str(wanted['name']).lower() and size and size != int(wanted.get('bytes') or 0):
+        raise ValueError('Real-Debrid answered with a different file')
+    return links[index], link, name, size
+
+
 def _prep_reasons(d):
     """Every reason the services gave this row, oldest first, for the text Ryan sees."""
     out = []
@@ -1382,13 +1492,15 @@ def _prep_reasons(d):
 
 
 def _debrid_prep_tick(now):
-    """Flow step 2 once: at most 6 preparing rows, no row read twice inside 10 s. Runs in the tick loop."""
+    """Flow steps 2 and 3 once: at most 6 preparing rows read, no row twice inside 10 s, and at
+    most 2 files handed to the download worker for the whole tick. Runs in the tick loop."""
     with _STATE_LOCK:
         rows = [d for d in _load_state()['downloads'] if d.get('state') == 'preparing'][-_DEBRID_PREP_ROWS:]
+    budget = _DEBRID_HANDOVER
     for row in rows:
         try:
-            if now - float(row.get('read') or 0) >= _DEBRID_PREP_READ:
-                _prep_refresh(row['name'], now)
+            if budget > 0 and now - float(row.get('read') or 0) >= _DEBRID_PREP_READ:
+                budget -= _prep_refresh(row['name'], now, budget)
         except Exception:
             pass   # one bad row must not stop the others, and never stop the download tick
 
@@ -1429,19 +1541,74 @@ def _prep_note(row, text):
         row['prep_error'] = str(text)[:200]
 
 
-def _prep_update(name, mutate):
-    """Write one preparing row, with the state lock held only around the rows themselves."""
+def _prep_update(name, mutate, add_rows=None):
+    """Write one preparing row: it may grow, retire, or hand off new download rows beside it.
+
+    The state lock is held only around the rows themselves; every service call and every worker call
+    happened before this.
+    """
     with _STATE_LOCK:
         state = _load_state()
         row = next((d for d in state['downloads'] if d['name'] == name), None)
         if row is None or row.get('state') != 'preparing':
             return False
         mutate(row)
+        if add_rows:
+            keys = {(d['dest'], d['name']) for d in add_rows}
+            state['downloads'] = [d for d in state['downloads'] if (d.get('dest'), d.get('name')) not in keys]
+            state['downloads'].extend(add_rows)
+        if row.pop('_drop', False):
+            state['downloads'] = [d for d in state['downloads'] if d['name'] != name]
         _save_state(state)
     return True
 
 
-def _prep_refresh(name, now):
+def _handover_files(row, view, media, provider, now, limit):
+    """Flow step 3: up to two files of a ready torrent go to the download worker in one tick.
+
+    Each link is asked for at the service at the last moment, because debrid links expire; the file is
+    then planned as if that link had been pasted (with the service's own file name) and started on the n100.
+    The new row keeps the provider's link so a retry can ask for a fresh one (flow step 4), and it keeps
+    no url of its own: aria2c is told the link only when it runs, and those links go dead.
+    """
+    torrent_id = _row_torrent_id(row)
+    handed = set(row.get('handed') or [])
+    todo = [f for f in media if f.get('id') not in handed][:max(0, int(limit))]
+    out, ids, errors, archive = [], [], [], None
+    for wanted in todo:
+        try:
+            if provider == 'realdebrid':
+                service, link, answer_name, _size = _rd_link_for(view, torrent_id, wanted, now)
+            else:
+                # TorBox re-asks by ids, so no service link of its own is kept
+                service = None
+                link, answer_name, _size = _tb_link(torrent_id, wanted['id'], now)
+            plan = _plan_handover(row, wanted['name'], link)
+            info = plan['info']
+            started = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': link,
+                                     'dest': plan['dest'], 'name': plan['name']})
+            out.append({'dest': plan['dest'], 'name': plan['name'],
+                        'unit': started.get('unit') or ('dl-' + plan['name']),
+                        'kind': info['kind'], 'title': info['title'], 'season': info['season'],
+                        'episode': info['episode'], 'year': info['year'], 'kind_source': plan['source'],
+                        'state': started.get('state') if started.get('state') in _DEBRID_STATE_WORDS else 'downloading',
+                        'bytes': 0, 'total_bytes': int(wanted.get('bytes') or 0), 'speed': 0, 'eta': '',
+                        'started': int(now), 'scanned': False, 'scan_error': None, 'error': None,
+                        'grounded': None, 'provider': provider,
+                        'debrid': {'id': torrent_id, 'file': wanted.get('id'), 'link': service}})
+            ids.append(wanted.get('id'))
+        except ValueError as exc:
+            reason = _scrub_key(str(exc))
+            if reason.startswith('packed into an archive'):
+                archive = reason
+                break
+            errors.append(reason)
+        except Exception as exc:
+            errors.append(_scrub_key(str(exc)))
+    return out, ids, errors, archive
+
+
+def _prep_refresh(name, now, budget=2):
     """One preparing row: read it at its service, then write what that answer said.
 
     Anything else a service call is needed for - choosing the files at Real-Debrid, moving the torrent
@@ -1456,7 +1623,7 @@ def _prep_refresh(name, now):
     provider, torrent_id = _row_provider(row), _row_torrent_id(row)
     if provider is None or torrent_id is None:
         _prep_update(name, lambda d: _prep_close(d, now, 'this row names no torrent to watch'))
-        return
+        return 0
     view, read_error = None, None
     try:
         view = _read_provider(provider, torrent_id)
@@ -1464,7 +1631,7 @@ def _prep_refresh(name, now):
         read_error = _scrub_key(str(exc))
     if view is None:
         _prep_update(name, lambda d: _prep_note(d, read_error))
-        return
+        return 0
 
     media, small, overflow = _media_pick(view['files'])
     select_ids, select_error = None, None
@@ -1497,6 +1664,16 @@ def _prep_refresh(name, now):
             move, why = True, 'Real-Debrid: no progress for 6 hours'
     elif view['status'] in _TB_TORRENT_DEAD:
         close_it, why = True, 'TorBox: %s' % view['status']
+
+    # Ready: the files go to the download worker, at most two per tick, links asked for only now.
+    started_rows, started_ids, hand_errors, archive = [], [], [], None
+    if view['ready'] and not move and not close_it:
+        started_rows, started_ids, hand_errors, archive = _handover_files(row, view, media, provider, now, budget)
+        if archive:
+            # One hoster link for several files: the torrent is packed up. Real-Debrid will not split it,
+            # so the fallback service is given the same torrent and nothing is handed over here.
+            move, why = True, 'Real-Debrid: %s' % archive
+            started_rows, started_ids, hand_errors = [], [], []
 
     # Moving to the fallback is its own pair of calls, made before the row changes.
     moved_id, moved_error = None, None
@@ -1534,6 +1711,16 @@ def _prep_refresh(name, now):
         if read_error:
             _prep_note(d, read_error)
             return
+        if started_ids:
+            d['handed'] = list(d.get('handed') or []) + started_ids
+            left = len(media) - len(d['handed'])
+            d['prep']['files'] = max(0, left)
+            if left <= 0 and not move and not close_it:
+                # Every file of this torrent is on its way to the share: the row that watched it can go.
+                d['_drop'] = True
+                _sidecar_forget(d['name'])
+        if hand_errors:
+            _prep_note(d, hand_errors[0])
         if close_it:
             _prep_close(d, now, why, solo=solo)
             return
@@ -1551,7 +1738,8 @@ def _prep_refresh(name, now):
         if view['progress'] > float(d.get('prep_progress') or 0):
             d['prep_progress'], d['prep_at'] = view['progress'], now
 
-    _prep_update(name, apply)
+    _prep_update(name, apply, add_rows=started_rows)
+    return len(started_rows)
 
 
 def _aged_out(row, now) -> bool:

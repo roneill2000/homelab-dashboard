@@ -1688,3 +1688,243 @@ class DebridWatchTests(DebridTests):
             dp._debrid_tick()
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0], [{'dest': '/mnt/unraid/Movies', 'name': 'Dune.2021.mkv'}])
+
+
+class DebridHandoverTests(DebridTests):
+    """Flow step 3: a finished torrent hands its files to the download worker, two per tick.
+
+    The services, the worker and the sleep between their calls are faked; the folder rules, the naming
+    rules and the row shape are the real ones.
+    """
+
+    RD_KEY = 'rdkeyABCDEF0123456789'
+    TB_KEY = 'tbkeyZZZZ0123456789abcdef'
+    HASH = 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c'
+    MOVIE = 'Big.Buck.Bunny.2008.1080p.x264.mkv'
+    PACK = 'Show.County.Building.S02.1080p.x264'
+    SIZE = 800 * 1024 * 1024
+
+    def setUp(self):
+        super().setUp()
+        for const, value in (('TORBOX', os.path.join(self.tmp.name, 'torbox.json')),
+                             ('REALDEBRID', os.path.join(self.tmp.name, 'realdebrid.json'))):
+            p = patch.object(dp, const, value)
+            p.start()
+            self.addCleanup(p.stop)
+        with open(os.path.join(self.tmp.name, 'torbox.json'), 'w') as f:
+            json.dump({'key': self.TB_KEY}, f)
+        with open(os.path.join(self.tmp.name, 'realdebrid.json'), 'w') as f:
+            json.dump({'key': self.RD_KEY}, f)
+        self.waits = []
+        p = patch.object(dp, '_sleep', side_effect=lambda s: self.waits.append(s))
+        p.start()
+        self.addCleanup(p.stop)
+        self.started = []
+
+        def rpc(payload, timeout=45):
+            self.started.append(payload)
+            return {'ok': True, 'unit': 'dl-' + payload['name'], 'state': 'downloading'}
+        p = patch.object(dp, '_download_rpc', side_effect=rpc)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(dp.RESULTS.clear)
+        self.addCleanup(setattr, dp, '_RD_CALL_AT', 0.0)
+        self.addCleanup(setattr, dp, '_TB_CALL_AT', 0.0)
+
+    def prep_row(self, provider='realdebrid', tid=1, release=None, name='rd-1', handed=None, **over):
+        row = {'name': name, 'state': 'preparing', 'provider': provider, 'title': 'Big Buck Bunny', 'kind': None,
+               'debrid': {'id': tid, 'hash': self.HASH},
+               'release': release or self.MOVIE, 'started': int(time.time()),
+               'tried': ['realdebrid'] if provider == 'realdebrid' else ['realdebrid', 'torbox'],
+               'prep': {'progress': 1, 'seeds': None, 'files': None,
+                        'provider': 'Real-Debrid' if provider == 'realdebrid' else 'TorBox'},
+               'dest': None, 'bytes': 0, 'scanned': False, 'scan_error': None, 'error': None}
+        if handed:
+            row['handed'] = list(handed)
+        row.update(over)
+        self.write_state([row])
+        return row
+
+    def rd_files(self, names, selected=True):
+        out = []
+        for i, n in enumerate(names, 1):
+            entry = {'id': i, 'path': '/' + n, 'bytes': self.SIZE, 'selected': 1 if selected else 0}
+            out.append(entry)
+        return out
+
+    def rd_service(self, names, links=None, answers=None, calls=None, archive=None):
+        """One fake Real-Debrid that answers info, unrestrict and delete in its own shapes."""
+        calls = calls if calls is not None else []
+        links = links if links is not None else ['https://rd-lan-invalid.dl/l/%d' % i for i in range(1, len(names) + 1)]
+        answers = answers if answers is not None else [
+            {'download': 'https://rd-dl-invalid.dl/f/%d/%s' % (i, n), 'filename': n, 'filesize': self.SIZE}
+            for i, n in enumerate(names, 1)]
+
+        def call(method, path, fields=None, raw=None, timeout=20):
+            calls.append({'method': method, 'path': path, 'fields': fields})
+            if path.startswith('/torrents/info'):
+                return {'id': 1, 'status': 'downloaded', 'progress': 100, 'hash': self.HASH,
+                        'files': self.rd_files(names), 'links': links,
+                        'filename': names[0], 'bytes': self.SIZE * len(names), 'original_bytes': self.SIZE * len(names)}
+            if path == '/unrestrict/link':
+                if archive is not None:
+                    a = archive.pop(0) if isinstance(archive, list) else archive
+                    return a
+                return answers.pop(0)
+            return {}
+        return call
+
+    def tb_service(self, names, calls=None, link=None):
+        """One fake TorBox: mylist says the files are there, requestdl answers one https link."""
+        calls = calls if calls is not None else []
+        link = link or 'https://tb-dl-invalid.dl/dld/uuid?token=abc'
+
+        def call(method, path, fields=(), files=(), timeout=20):
+            calls.append({'method': method, 'path': path, 'fields': fields})
+            if path.startswith('/torrents/mylist'):
+                return {'success': True, 'data': [{'id': 7, 'download_state': 'cached', 'progress': 1,
+                                                  'seeds': 4, 'download_finished': True, 'download_present': True,
+                                                  'files': [{'id': i, 'name': n, 'size': self.SIZE, 'infected': False}
+                                                          for i, n in enumerate(names, 1)]}]}
+            if path.startswith('/torrents/requestdl'):
+                return {'success': True, 'data': link}
+            return {'success': True, 'data': {'torrent_id': 7, 'hash': self.HASH}}
+        return call
+
+    # ------------------------------------------------------------------ one file
+    def test_a_ready_torrent_becomes_one_download_row_under_movies(self):
+        self.prep_row(release=self.MOVIE)
+        rd = []
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_service([self.MOVIE], calls=rd)):
+            handed = dp._debrid_prep_tick(time.time())
+        self.assertEqual(len(self.started), 1)
+        self.assertEqual(self.started[0]['cmd'], 'start')
+        self.assertEqual(self.started[0]['url'], 'https://rd-dl-invalid.dl/f/1/%s' % self.MOVIE)
+        self.assertEqual(self.started[0]['dest'], '/mnt/unraid/Movies')
+        self.assertEqual(self.started[0]['name'], self.MOVIE)
+        rows = dp._debrid_rows(dp._load_state())
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]['state'], rows[0]['dest'], rows[0]['kind']), ('downloading', '/mnt/unraid/Movies', 'movie'))
+        self.assertEqual(rows[0]['title'], 'Big Buck Bunny')
+        self.assertFalse(any(d.get('state') == 'preparing' for d in dp._load_state()['downloads']))
+        self.assertEqual(dp._sidecar_load(), {})   # the private torrent left with the row
+
+    def test_the_link_is_kept_on_the_server_and_never_shown(self):
+        self.prep_row(release=self.MOVIE)
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_service([self.MOVIE])):
+            dp._debrid_prep_tick(time.time())
+        row = dp._load_state()['downloads'][0]
+        # the hoster link, not the resolved one: a retry re-asks it, and a resolved link goes dead
+        self.assertEqual(row['debrid'], {'id': 1, 'file': 1, 'link': 'https://rd-lan-invalid.dl/l/1'})
+        self.assertIsNone(row['url'])   # the worker got a url; the row keeps only the service call
+        self.assertEqual(row['provider'], 'realdebrid')
+        _, codes, body = call('/api/debrid', OK, post=False)
+        blob = json.dumps(body)
+        self.assertNotIn('rd-dl-invalid', blob)
+        self.assertNotIn('rd-lan-invalid', blob)
+        self.assertNotIn(self.RD_KEY, blob)
+        self.assertNotIn('debrid', json.dumps(body['downloads'][0]))
+        self.assertNotIn('release', json.dumps(body['downloads'][0]))
+        self.assertNotIn('tried', json.dumps(body['downloads'][0]))
+
+    # ------------------------------------------------------------------ a pack
+    def test_a_pack_goes_two_files_at_a_time_under_one_show_folder(self):
+        names = ['S02E%02d.mkv' % i for i in range(1, 11)]
+        self.prep_row(release=self.PACK, name='rd-9')
+        for tick in range(3):
+            with patch.object(dp, 'realdebrid', side_effect=self.rd_service(names)):
+                dp._debrid_prep_tick(time.time() + (tick * 30))
+        self.assertEqual(len(self.started), 6)          # two files per tick, not ten at once
+        rows = dp._load_state()['downloads']
+        prep = [d for d in rows if d.get('state') == 'preparing']
+        self.assertEqual(len(prep), 1)
+        self.assertEqual(prep[0]['handed'], [1, 2, 3, 4, 5, 6])
+        self.assertEqual(prep[0]['prep']['files'], 4)   # files left to hand over
+        made = [d for d in rows if d.get('state') == 'downloading']
+        self.assertEqual(len(made), 6)
+        self.assertEqual({d['dest'] for d in made}, {'/mnt/unraid/Shows/Show County Building'})
+        self.assertEqual([(d['season'], d['episode']) for d in made], [(2, i) for i in range(1, 7)])
+        self.assertEqual({d['kind'] for d in made}, {'show'})
+        self.assertEqual(made[0]['title'], 'Show County Building')   # the file name S02E01 names no show
+        self.assertEqual(made[0]['kind_source'], 'torrent')
+
+    def test_a_pack_finishes_and_its_watching_row_goes_at_the_last_file(self):
+        names = ['S02E%02d.mkv' % i for i in range(1, 5)]
+        self.prep_row(release=self.PACK, name='rd-8')
+        for tick in range(2):
+            with patch.object(dp, 'realdebrid', side_effect=self.rd_service(names)):
+                dp._debrid_prep_tick(time.time() + (tick * 30))
+        self.assertEqual(len(self.started), 4)
+        self.assertEqual([d for d in dp._load_state()['downloads'] if d.get('state') == 'preparing'], [])
+        self.assertEqual(dp._sidecar_load(), {})
+
+    # ------------------------------------------------------------------ the fallback case
+    def test_a_realdebrid_answer_packed_into_an_archive_goes_to_torbox_instead(self):
+        names = ['Movie.1995.Part1.mkv', 'Movie.1995.Part2.mkv']
+        self.prep_row(release='Movie.1995.1080p.x264', name='rd-7')
+        dp._sidecar_store('rd-7', 'magnet', 'magnet:?xt=urn:btih:' + self.HASH)
+        rd, tb = [], []
+        rd_service = self.rd_service(names, calls=rd, archive={'download': 'https://rd-dl-invalid.dl/f/1/part.rar',
+                                                              'filename': 'Movie.1995.rar', 'filesize': 2 << 30})
+        with patch.object(dp, 'realdebrid', side_effect=rd_service), \
+             patch.object(dp, 'torbox', side_effect=self.tb_service(names, calls=tb)):
+            dp._debrid_prep_tick(time.time())
+        self.assertEqual(self.started, [])   # nothing was handed over at Real-Debrid
+        row = dp._load_state()['downloads'][0]
+        self.assertEqual((row['state'], row['provider']), ('preparing', 'torbox'))
+        self.assertIn('packed into an archive', row['error'])
+        self.assertEqual(row['tried'], ['realdebrid', 'torbox'])
+        self.assertEqual(rd[-1]['method'] + rd[-1]['path'], 'DELETE/torrents/delete/1')
+        self.assertTrue(any(c['path'].startswith('/torrents/createtorrent') for c in tb))
+
+    # ------------------------------------------------------------------ the other service
+    def test_torbox_is_asked_its_way_and_its_link_never_asks_for_a_redirect(self):
+        self.prep_row(provider='torbox', tid=7, name='torbox-7', release=self.MOVIE)
+        dp._sidecar_store('torbox-7', 'magnet', 'magnet:?xt=urn:btih:' + self.HASH)
+        tb = []
+        with patch.object(dp, 'torbox', side_effect=self.tb_service([self.MOVIE], calls=tb)), \
+             patch.object(dp, 'realdebrid', side_effect=AssertionError('a TorBox row stays at TorBox')):
+            dp._debrid_prep_tick(time.time())
+        asked = [c['path'] for c in tb]
+        self.assertTrue(any(p.startswith('/torrents/requestdl') for p in asked))
+        self.assertEqual([p for p in asked if 'redirect' in p], [])
+        self.assertEqual(len(self.started), 1)
+        self.assertEqual(self.started[0]['url'], 'https://tb-dl-invalid.dl/dld/uuid?token=abc')
+        self.assertEqual(self.started[0]['dest'], '/mnt/unraid/Movies')
+
+    def test_a_torbox_link_and_key_never_reach_the_panel(self):
+        self.prep_row(provider='torbox', tid=7, name='torbox-7', release=self.MOVIE)
+        dp._sidecar_store('torbox-7', 'magnet', 'magnet:?xt=urn:btih:' + self.HASH)
+        with patch.object(dp, 'torbox', side_effect=self.tb_service([self.MOVIE],
+                                                                  link='https://tb-dl-invalid.dl/dld/u?token=' + self.TB_KEY)):
+            dp._debrid_prep_tick(time.time())
+        _, codes, body = call('/api/debrid', OK, post=False)
+        blob = json.dumps(body)
+        self.assertNotIn(self.TB_KEY, blob)
+        self.assertNotIn('tb-dl-invalid', blob)
+        row = dp._load_state()['downloads'][0]
+        self.assertEqual((row['debrid']['id'], row['debrid']['file']), (7, 1))
+        self.assertIsNone(row['debrid']['link'])   # TorBox re-asks by ids, so no link of its own is kept
+
+    # ------------------------------------------------------------------ spacing
+    def test_realdebrid_is_not_asked_twice_within_a_second(self):
+        names = ['S02E%02d.mkv' % i for i in range(1, 6)]
+        self.prep_row(release=self.PACK, name='rd-5')
+        with patch.object(dp, 'realdebrid', side_effect=self.rd_service(names)):
+            dp._debrid_prep_tick(time.time())
+            dp._debrid_prep_tick(time.time() + dp._DEBRID_PREP_READ)
+        self.assertEqual(len(self.started), 4)   # two per tick
+        # info + unrestrict per file, and every unrestrict pair sits at least a second apart
+        self.assertTrue(all(w >= dp._RD_CALL_SPACING for w in self.waits))
+        self.assertLessEqual(len(self.waits), 4)
+
+    def test_torbox_download_links_are_at_least_3_seconds_apart(self):
+        names = ['S02E%02d.mkv' % i for i in range(1, 6)]
+        self.prep_row(provider='torbox', tid=7, name='torbox-7', release=self.PACK)
+        dp._sidecar_store('torbox-7', 'magnet', 'magnet:?xt=urn:btih:' + self.HASH)
+        with patch.object(dp, 'torbox', side_effect=self.tb_service(names)):
+            dp._debrid_prep_tick(time.time())
+            dp._debrid_prep_tick(time.time() + dp._DEBRID_PREP_READ)
+        self.assertEqual(len(self.started), 4)
+        self.assertEqual(len(self.waits), 2)   # the second file of each tick waited
+        self.assertTrue(all(w >= dp._TB_CALL_SPACING for w in self.waits))
