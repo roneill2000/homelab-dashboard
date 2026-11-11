@@ -2202,7 +2202,10 @@ summary.update-group__title::-webkit-details-marker{display:none}
 .segments button:only-child,.m3-segment:only-child{border-radius:var(--md-sys-shape-corner-full)}
 .segments button:active,.m3-segment:active{border-radius:var(--md-comp-button-group-connected-pressed-inner-corner)}
 .segments button.selected,.segments button[aria-pressed=true],.m3-segment[aria-pressed=true]{border-radius:var(--md-sys-shape-corner-full)}
-.m3-segment .m3-segment__check{display:none}
+/* The check is always in the layout and opens to its width when chosen, so switching never makes both buttons jump to a
+   new size in one frame (the old display:none flip re-laid out the whole row mid-animation). */
+.m3-segment .m3-segment__check{display:inline-block;width:0;margin-right:-8px;opacity:0;overflow:hidden;flex:none}
+.m3-segment[aria-pressed=true] .m3-segment__check{width:18px;margin-right:0;opacity:1}
 .m3-btn,.primary-button,.secondary-button{padding-left:16px;padding-right:16px}
 .m3-btn--text{padding-left:12px;padding-right:12px}
 .m3-btn:active:not(:disabled),.primary-button:active:not(:disabled),.secondary-button:active:not(:disabled){border-radius:var(--md-sys-shape-corner-small)}
@@ -2599,7 +2602,7 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 @keyframes m3-breathe{50%{transform:scale(.82);opacity:.7}}
 .theme-toggle .material-symbols-rounded{transition:transform var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial)}
 .theme-toggle:active .material-symbols-rounded{transform:rotate(90deg) scale(.85)}
-:is(.segments button,.m3-segment)[aria-pressed=true] .material-symbols-rounded,:is(.segments button,.m3-segment).selected .material-symbols-rounded{animation:m3-pop var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial) backwards}
+.segments button[aria-pressed=true] .material-symbols-rounded,:is(.segments button,.m3-segment).selected .material-symbols-rounded{animation:m3-pop var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial) backwards}
 .is-sheet.open .m3-sheet__handle{animation:m3-handle var(--md-sys-motion-spring-expressive-slow-spatial-duration) var(--md-sys-motion-spring-expressive-slow-spatial) 120ms backwards}
 @keyframes m3-handle{from{transform:scaleX(.3)}}
 .is-sheet.open .m3-nav-drawer__item{animation:m3-arrive var(--md-sys-motion-spring-expressive-default-spatial-duration) var(--md-sys-motion-spring-expressive-default-spatial) backwards}
@@ -2633,6 +2636,15 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 /* Selected toggles (connected groups, segmented buttons) settle with a small overshoot when chosen. */
 :is(.segments button,.m3-segment):is([aria-pressed=true],.selected){animation:m3-select var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
 @keyframes m3-select{from{transform:scale(.92)}}
+/* Segmented buttons: fill and label colour switch at once. Fading them crossed light text over a light fill halfway
+   through, so for a moment both labels vanished (the "laggy" look on the phone). The motion is the shape: corners
+   morph, the chosen button settles with a small overshoot and its check slides open. */
+.m3-segmented .m3-segment{transition:border-radius var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+  transform var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial)}
+.m3-segmented .m3-segment__check{transition:width var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+  margin-right var(--md-sys-motion-spring-expressive-fast-spatial-duration) var(--md-sys-motion-spring-expressive-fast-spatial),
+  opacity var(--md-sys-motion-spring-default-effects-duration) var(--md-sys-motion-spring-default-effects)}
+.m3-segmented .m3-segment:not([aria-pressed=true]) .m3-segment__check{transition-property:width,margin-right,opacity;transition-duration:var(--md-sys-motion-spring-expressive-fast-spatial-duration),var(--md-sys-motion-spring-expressive-fast-spatial-duration),0s}
 }
 /* Service icons sit on a Material shape that names their category (media clover, AI soft burst, network 4-sided cookie,
    infrastructure 12-sided cookie, tools sunny). The shape is drawn on ::before so the status dot is not clipped; on hover

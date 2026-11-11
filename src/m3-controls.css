@@ -123,7 +123,10 @@
 .segments button:only-child,.m3-segment:only-child{border-radius:var(--md-sys-shape-corner-full)}
 .segments button:active,.m3-segment:active{border-radius:var(--md-comp-button-group-connected-pressed-inner-corner)}
 .segments button.selected,.segments button[aria-pressed=true],.m3-segment[aria-pressed=true]{border-radius:var(--md-sys-shape-corner-full)}
-.m3-segment .m3-segment__check{display:none}
+/* The check is always in the layout and opens to its width when chosen, so switching never makes both buttons jump to a
+   new size in one frame (the old display:none flip re-laid out the whole row mid-animation). */
+.m3-segment .m3-segment__check{display:inline-block;width:0;margin-right:-8px;opacity:0;overflow:hidden;flex:none}
+.m3-segment[aria-pressed=true] .m3-segment__check{width:18px;margin-right:0;opacity:1}
 .m3-btn,.primary-button,.secondary-button{padding-left:16px;padding-right:16px}
 .m3-btn--text{padding-left:12px;padding-right:12px}
 .m3-btn:active:not(:disabled),.primary-button:active:not(:disabled),.secondary-button:active:not(:disabled){border-radius:var(--md-sys-shape-corner-small)}
