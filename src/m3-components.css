@@ -169,7 +169,7 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
    >= 1200  large   : standard navigation drawer (all 9), always visible */
 .m3-app{min-height:100vh;display:grid;grid-template-columns:1fr;background:var(--md-sys-color-surface)}
 .m3-app__main{min-width:0;padding:0 16px calc(96px + env(safe-area-inset-bottom))}
-.m3-app__content{max-width:1440px;margin:0 auto}
+.m3-app__content{max-width:min(100%,2560px);margin:0 auto}
 /* Columns switch instantly with CSS breakpoints; the main area is always the last column, so the brief moment
    before React swaps the rail/drawer after a resize can never squeeze or overflow the page. The rail and drawer
    are also hidden by CSS outside their breakpoints. */
