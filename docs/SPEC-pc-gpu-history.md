@@ -163,3 +163,28 @@ performance counters, no extra software needed:
   on Linux; keep the ctypes loading behind a function that the test replaces).
 - Live check after deploy: one short Flash request; the dashboard's PC watts rise by roughly the CPU increase
   (~+70 W) instead of only the GPU's.
+
+---
+
+# Part 3: layout that scales from phone to ultrawide (added 12 Nov, Ryan)
+
+Ryan's screenshot (ultrawide, Local AI page): the content stops at ~1,440 px with empty space to the right, the six
+GPU readings sit far apart, and the VRAM bar stops at about half the card. It should use the screen on phone, desktop
+and ultrawide alike. Causes in the CSS:
+
+- `src/m3-components.css:172` `.m3-app__content{max-width:1440px;margin:0 auto}` caps every page at 1,440 px (and on
+  Ryan's screen it is not even centred: check the parent layout).
+- `src/styles.css:694` `.gpu-memory{...;max-width:900px}` makes the VRAM meter stop short (both GPU panels).
+- `src/styles.css:690` `.gpu-readings` is a fixed 6-column grid (3 / 2 columns via media queries at 701/705).
+
+Do:
+1. `.gpu-memory`: drop the `max-width`, the meter spans the card.
+2. `.gpu-readings`: `grid-template-columns:repeat(auto-fit,minmax(150px,1fr))` and remove the two media-query
+   overrides, so it goes 2 → 3 → 6 columns by width on its own. Keep the font-size step-down for phones.
+3. Page width: raise the cap to `max-width:min(100%, 2560px)` and make sure it is centred. Then look at **every page**
+   at 3440 px wide and fix what stretches badly: long text paragraphs keep a readable `max-width` (~80ch), card grids
+   that should gain columns on wide screens do (`auto-fit` + `minmax`), charts may stretch.
+4. Screenshots of the Local AI, Overview and Infrastructure pages at 412, 1440 and 3440 px (dark), before and after,
+   from the preview. `npm run check` must still print `ALL CHECKS OK` (its viewport checks include phone widths).
+
+Same commit series as Parts 1–2 is fine; keep the CSS changes in their own commit so they can be reverted alone.
