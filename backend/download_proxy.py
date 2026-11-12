@@ -71,8 +71,9 @@ _DOWNLOAD_KEY = '/etc/homelab-dashboard/download_ed25519'
 _PROXMOX_KNOWN = '/etc/homelab-dashboard/update_known_hosts'
 _PROXMOX_TARGET = 'root@192.168.0.3'
 _DEBRID_IF_VERSION = 1
-_DEBRID_KEEP = 50      # rows kept in the state file
+_DEBRID_KEEP = 100     # rows kept in the state file (Task 5: history is read from these rows)
 _DEBRID_AGE = 7 * 86400   # how long a finished row stays on the homepage list
+_DEBRID_HISTORY_AGE = 30 * 86400   # how long a row stays in the state file, for the History sheet (Task 5)
 _DEBRID_ROWS = 15      # rows the homepage shows
 _DEBRID_CHECK_MAX = 40 # downloads in one check call
 _DEBRID_SCAN_UNTIL = ('finished', 'present')   # states that mean "ask Jellyfin to look"
@@ -1681,6 +1682,7 @@ def _queue_close(d, now, text):
     d['state'], d['state_since'] = 'failed', int(now)
     d['error'] = _scrub_key(text)[:200]
     d['scanned'], d['scan_error'] = False, None   # Retry can take it from here
+    _stamp_end(d, now)
 
 
 def _debrid_queue_tick(now):
@@ -1786,6 +1788,8 @@ def _debrid_tick_body():
                 d['total_bytes'], d['speed'] = int(j.get('total_bytes') or 0), int(j.get('speed_bytes') or 0)
                 d['eta'] = str(j.get('eta') or '')[:40]
                 d['sampled'] = time.time()    # when these numbers were true: the panel moves the bar on from here
+                if state_word in _ENDED_STATES:
+                    _stamp_end(d, time.time())   # Task 5: history wants the time it took
                 changed = True
             if j.get('error') and d.get('error') != str(j['error'])[:200]:
                 d['error'] = str(j['error'])[:200]
@@ -2242,6 +2246,7 @@ def _prep_close(row, now, text, solo=False):
     parts = [text] if solo else (_prep_reasons(row) + ([text] if text and text not in _prep_reasons(row) else []))
     row['state'], row['state_since'] = 'failed', int(now)
     row['error'] = _scrub_key('; '.join(str(p) for p in parts)) or 'the debrid service did not finish this torrent'
+    _stamp_end(row, now)   # Task 5: a torrent that died at its service is history too
     _sidecar_forget(row['name'])
 
 
@@ -2466,15 +2471,14 @@ def _prep_refresh(name, now, budget=2):
     return len(started_rows)
 
 
-def _aged_out(row, now) -> bool:
-    """True when a download's story has been closed for 7 days.
+def _closed_for(row, now, seconds) -> bool:
+    """True when a download's story has been closed (an end state) for this long.
 
-    A running download never ages out, however old it is: it is still doing something, and its row
-    is how you watch it. The clock is the last state change (state_since), else the row's own start.
-    A row with no usable timestamp is kept, and so is one whose start is a placeholder from an
+    A running, waiting or watching row is never closed: it is still doing something, and its row is how
+    you watch it. A row with no usable timestamp is kept, as is one whose start is a placeholder from an
     older state file, because there is nothing honest to age against.
     """
-    if row.get('state') == 'downloading':
+    if row.get('state') in ('downloading', 'preparing', 'queued'):
         return False
     since = row.get('state_since') or row.get('started')
     try:
@@ -2483,7 +2487,38 @@ def _aged_out(row, now) -> bool:
         return False
     if since < 1e9:
         return False
-    return now - since > _DEBRID_AGE
+    return now - since > seconds
+
+
+def _aged_out(row, now) -> bool:
+    """True when a row leaves the state file: its story closed 30 days ago (Task 5's history window).
+
+    The homepage list has its own, shorter rule (see _off_list): 7 days. The row itself stays 30 days so
+    the History sheet can still answer "how fast was that, when did I get it".
+    """
+    return _closed_for(row, now, _DEBRID_HISTORY_AGE)
+
+
+def _off_list(d, now) -> bool:
+    """True when a row no longer belongs in the homepage list (Task 5): cleared by hand, or closed 7 days.
+
+    The row stays in the state file, where the History sheet reads it, until _aged_out takes it out.
+    """
+    return bool(d.get('cleared')) or _closed_for(d, now, _DEBRID_AGE)
+
+
+def _stamp_end(d, now):
+    """Remember when a download's story closed (Task 5: history needs the time and the average speed).
+
+    The first end wins: a file that moves from 'finished' to 'present' did not finish twice. Retry opens a
+    row again, so retry clears these two fields.
+    """
+    if not d.get('finished'):
+        d['finished'] = int(now)
+        try:
+            d['seconds'] = max(0, int(now) - int(d.get('started') or now))
+        except (TypeError, ValueError):
+            d['seconds'] = None
 
 
 def _age_out_rows() -> int:
@@ -2507,8 +2542,11 @@ def _age_out_rows() -> int:
 def _debrid_rows(state):
     """Rows for the homepage, from the state file only: no SSH per row. The tick loop keeps them fresh."""
     out = []
+    now = time.time()
     for d in state['downloads'][-_DEBRID_ROWS:][::-1]:
         st = d.get('state') or 'unknown'
+        if _off_list(d, now):
+            continue   # cleared by hand, or closed for 7 days: the History sheet reads those, the list does not
         out.append(dict(name=d['name'], kind=d['kind'], title=d['title'], season=d.get('season'),
                         episode=d.get('episode'), dest=d['dest'], state=st, done=st in _DEBRID_SCAN_UNTIL,
                         bytes=int(d.get('bytes') or 0), total_bytes=int(d.get('total_bytes') or 0),
@@ -2546,6 +2584,7 @@ def stop_debrid(name):
             raise ValueError('that download left the list while it was being stopped')
         row['state'], row['state_since'] = 'stopped', int(time.time())
         row['scanned'], row['scan_error'] = True, None   # stopped on purpose: partial file, no scan (a retry resets this)
+        _stamp_end(row, time.time())   # Task 5: a stop is an end too: history counts it
         _save_state(state)
     return dict(ok=True, name=name, unit=out.get('unit') or 'dl-' + name,
                 message=out.get('message') or ('stopped ' + name))
@@ -2602,6 +2641,8 @@ def retry_debrid(name):
         row['started'] = int(time.time())
         row['retried'] = True   # the next failure is read against _EXPIRED_LINK with this row in mind
         row['unit'] = out.get('unit') or row.get('unit') or 'dl-' + name
+        # Task 5: a retry opens the story again, so the old end (and its time) goes: the new one wins.
+        row['finished'], row['seconds'] = None, None
         _save_state(state)
     return dict(ok=True, name=name, state=state_word,
                 message=out.get('message') or ('restarted ' + name))
@@ -2610,7 +2651,8 @@ def retry_debrid(name):
 def clear_debrid() -> dict:
     """Empty the homepage list on purpose (Clear in the panel).
 
-    Finished, failed and stopped rows leave the state file. Two kinds stay: a running download (its
+    Finished, failed and stopped rows leave the homepage list, marked cleared rather than deleted (Task 5:
+    History reads them from the state file for 30 days). Two kinds stay on the list: a running download (its
     row is how you watch it, and dropping it would orphan the job) and a whole file Jellyfin has not
     been asked about yet (the state file is the tick's scan queue). Nothing on the share is touched,
     and the worker's job records and logs on the n100 stay, so homelab-download status still lists
@@ -2618,16 +2660,74 @@ def clear_debrid() -> dict:
     """
     with _STATE_LOCK:
         state = _load_state()
-        keep = [d for d in state['downloads'] if d.get('state') == 'downloading'
-                or d.get('state') == 'preparing'   # Clear is not Cancel: a row at its service stays
-                or d.get('state') == 'queued'      # ... or a row waiting its turn in the queue (Task 4)
-                or (d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned'))]
-        cleared = len(state['downloads']) - len(keep)
-        state['downloads'] = keep
+        cleared = 0
+        for d in state['downloads']:
+            if d.get('state') == 'downloading' \
+                or d.get('state') == 'preparing' \
+                or d.get('state') == 'queued' \
+                or (d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned')):
+                continue   # still on the list: running, at its service, waiting its turn, or not scanned yet
+            if not d.get('cleared'):
+                d['cleared'] = True   # Task 5: the row leaves the list, but stays in the file for History
+                cleared += 1
+        kept = sum(1 for d in state['downloads'] if not d.get('cleared'))
         _save_state(state)
     message = 'Cleared %d download%s.' % (cleared, '' if cleared == 1 else 's')
-    message += (' Kept %d downloading, at its service or waiting for Jellyfin.' % len(keep)) if keep else ' The files stay on the share.'
-    return {'ok': True, 'cleared': cleared, 'kept': len(keep), 'message': message}
+    message += (' Kept %d downloading, at its service or waiting for Jellyfin.' % kept) if kept else ' The files stay on the share.'
+    return {'ok': True, 'cleared': cleared, 'kept': kept, 'message': message}
+
+def _history_rows(state):
+    """The last 20 ended rows, newest first, for the History sheet (Task 5 in the spec).
+
+    One entry per download, or per season grab: files that came from one torrent collapse into that grab's
+    line, with a file count and the total size. What a stranger could use is never in the answer: no link,
+    no hash, no service id, no worker unit name, no key. An unknown size leaves avg_bps null instead of
+    inventing a speed.
+    """
+    groups, singles = {}, []
+    for d in state['downloads']:
+        key = _grab_key(d)
+        if key and d.get('state') != 'preparing':
+            groups.setdefault(key, []).append(d)
+        else:
+            singles.append(d)
+    out = []
+    for rows in ([d] for d in singles):
+        row = rows[0]
+        if not _closed_for(row, time.time(), 0) and not row.get('finished'):
+            continue
+        out.append(_history_line(rows))
+    for members in groups.values():
+        if not any(m.get('finished') for m in members):
+            continue
+        out.append(_history_line(members))
+    out.sort(key=lambda h: int(h.get('finished') or 0), reverse=True)
+    return out[:20]
+
+
+def _history_line(rows):
+    """One History line: the file, or the grab, as a person would repeat it back."""
+    grab = len(rows) > 1
+    row = rows[-1] if not grab else max(rows, key=lambda d: int(d.get('finished') or 0))
+    size = sum(int(d.get('total_bytes') or d.get('bytes') or 0) for d in rows)
+    started = min(int(d.get('started') or 0) for d in rows if d.get('started')) if any(
+        d.get('started') for d in rows) else None
+    finished = max((int(d.get('finished') or 0) for d in rows), default=None) or None
+    seconds = sum(int(d.get('seconds') or 0) for d in rows) or None
+    bad = [d for d in rows if d.get('state') in ('failed', 'interrupted', 'stopped', 'missing')]
+    provider = {'realdebrid': 'Real-Debrid', 'torbox': 'TorBox'}.get(str(row.get('provider') or ''))
+    if not provider and _grab_key(row):
+        provider = 'Real-Debrid' if (row.get('debrid') or {}).get('link') != 'torbox' else 'TorBox'
+    line = dict(title=(_grab_title(rows) if grab else (row.get('title') or row.get('name'))),
+                kind=row.get('kind') or 'movie', folder=_share_folder(row.get('dest')), state=row.get('state'),
+                size_bytes=size, started=started, finished=finished, seconds=seconds,
+                avg_bps=(size // seconds) if seconds and size else None,
+                provider=provider or 'link',
+                reason=(_scrub_key(str(bad[0].get('error'))) if bad else None),
+                cleared=any(bool(d.get('cleared')) for d in rows), files=(len(rows) if grab else 1))
+    line['reason'] = (line['reason'] or '')[:200] or None
+    return {k: v for k, v in line.items() if k != 'reason' or v}
+
 
 def debrid_status():
     with _STATE_LOCK:
@@ -2635,7 +2735,7 @@ def debrid_status():
     # 'preview', 'retry' and 'dismiss' go live with the routes that answer them, in the same commits; the panel
     # only offers a control when its name is here, because an older backend would run the new request as a
     # real download.
-    features = ['preview', 'retry', 'dismiss', 'queue']
+    features = ['preview', 'retry', 'dismiss', 'queue', 'history']
     if _space_supported():
         # The worker answered the 'space' command, so the room marks and the refusal are live (Task 1).
         # An older worker that has never heard of it answers 'unknown command': nothing is listed, and
@@ -2737,6 +2837,10 @@ def handle(handler, post=False):
         except Exception: _reply(handler, 503, {'error': 'Prowlarr did not answer the search.'})
         return True
     if url.path == '/api/debrid' and not post:
+        if 'history' in urllib.parse.parse_qs(url.query):   # Task 5: the History sheet's own read
+            try: _reply(handler, 200, {'ok': True, 'history': _history_rows(_load_state())})
+            except Exception: _reply(handler, 503, {'error': 'Could not read download history.'})
+            return True
         try: _reply(handler, 200, debrid_status())
         except Exception: _reply(handler, 503, {'error': 'Could not read debrid downloads.'})
         return True

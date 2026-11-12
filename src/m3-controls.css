@@ -505,3 +505,12 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 /* Tablet and desktop: the pin star keeps its 36 px look but gets a 48 px hit area. */
 @media(min-width:600px){.pin-button::after{content:"";position:absolute;inset:-6px}}
 .issue-chip--clear{gap:4px;background:transparent;box-shadow:inset 0 0 0 1px currentColor}
+/* History sheet (Task 5 in docs/SPEC-downloads-augmentations.md): one quiet line per finished download,
+   failures in the error colour with the reason the panel showed at the time. */
+.dl-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}.dl-head>h2{flex:1 1 auto;min-width:0}
+.dl-history{margin-top:12px;border-top:1px solid var(--md-sys-color-outline-variant);padding-top:8px}
+.dl-history__line{font-size:var(--md-sys-typescale-body-small-size);padding:3px 0;color:var(--md-sys-color-on-surface-variant)}
+.dl-history__line>span{white-space:normal}
+.dl-history__bad,.dl-history__bad>span:first-child{color:var(--md-sys-color-error)}
+.dl-history__why{margin-left:8px;color:var(--md-sys-color-error)}
+.dl-history__none{font-size:var(--md-sys-typescale-body-small-size);color:var(--md-sys-color-on-surface-variant)}

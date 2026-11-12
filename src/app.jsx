@@ -1109,6 +1109,9 @@ function DownloadsPanel({notify=()=>{}}){
  // The backend lists what it can do in /api/debrid 'features'. Nothing below is ever sent to a backend that does not
  // list it: an older backend would treat a preview request as a real download.
  const canPreview=features.includes('preview'),canDismiss=features.includes('dismiss'),canSpace=features.includes('space'),canCached=features.includes('cached');
+ const canHistory=features.includes('history'),[hist,setHist]=useState(null),[histOpen,setHistOpen]=useState(false);
+ // durShort: how long a download took, the way the History sheet repeats it back (5 min 33 s).
+ const durShort=v=>!valid(v)?'':v<60?`${Math.round(v)} s`:v<3600?`${Math.floor(v/60)} min${v%60?` ${v%60} s`:''}`:`${Math.floor(v/3600)} h ${Math.round((v%3600)/60)} min`;
  const SPACE_WARN_BYTES=100*1024**3;   // the panel colours the room line amber under this; the backend keeps its own 50 GB reserve
  useEffect(()=>{setKindPick(null)},[text]);
  useEffect(()=>{setPlan(null);if(!isUrl||!canPreview)return;const u=text.trim();let alive=true;
@@ -1121,6 +1124,10 @@ function DownloadsPanel({notify=()=>{}}){
   if(r.ok){notify(`Cancelled ${d.title}.`);dRefresh.current?.()}else notify(sentence(r.error)||'It could not be cancelled.')}
  async function dismissGrab(t){const r=await postAction('/api/downloads',{dismiss:t.id}).catch(()=>({ok:false,error:'Could not reach the dashboard.'}));
   if(r.ok){notify('Removed from the list.');gRefresh.current?.()}else notify(sentence(r.error)||'It could not be removed.')}
+ async function toggleHistory(){if(histOpen){setHistOpen(false);return}
+  setHistOpen(true);
+  if(hist===null){const r=await fetch('/api/debrid?history=1',{cache:'no-store',signal:AbortSignal.timeout(8000)}).catch(()=>null);
+   setHist(r&&r.ok?(r.history||[]):false)}}
  function submit(e){e.preventDefault();if(busy)return;isUrl?addUrl():search()}
  const list=results?.list||[];
  // A start the backend says will not fit is disabled here, and says why: the panel never sends a
@@ -1135,7 +1142,7 @@ function DownloadsPanel({notify=()=>{}}){
  // The suggested pick (Task 3) leads the list however it sorts otherwise; it is a hint from TorBox, so
 // it only gets that place when the backend says it checked.
 const view=tagged.filter(x=>only.every(t=>x.rel?.tags.includes(t))).sort((a,b)=>(canCached?((b.r?.suggested?1:0)-(a.r?.suggested?1:0)):0)||sortKey(b)-sortKey(a));
- return <section className="downloads-section" aria-labelledby="dl-h"><div className="section-heading"><h2 id="dl-h">Add a download</h2></div>
+ return <section className="downloads-section" aria-labelledby="dl-h"><div className="section-heading dl-head"><h2 id="dl-h">Add a download</h2>{canHistory&&<Button type="button" variant="text" icon={histOpen?'close':'clock'} onClick={toggleHistory} aria-label="Open the download history" aria-expanded={histOpen}>History</Button>}</div>
   <article className="m3-card m3-card--outlined panel downloads-panel">
    <form className="dl-form" onSubmit={submit}><TextField icon={isUrl?'link':'search'} aria-label="Search indexers, or paste a download link" placeholder="Search, or paste a download link" value={text} onChange={e=>setText(e.target.value)} onClear={()=>{setText('');setResults(null);setError('')}} clearLabel="Clear" enterKeyHint={isUrl?'send':'search'} autoComplete="off" spellCheck="false"/>
     <div className="dl-controls">{!isUrl&&<Segmented label="Source" value={kind} onChange={k=>{setKind(k);if(results||busy)search(k)}} options={[['torrent','Debrid'],['usenet','Usenet']]}/>}
@@ -1163,7 +1170,8 @@ const view=tagged.filter(x=>only.every(t=>x.rel?.tags.includes(t))).sort((a,b)=>
      rows.push({live,el:<div className="dl-row dl-row--recent" key={'g'+i}><div className="dl-row__text"><div className="dl-row__head"><strong title={t.name||undefined}>{t.name?(release(t.name)?.title||t.name):'Search result that did not start'}</strong><Badge state={tone} label={label}/></div><div className="dl-row__meta"><small>{t.size>0&&<span className="nowrap"><strong className="ov-num">{bytes(t.size)}</strong></span>}{live&&<span className="nowrap">{t.stage==='debrid'?'Debrid ':t.stage==='local'?'To disk ':t.stage==='finishing'?'Finishing ':''}<strong className="ov-num">{pct}%</strong>{t.dlspeed>0&&<> · {rate(t.dlspeed)} MB/s</>}{t.stage==='debrid'&&valid(t.seeders)&&<> · {num(t.seeders)} seeders</>}</span>}{t.error&&<span>{sentence(t.error)}</span>}{!t.error&&t.status_text&&<span>{sentence(t.status_text)}</span>}{!t.name&&!t.error&&!t.status_text&&<span>It failed before it got a name{when?`, ${when}`:''}. Try another result.</span>}</small>{canDismiss&&tone===false&&t.id&&<Button variant="text" onClick={()=>dismissGrab(t)} aria-label={`Remove ${t.name||'this failed search result'} from the list`}>Dismiss</Button>}</div>{live&&label!=='Queued'&&<LinearProgress value={pct} label={`${t.name||'grab'} progress`}/>}</div></div>})});
     if(!rows.length)return null;rows.sort((x,y)=>y.live-x.live);
     return <div className="dl-recent"><div className="dl-subhead-row"><h3 className="dl-subhead">Downloads</h3>{(debrid||[]).some(d=>d.state!=='downloading'&&d.state!=='preparing'&&d.state!=='queued'&&!inlib(d)&&!(d.done&&!d.scanned))&&<Button variant="text" onClick={clearDebrid} aria-label="Clear finished downloads from this list">Clear</Button>}</div>{rows.map(r=>r.el)}</div>})()}
-  </article></section>}
+  {histOpen&&<div className="dl-history" aria-live="polite"><div className="dl-subhead-row"><h3 className="dl-subhead">History</h3></div>{hist===false&&<div className="dl-history__none">History is not available yet.</div>}{hist&&hist.length>0&&hist.map((h,k)=>{const parts=[h.title,h.files>1?`${h.files} files`:null,valid(h.size_bytes)?bytes(h.size_bytes):null,h.seconds?durShort(h.seconds):null,valid(h.avg_bps)?`${rate(h.avg_bps)} MB/s`:null,h.provider,when(h.finished)].filter(Boolean);return <div className={'dl-history__line'+(h.reason?' dl-history__bad':'')} key={'h'+k}><span>{parts.join(' \u00b7 ')}</span>{h.reason&&<span className="dl-history__why">{sentence(h.reason)}</span>}</div>})}{hist&&hist.length===0&&<div className="dl-history__none">Nothing has finished yet.</div>}</div>}
+</article></section>}
 // Last /api/updates answer, shared by the sidebar badge poll and the Updates page, so returning to the page shows the
 // list at once and refreshes it quietly instead of flashing placeholders.
 let lastUpdates=null;

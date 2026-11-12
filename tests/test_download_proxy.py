@@ -227,6 +227,12 @@ class DebridTests(unittest.TestCase):
         with open(self.state_path) as f:
             return json.load(f)['downloads']
 
+    def list_names(self):
+        """The homepage list, as the panel sees it (Task 5: cleared and 7-day rows leave the list,
+        not the state file)."""
+        with dp._STATE_LOCK:
+            return [r['name'] for r in dp._debrid_rows(dp._load_state())]
+
     def rpc(self, payload=None, answer=None, calls=None):
         """One fake worker: records the payload, answers with `answer`."""
         calls = calls if calls is not None else []
@@ -501,7 +507,7 @@ class DebridTests(unittest.TestCase):
         self.assertEqual(codes, [200])
         # 'search' and 'cached' ride with the key files, so only the always-on ones are checked here
         self.assertEqual([f for f in body['features'] if f not in ('search', 'cached')],
-                         ['preview', 'retry', 'dismiss', 'queue'])   # 'queue' is always on: the state file holds it
+                         ['preview', 'retry', 'dismiss', 'queue', 'history'])   # queue and history are always on: both live in the state file
 
     # ------------------------------------------------- name discovery (TorBox) ---
     def test_a_name_in_the_headers_is_read_out_of_content_disposition(self):
@@ -690,12 +696,12 @@ class DebridTests(unittest.TestCase):
             dp._save_state({'downloads': rows})
         kept = self.read_state()
         self.assertEqual(len(kept), dp._DEBRID_KEEP)
-        self.assertEqual(kept[-1]['name'], 'f69.mkv')  # the newest rows survive
-        self.assertEqual(kept[0]['name'], 'f20.mkv')
+        self.assertEqual(kept[-1]['name'], 'f%02d.mkv' % (dp._DEBRID_KEEP + 19))   # the newest survive
+        self.assertEqual(kept[0]['name'], 'f20.mkv')   # 100 rows stay: History reads the ended ones
         self.assertFalse(os.path.exists(self.state_path + '.tmp'))
         out = dp.debrid_status()
         self.assertEqual(len(out['downloads']), dp._DEBRID_ROWS)
-        self.assertEqual(out['downloads'][0]['name'], 'f69.mkv')  # newest first
+        self.assertEqual(out['downloads'][0]['name'], 'f%02d.mkv' % (dp._DEBRID_KEEP + 19))  # newest first
 
     def test_the_state_file_is_private_before_its_first_byte(self):
         """These rows hold pasted links with their access tokens: the tmp file must already be 0600
@@ -787,8 +793,9 @@ class DebridTests(unittest.TestCase):
                           self.row('recent.mkv', 'finished', int(time.time()) - 3600, int(time.time()) - 3600)])
         with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer={'ok': True, 'jobs': []})):
             dp._debrid_tick()
-        rows = self.read_state()
-        self.assertEqual([r['name'] for r in rows], ['recent.mkv'])
+        self.assertEqual(self.list_names(), ['recent.mkv'])   # closed 7 days: off the homepage list
+        # Task 5: the row itself stays in the state file for 30 days, so History can still answer about it.
+        self.assertEqual([r['name'] for r in self.read_state()], ['old.mkv', 'recent.mkv'])
 
     def test_a_running_download_never_ages_out_however_old_it_is(self):
         ancient = int(time.time()) - 40 * 86400
@@ -816,7 +823,10 @@ class DebridTests(unittest.TestCase):
         with patch.object(dp, '_download_rpc', side_effect=AssertionError('clear must not call the worker')):
             handled, codes, body = call('/api/debrid', OK, {'clear': True})
         self.assertEqual((handled, codes, body['cleared'], body['kept']), (True, [200], 1, 1))
-        self.assertEqual([r['name'] for r in self.read_state()], ['b.mkv'])
+        self.assertEqual(self.list_names(), ['b.mkv'])   # the cleared row left the list
+        # Task 5: it stays in the state file, marked cleared, for the History sheet.
+        self.assertEqual([d['name'] for d in self.read_state()], ['a.mkv', 'b.mkv'])
+        self.assertTrue(self.read_state()[0]['cleared'])
         self.assertTrue(body['message'][0].isupper())
 
     def test_clear_empties_the_rows_without_touching_the_worker(self):
@@ -825,8 +835,11 @@ class DebridTests(unittest.TestCase):
         with patch.object(dp, '_download_rpc', side_effect=AssertionError('clear must not call the worker')):
             handled, codes, body = call('/api/debrid', OK, {'clear': True})
         self.assertEqual((handled, codes, body['ok'], body['cleared']), (True, [200], True, 2))
-        self.assertEqual(self.read_state(), [])
-        self.assertEqual(dp.debrid_status()['downloads'], [])
+        self.assertEqual(self.list_names(), [])                     # the list is empty, as Clear says
+        self.assertEqual(dp.debrid_status()['downloads'], [])       # and the homepage answer agrees
+        # Task 5: the rows stay in the file, marked cleared, until History's 30 days takes them out.
+        self.assertEqual([(d['name'], bool(d.get('cleared'))) for d in self.read_state()],
+                         [('a.mkv', True), ('b.mkv', True)])
 
     def test_clear_keeps_a_finished_row_whose_library_scan_has_not_run(self):
         # The state file is the scan queue: clearing an unscanned finished row would mean Jellyfin
@@ -836,7 +849,7 @@ class DebridTests(unittest.TestCase):
         with patch.object(dp, '_download_rpc', side_effect=AssertionError('clear must not call the worker')):
             handled, codes, body = call('/api/debrid', OK, {'clear': True})
         self.assertEqual((handled, codes, body['cleared'], body['kept']), (True, [200], 1, 1))
-        self.assertEqual([r['name'] for r in self.read_state()], ['done.mkv'])
+        self.assertEqual(self.list_names(), ['done.mkv'])   # the unscanned one stays; the cleared one left
         with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer={'ok': True, 'jobs': []})), \
              patch.object(dp, '_jellyfin_scan', return_value=True) as scan:
             dp._debrid_tick()
@@ -1181,7 +1194,7 @@ class DebridGrabTests(DebridTests):
             _, codes, body = call('/api/debrid', OK, post=False)
         # Both key files are present here, so the Ready now check ('cached', Task 3) is offered as well:
         # it is key-gated for the same reason - with no TorBox to ask, the mark could only ever be unknown.
-        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss', 'queue', 'search', 'cached'])
+        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss', 'queue', 'history', 'search', 'cached'])
 
     # --------------------------------------------------------------- which provider ---
     def test_only_torbox_key_get_goes_straight_to_torbox(self):
@@ -2189,7 +2202,10 @@ class DebridFinishTests(DebridHandoverTests):
                                error='link dead', url=None, retried=False, torbox=None)])
         _, codes, body = call('/api/debrid', OK, {'clear': True})
         self.assertEqual(body['cleared'], 1)
-        self.assertEqual([d['name'] for d in dp._load_state()['downloads']], ['rd-2'])
+        self.assertEqual(self.list_names(), ['rd-2'])   # the failed row left the list
+        # Task 5: it stays in the state file, marked cleared, so History can still name it.
+        self.assertEqual([(d['name'], bool(d.get('cleared'))) for d in dp._load_state()['downloads']],
+                         [('rd-2', False), ('Old.Broken.mkv', True)])
 
     def test_a_service_refusal_still_frees_the_row_and_says_so(self):
         self.prep_row(name='rd-3')
@@ -2904,3 +2920,104 @@ class DebridQueueTests(DebridTests):
 
     def hash(self):
         return 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1f'
+
+
+class DebridHistoryTests(DebridTests):
+    """Task 5 in docs/SPEC-downloads-augmentations.md: GET /api/debrid?history=1 answers the last 20
+    ended rows, newest first, from the state file - the sheet that answers "how fast was that, when did
+    I get it". Nothing that lets a stranger reach a file is ever in the answer."""
+
+    KEY = 'secretKEY0123456789'
+
+    def hrow(self, name, state, when, **over):
+        # A pasted link's row: no torrent of its own (debrid None), so it is one history line by itself.
+        # A grab's rows carry their service id, and this fixture takes it in over=.
+        row = {'dest': dp.MOVIES_DIR, 'name': name, 'kind': 'movie', 'title': name.split('.')[0],
+               'season': None, 'episode': None, 'started': int(when) - 333, 'state': state,
+               'state_since': int(when), 'finished': int(when), 'seconds': 333, 'bytes': 8 << 30,
+               'total_bytes': 8 << 30, 'scanned': True, 'error': None,
+               'url': 'https://rd-lan-invalid.dl/l/1/' + name, 'unit': 'dl-' + name,
+               'debrid': None, 'provider': 'realdebrid'}
+        row.update(over)
+        return row
+
+    def history(self):
+        _, codes, body = call('/api/debrid?history=1', OK, post=False)
+        self.assertEqual(codes, [200])
+        self.assertTrue(body['ok'])
+        return body['history']
+
+    def test_an_ended_row_is_listed_once_with_size_speed_and_time(self):
+        self.write_state([self.hrow('Dune.2021.mkv', 'finished', time.time() - 600)])
+        line = self.history()[0]
+        self.assertEqual(line['title'], 'Dune')
+        self.assertEqual((line['state'], line['kind'], line['provider']), ('finished', 'movie', 'Real-Debrid'))
+        self.assertEqual(line['size_bytes'], 8 << 30)
+        self.assertEqual((line['seconds'], line['avg_bps']), (333, (8 << 30) // 333))   # the average, not the peak
+        self.assertIn('Movies', line['folder'])   # the share folder, written the way the panel writes it
+        self.assertEqual(line['finished'], int(time.time()) - 600)
+
+    def test_a_failure_rides_in_history_with_the_reason_it_showed(self):
+        self.write_state([self.hrow('Dead.2019.mkv', 'failed', time.time() - 60, error='peer closed connection')])
+        line = self.history()[0]
+        self.assertEqual(line['state'], 'failed')
+        self.assertIn('peer closed connection', line['reason'])
+
+    def test_a_cleared_row_stays_in_history(self):
+        # Clear empties the list; the sheet still answers about what was cleared (Task 5), until 30 days pass.
+        self.write_state([self.hrow('Dune.2021.mkv', 'finished', time.time() - 600)])
+        call('/api/debrid', OK, {'clear': True})
+        self.assertEqual(dp.debrid_status()['downloads'], [])   # gone from the list
+        line = self.history()[0]
+        self.assertTrue(line['cleared'])
+        self.assertEqual(line['title'], 'Dune')
+
+    def test_the_newest_first_and_only_20_lines(self):
+        self.write_state([self.hrow('F%02d.mkv' % i, 'finished', time.time() - 100 - (i * 60)) for i in range(30)])
+        lines = self.history()
+        self.assertEqual(len(lines), 20)
+        self.assertEqual([l['title'] for l in lines[:3]], ['F00', 'F01', 'F02'])
+
+    def test_no_link_hash_unit_or_key_ever_leaves_the_backend(self):
+        self.write_state([self.hrow('Dune.2021.mkv', 'finished', time.time() - 600, provider='torbox',
+                                   debrid={'id': 91, 'hash': self.KEY, 'link': 'torbox'})])
+        answer = json.dumps(self.history())
+        for secret in ('rd-lan-invalid', self.KEY, 'dl-Dune.2021.mkv', 'unit', '"url"', '"debrid"'):
+            self.assertNotIn(secret, answer)
+        self.assertEqual(self.history()[0]['provider'], 'TorBox')
+
+    def test_unknown_size_leaves_the_average_speed_unknown(self):
+        self.write_state([self.hrow('Odd.mkv', 'finished', time.time() - 600, total_bytes=0, bytes=0)])
+        line = self.history()[0]
+        self.assertEqual(line['size_bytes'], 0)
+        self.assertIsNone(line['avg_bps'])   # an unknown size leaves the speed unknown, not invented
+
+    def test_one_line_for_a_season_grab_with_its_file_count_and_total(self):
+        grab = {'id': 7, 'hash': self.KEY, 'link': 'realdebrid'}
+        rows = [self.hrow('Severance.S02E%02d.mkv' % i, 'finished', time.time() - 600 + (i * 30),
+                        kind='show', show_dir='Severance', season=2, debrid=grab, dest=dp.SHOWS_DIR)
+                for i in range(1, 5)]
+        self.write_state(rows)
+        lines = self.history()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual((lines[0]['files'], lines[0]['size_bytes']), (4, 4 * (8 << 30)))
+        self.assertEqual(lines[0]['title'], 'Severance season 2')
+
+    def test_rows_close_for_30_days_leave_the_file_and_history(self):
+        old = int(time.time()) - 31 * 86400
+        self.write_state([self.hrow('Ancient.mkv', 'finished', old, state_since=old, finished=old, started=old - 333),
+                          self.hrow('Fresh.mkv', 'finished', time.time() - 3600)])
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(answer={'ok': True, 'jobs': []})):
+            dp._debrid_tick()
+        self.assertEqual([d['name'] for d in self.read_state()], ['Fresh.mkv'])   # 30 days: history ends too
+        self.assertEqual([l['title'] for l in self.history()], ['Fresh'])
+
+    def test_the_state_file_cap_is_100_rows_and_history_reads_it(self):
+        rows = [self.hrow('f%03d.mkv' % i, 'finished', 1_700_000_000 + i) for i in range(dp._DEBRID_KEEP + 40)]
+        with dp._STATE_LOCK:
+            dp._save_state({'downloads': rows})
+        self.assertEqual(len(self.read_state()), dp._DEBRID_KEEP)   # the newest 100 stay
+        self.assertEqual(len(self.history()), 20)                    # and the sheet answers with 20
+
+    def test_history_is_a_feature_of_a_backend_that_has_it(self):
+        self.assertIn('history', dp.debrid_status()['features'])
