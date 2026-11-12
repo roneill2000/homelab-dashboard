@@ -855,6 +855,35 @@ def stop_download(name) -> dict:
 
 MAX_CHECK_JOBS = 60
 
+# ------------------------------------------------------------------- space ---
+SPACE_TTL = 30.0                     # seconds one folder's answer is reused
+_SPACE_CACHE: dict[str, tuple[float, int, int]] = {}
+
+
+def free_space(dest) -> dict:
+    """Free space on the filesystem the media library would write the file to.
+
+    Measured on the worker, not on the dashboard: the share can land on the cache pool or on the array,
+    and only the machine the file goes to knows which. f_bavail, not f_bfree, is what a normal user can
+    still write, so the ext4 root reserve is never counted as usable space. Cached per folder, because
+    the panel asks for every preview it shows.
+    """
+    folder = safe_dest(dest)
+    # A show folder that does not exist yet still sits on the filesystem the file would land on, so
+    # measure the nearest real folder above it. That is also the cache key: one answer per folder root.
+    while folder != '/' and not os.path.isdir(folder):
+        folder = os.path.dirname(folder)
+    now = time.monotonic()
+    hit = _SPACE_CACHE.get(folder)
+    if hit and now - hit[0] < SPACE_TTL:
+        return {'ok': True, 'free_bytes': hit[1], 'total_bytes': hit[2]}
+    stat = os.statvfs(folder)
+    free, total = int(stat.f_bavail * stat.f_frsize), int(stat.f_blocks * stat.f_frsize)
+    if len(_SPACE_CACHE) > 16:      # one entry per folder asked about, never unbounded
+        _SPACE_CACHE.clear()
+    _SPACE_CACHE[folder] = (now, free, total)
+    return {'ok': True, 'free_bytes': free, 'total_bytes': total}
+
 
 def rpc_reply(req) -> dict:
     if not isinstance(req, dict) or req.get('v') != VERSION:
@@ -871,6 +900,8 @@ def rpc_reply(req) -> dict:
             info = stop_download(req.get('name'))
             return {'ok': True, 'unit': info['unit'], 'name': info['name'], 'state': info['state'],
                     'message': info['message']}
+        if cmd == 'space':
+            return free_space(req.get('dest'))
         if cmd == 'check':
             jobs = req.get('jobs')
             if not isinstance(jobs, list) or len(jobs) > MAX_CHECK_JOBS:

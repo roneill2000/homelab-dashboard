@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import sys
 import tempfile
 import types
@@ -704,6 +705,9 @@ class RpcInterface(unittest.TestCase):
             p.start()
         self.addCleanup(lambda: [p.stop() for p in self.patches])
         self.addCleanup(self.tmp.cleanup)
+        # The free-space answer is cached per folder for 30 s in this process: never answer for the
+        # next test with the last test's reading.
+        self.addCleanup(lib._SPACE_CACHE.clear)
 
     def test_ping_and_version_gate(self):
         self.assertEqual(lib.rpc_reply({'v': lib.VERSION, 'cmd': 'ping'}),
@@ -772,6 +776,51 @@ class RpcInterface(unittest.TestCase):
         self.assertFalse(out['ok'])
         self.assertNotIn('secret', out['error'])
         self.assertNotIn('Traceback', out['error'])
+
+
+    # -------------------------------------------------------------------- space ---
+    def test_space_answers_free_and_total_for_a_share_folder(self):
+        os.makedirs(lib.MOVIES_DIR)
+        out = lib.rpc_reply({'v': lib.VERSION, 'cmd': 'space', 'dest': lib.MOVIES_DIR})
+        self.assertTrue(out['ok'], out)
+        self.assertGreater(out['free_bytes'], 0)
+        self.assertGreaterEqual(out['total_bytes'], out['free_bytes'])
+
+    def test_space_refuses_a_folder_off_the_share(self):
+        for bad in ('/etc', '/', lib.SHOWS_DIR, lib.SHOWS_DIR + '/../etc', 'not a folder'):
+            out = lib.rpc_reply({'v': lib.VERSION, 'cmd': 'space', 'dest': bad})
+            self.assertFalse(out['ok'], bad)
+            self.assertTrue(out['error'], bad)   # one sentence naming the rule it broke
+
+    def test_a_show_folder_that_does_not_exist_yet_is_measured_at_its_root(self):
+        # The grab's folder is created when the file lands; the reading still comes from the same
+        # filesystem, so a missing folder is measured at the nearest real one above it.
+        out = lib.rpc_reply({'v': lib.VERSION, 'cmd': 'space', 'dest': os.path.join(lib.SHOWS_DIR, 'Breaking Bad')})
+        self.assertTrue(out['ok'], out)
+        self.assertGreater(out['free_bytes'], 0)
+
+    def test_the_space_answer_is_cached_per_folder(self):
+        class Stat:
+            f_bavail, f_frsize, f_blocks = 900, 1024, 2048
+
+        calls = []
+
+        def statvfs(path):
+            calls.append(path)
+            return Stat
+
+        os.makedirs(lib.MOVIES_DIR)
+        with patch.object(lib.os, 'statvfs', statvfs):
+            first = lib.rpc_reply({'v': lib.VERSION, 'cmd': 'space', 'dest': lib.MOVIES_DIR})
+            second = lib.rpc_reply({'v': lib.VERSION, 'cmd': 'space', 'dest': lib.MOVIES_DIR})
+        self.assertEqual((first['free_bytes'], second['free_bytes']), (900 * 1024, 900 * 1024))
+        self.assertEqual(len(calls), 1)                      # one measurement, reused for 30 s
+        # The entry is older than the 30 s window: measure again, because a grab may have filled the disk.
+        lib._SPACE_CACHE[lib.MOVIES_DIR] = (time.monotonic() - lib.SPACE_TTL - 1, 1, 2)
+        with patch.object(lib.os, 'statvfs', statvfs):
+            third = lib.rpc_reply({'v': lib.VERSION, 'cmd': 'space', 'dest': lib.MOVIES_DIR})
+        self.assertEqual(third['free_bytes'], 900 * 1024)    # not the stale 1
+        self.assertEqual(len(calls), 2)
 
 
 class StopDownload(unittest.TestCase):

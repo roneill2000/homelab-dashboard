@@ -1106,7 +1106,8 @@ function DownloadsPanel({notify=()=>{}}){
    if(r.ok){const n=r.cleared||0,k=r.kept||0;notify(!n?'Nothing to clear yet.':k?`Cleared ${n} download${n===1?'':'s'}. Kept ${k} still downloading or waiting for Jellyfin.`:`Cleared ${n} download${n===1?'':'s'}. The files stay on the share.`);dRefresh.current?.()}else notify(sentence(r.error)||'The list was not cleared.')}
  // The backend lists what it can do in /api/debrid 'features'. Nothing below is ever sent to a backend that does not
  // list it: an older backend would treat a preview request as a real download.
- const canPreview=features.includes('preview'),canDismiss=features.includes('dismiss');
+ const canPreview=features.includes('preview'),canDismiss=features.includes('dismiss'),canSpace=features.includes('space');
+ const SPACE_WARN_BYTES=100*1024**3;   // the panel colours the room line amber under this; the backend keeps its own 50 GB reserve
  useEffect(()=>{setKindPick(null)},[text]);
  useEffect(()=>{setPlan(null);if(!isUrl||!canPreview)return;const u=text.trim();let alive=true;
   const t=setTimeout(async()=>{setPlan({loading:true});const d=await postAction('/api/action/download',{url:u,preview:true,...(kindPick?{kind:kindPick}:{})}).catch(()=>({ok:false,error:'Could not reach the dashboard.'}));
@@ -1120,6 +1121,9 @@ function DownloadsPanel({notify=()=>{}}){
   if(r.ok){notify('Removed from the list.');gRefresh.current?.()}else notify(sentence(r.error)||'It could not be removed.')}
  function submit(e){e.preventDefault();if(busy)return;isUrl?addUrl():search()}
  const list=results?.list||[];
+ // A start the backend says will not fit is disabled here, and says why: the panel never sends a
+ // request it would only have to refuse (canSpace keeps an older backend, which knows nothing of it).
+ const noRoom=canSpace&&!!plan&&!plan.error&&plan.fits===false;
  // Sorting and quality filters for the results. Both are remembered: the usual pick here is the largest file (a remux).
  const tagged=list.map(r=>({r,rel:release(r.title)})),FILTERS=['4K','1080p','Remux','DV'];
  const offered=FILTERS.filter(t=>only.includes(t)||tagged.some(x=>x.rel?.tags.includes(t)));
@@ -1131,9 +1135,11 @@ function DownloadsPanel({notify=()=>{}}){
   <article className="m3-card m3-card--outlined panel downloads-panel">
    <form className="dl-form" onSubmit={submit}><TextField icon={isUrl?'link':'search'} aria-label="Search indexers, or paste a download link" placeholder="Search, or paste a download link" value={text} onChange={e=>setText(e.target.value)} onClear={()=>{setText('');setResults(null);setError('')}} clearLabel="Clear" enterKeyHint={isUrl?'send':'search'} autoComplete="off" spellCheck="false"/>
     <div className="dl-controls">{!isUrl&&<Segmented label="Source" value={kind} onChange={k=>{setKind(k);if(results||busy)search(k)}} options={[['torrent','Debrid'],['usenet','Usenet']]}/>}
-     <Button type="submit" variant="filled" icon={isUrl?'download':'search'} disabled={busy||(isUrl?false:text.trim().length<2)}>{busy?(isUrl?'Sending…':'Searching…'):isUrl?'Add download':'Search'}</Button></div></form>
+     <Button type="submit" variant="filled" icon={isUrl?'download':'search'} disabled={busy||noRoom||(isUrl?false:text.trim().length<2)}>{busy?(isUrl?'Sending…':'Searching…'):isUrl?(noRoom?'No room':'Add download'):'Search'}</Button></div></form>
    {isUrl&&plan&&!error&&<div className="dl-plan" aria-live="polite">{plan.loading?<span className="dl-plan__where">Checking the link…</span>:plan.error?<span className="dl-plan__where dl-plan__bad">{sentence(plan.error)}</span>:
     <><span className="dl-plan__where"><Icon name="folder" size={18}/><span>Saves to <strong>{sharePath(plan.dest)}</strong>{plan.kind==='show'&&plan.season!=null&&<> · S{String(plan.season).padStart(2,'0')}{plan.episode!=null&&<>E{String(plan.episode).padStart(2,'0')}</>}</>}<small>{plan.name}</small></span></span>
+     {canSpace&&<span className={'dl-plan__space'+(noRoom?' dl-plan__no':valid(plan.free_after_bytes)&&plan.free_after_bytes<SPACE_WARN_BYTES?' dl-plan__warn':'')}>{valid(plan.size_bytes)?<>{bytes(plan.size_bytes)} · leaves {bytes(plan.free_after_bytes)} free</>:plan.free_bytes==null?<>No room reading yet</>:<>Size not known · {bytes(plan.free_bytes)} free</>}</span>}
+     {noRoom&&<span className="dl-plan__where dl-plan__bad">{plan.space_note||'Not enough room on the share'}</span>}
      <Segmented label="Film or series" value={plan.kind} onChange={k=>setKindPick(k)} options={[['movie','Film'],['show','Series']]}/></>}</div>}
    {error&&<div className="notice warning" role="alert">{error}</div>}
    {busy&&!isUrl&&<IndeterminateProgress label="Searching indexers"/>}
@@ -1141,8 +1147,8 @@ function DownloadsPanel({notify=()=>{}}){
     {list.length>1&&<div className="dl-filters"><MenuSelect value={sortBy} onChange={pickSort} aria-label="Sort results" options={[{value:'size',label:'Largest first'},{value:'popular',label:results.kind==='usenet'?'Most grabbed':'Most seeders'},{value:'new',label:'Newest'}]}/>
      {offered.map(t=>{const on=only.includes(t);return <button type="button" key={t} className={'m3-chip m3-state dl-filter'+(on?' has-icon':'')} aria-pressed={on} onClick={()=>toggleOnly(t)}>{on&&<Icon name="check" size={18}/>}{t}</button>})}</div>}
     {list.length>0&&!view.length&&<p className="dl-nomatch">None of these match the filters.</p>}
-    {view.slice(0,shown).map(({r,rel})=>{const st=sent[r.id];return <div className="dl-row dl-row--result" key={r.id}><div className="dl-row__text"><strong title={r.title}>{rel?rel.title:r.title}</strong>{rel&&rel.tags.length>0&&<span className="dl-tags">{rel.tags.map(t=><span className="dl-tag" key={t}>{t}</span>)}</span>}<small><span className="nowrap"><strong className="ov-num">{bytes(r.size)}</strong></span>{results.kind==='torrent'?<span className="nowrap"><strong className="ov-num">{num(r.seeders)}</strong> seeders</span>:valid(r.grabs)&&<span className="nowrap"><strong className="ov-num">{num(r.grabs)}</strong> grabs</span>}<span className="nowrap dl-indexer">{r.indexer}</span>{r.published&&<span className="nowrap">{ago(r.published)}</span>}</small></div>
-     <Button variant={st==='done'?'text':'tonal'} icon={st==='done'?'check':'download'} disabled={!!st} onClick={()=>grab(r)} aria-label={`Download ${r.title}`}><span className="dl-get-label">{st==='done'?'Sent':st==='busy'?'Sending…':'Get'}</span></Button></div>})}
+    {view.slice(0,shown).map(({r,rel})=>{const st=sent[r.id];return <div className="dl-row dl-row--result" key={r.id}><div className="dl-row__text"><strong title={r.title}>{rel?rel.title:r.title}</strong>{rel&&rel.tags.length>0&&<span className="dl-tags">{rel.tags.map(t=><span className="dl-tag" key={t}>{t}</span>)}</span>}<small><span className="nowrap"><strong className="ov-num">{bytes(r.size)}</strong></span>{canSpace&&r.fits===false&&<span className="dl-room dl-room--no" title={r.space_note||''}>No room</span>}{canSpace&&r.fits!==false&&valid(r.free_after_bytes)&&r.free_after_bytes<SPACE_WARN_BYTES&&<span className="dl-room dl-room--warn" title={`After this one: ${bytes(r.free_after_bytes)} free on the share`}>{bytes(r.free_after_bytes)} left after</span>}{results.kind==='torrent'?<span className="nowrap"><strong className="ov-num">{num(r.seeders)}</strong> seeders</span>:valid(r.grabs)&&<span className="nowrap"><strong className="ov-num">{num(r.grabs)}</strong> grabs</span>}<span className="nowrap dl-indexer">{r.indexer}</span>{r.published&&<span className="nowrap">{ago(r.published)}</span>}</small></div>
+     <Button variant={st==='done'?'text':'tonal'} icon={st==='done'?'check':'download'} disabled={!!st||(canSpace&&r.fits===false)} onClick={()=>grab(r)} aria-label={`${canSpace&&r.fits===false?'No room for ':`Download `}${r.title}`}><span className="dl-get-label">{st==='done'?'Sent':st==='busy'?'Sending…':canSpace&&r.fits===false?'No room':'Get'}</span></Button></div>})}
     {view.length>shown&&<button className="m3-btn m3-btn--text m3-state text-button" onClick={()=>setShown(n=>n+15)}>Show {Math.min(15,view.length-shown)} more</button>}</div>}
    {/* One list for everything on its way in: pasted links (the n100 worker) and search grabs (RdtClient). Running rows
        come first. The status badge sits on the title line, so on a phone the size, speed and time left fit on one line. */}

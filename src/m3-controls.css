@@ -429,6 +429,7 @@ button.dl-filter[aria-pressed=true]{box-shadow:none;background:var(--md-sys-colo
 .dl-nomatch{margin:4px 0 8px;color:var(--md-sys-color-on-surface-variant)}
 .dl-tags{display:flex;flex-wrap:wrap;gap:4px}.dl-tag{padding:1px 8px;border:1px solid var(--md-sys-color-outline-variant);border-radius:8px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size);white-space:nowrap}
 .dl-plan{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}.dl-plan__where{display:flex;align-items:flex-start;gap:8px;min-width:0;color:var(--md-sys-color-on-surface-variant)}.dl-plan__where strong{color:var(--md-sys-color-on-surface);font-weight:500}.dl-plan__where small{display:block;overflow-wrap:anywhere;font-size:var(--md-sys-typescale-body-small-size)}.dl-plan__bad{color:var(--md-sys-color-error)}
+.dl-plan__space,.dl-room{font-size:var(--md-sys-typescale-body-small-size);color:var(--md-sys-color-on-surface-variant);white-space:nowrap}.dl-plan__space.dl-plan__warn,.dl-room.dl-room--warn{color:var(--md-custom-amber)}.dl-plan__space.dl-plan__no,.dl-room.dl-room--no{color:var(--md-sys-color-error);font-weight:500}.dl-room{margin-left:8px}
 .dl-results>.text-button{align-self:flex-start;margin-top:4px}
 .m3-field__input:focus-visible{outline:none}
 /* Overview hero while backup status is still unknown: neutral, neither green nor attention. */

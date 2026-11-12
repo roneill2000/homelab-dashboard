@@ -206,6 +206,10 @@ class DebridTests(unittest.TestCase):
         self.addCleanup(self.p.stop)
         self.addCleanup(self.tmp.cleanup)
         self.addCleanup(dp._DEBRID_LOOP.update, {'started': False})
+        # Space and size readings are cached in this process: a stale one would answer for another test.
+        self.addCleanup(dp._SPACE_CACHE.clear)
+        self.addCleanup(dp._SIZE_CACHE.clear)
+        self.addCleanup(setattr, dp, '_SPACE_SUPPORT', [0.0, False])
 
     def write_state(self, rows):
         with open(self.state_path, 'w') as f:
@@ -343,8 +347,11 @@ class DebridTests(unittest.TestCase):
         with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)), \
              patch.object(dp, 'searxng_ground', return_value=None):
             out = dp.add_debrid('https://nyk.example.com/d/abc/Memento.2000.BluRay.1080p.mkv')
-        self.assertEqual(len(calls), 1)
-        self.assertEqual((calls[0]['v'], calls[0]['cmd']), (dp._DEBRID_IF_VERSION, 'start'))
+        # The size is unknown for this fake link, so the guard asked nothing; the room reading that
+        # follows the start is the only space call. One start, as before (Task 1 adds a read-only op).
+        self.assertEqual(sorted(c['cmd'] for c in calls), ['space', 'start'])
+        self.assertEqual(len([c for c in calls if c['cmd'] == 'start']), 1)
+        self.assertEqual((next(c for c in calls if c['cmd'] == 'start')['v'],), (dp._DEBRID_IF_VERSION,))
         self.assertEqual((out['kind'], out['dest'], out['name']), ('movie', dp.MOVIES_DIR, 'Memento.2000.BluRay.1080p.mkv'))
         rows = self.read_state()
         self.assertEqual((rows[0]['state'], rows[0]['scanned'], rows[0]['kind']), ('downloading', False, 'movie'))
@@ -423,7 +430,9 @@ class DebridTests(unittest.TestCase):
         self.assertEqual((body['kind'], body['dest'], body['name'], body['kind_source']),
                          ('show', dp.SHOWS_DIR + '/Game Of Thrones', 'Game.Of.Thrones.S01E03.2160p.mkv', 'name'))
         self.assertEqual((body['season'], body['episode'], body['year']), (1, 3, None))
-        self.assertEqual(calls, [])
+        # Room (Task 1): a preview may read free space from the worker, but must not start anything.
+        self.assertEqual([c['cmd'] for c in calls], ['space'])
+        self.assertIsNone(body['free_bytes'])   # this fake worker said no size: the check fails open
         self.assertFalse(os.path.exists(self.state_path))
 
     def test_a_user_kind_beats_an_unambiguous_name(self):
@@ -2295,3 +2304,107 @@ class DebridCancelRaceTests(unittest.TestCase):
         self.write_state([])
         self.assertFalse(dp._prep_update('rd-Dune.2021.2160p', lambda r: r.update(seen=1)))
         self.assertEqual(self.read_state(), [])
+
+
+class DebridSpaceTests(DebridTests):
+    """Task 1 in docs/SPEC-downloads-augmentations.md: the worker states free space on the share, and a
+    start that would leave less than RESERVE_BYTES free is refused before anything is asked of a
+    service. An unknown size or a missing reading never blocks a download."""
+
+    GB = 1024 ** 3
+
+    def worker(self, free=None, fail=False):
+        """A fake n100 worker: 'space' answers free_bytes, 'start' answers a started unit."""
+        def call(payload, timeout=None):
+            if payload.get('cmd') == 'space':
+                if fail:
+                    raise RuntimeError('the download worker on the n100 did not answer in time')
+                return {'ok': True, 'free_bytes': free, 'total_bytes': free}
+            return {'ok': True, 'unit': 'dl-Memento.2000.BluRay.1080p.mkv', 'state': 'downloading',
+                    'message': 'started'}
+        return call
+
+    def add_with(self, free=None, size=None, fail=False, state=None):
+        """One pasted link through the space check; returns (answer-or-None, error, worker calls)."""
+        if state is not None:
+            self.write_state(state)
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=lambda p, timeout=None: (calls.append(p),
+                                                                                    self.worker(free, fail)(p)) [1]), \
+             patch.object(dp, '_content_length', return_value=size):
+            try:
+                return dp.add_debrid('https://nyk.example.com/d/abc/Memento.2000.BluRay.1080p.mkv'), None, calls
+            except dp.NoSpace as exc:
+                return None, str(exc), calls
+
+    def test_it_starts_when_the_share_keeps_its_reserve(self):
+        out, err, calls = self.add_with(free=900 * self.GB, size=80 * self.GB)
+        self.assertTrue(out['ok'], err)
+        self.assertIn('start', [c['cmd'] for c in calls])
+        self.assertEqual((out['size_bytes'], out['free_bytes'], out['free_after_bytes'], out['fits']),
+                         (80 * self.GB, 900 * self.GB, 820 * self.GB, True))
+
+    def test_it_refuses_a_grab_that_would_eat_the_array(self):
+        out, err, calls = self.add_with(free=120 * self.GB, size=80 * self.GB)
+        self.assertIsNone(out)
+        self.assertIn('will not fit', err)
+        self.assertIn('50 GB', err)                    # the reserve, in words
+        self.assertNotIn('start', [c['cmd'] for c in calls])   # nothing reached the worker
+        self.assertFalse(os.path.exists(self.state_path))     # and no row was remembered
+
+    def test_a_size_it_cannot_know_never_blocks_a_download(self):
+        # 30 GB free is under the reserve, but a link that states no size is not refused: the preview
+        # says the size is not known instead.
+        out, err, calls = self.add_with(free=30 * self.GB, size=None)
+        self.assertTrue(out['ok'], err)
+        self.assertIn('start', [c['cmd'] for c in calls])
+        self.assertEqual((out['size_bytes'], out['fits']), (None, True))
+
+    def test_a_worker_that_says_nothing_does_not_block_a_download(self):
+        # The reading failed, so the check fails open: free_bytes stays None and the start still ran.
+        out, err, calls = self.add_with(fail=True, size=80 * self.GB)
+        self.assertTrue(out['ok'], err)
+        self.assertIn('start', [c['cmd'] for c in calls])
+        self.assertEqual((out['free_bytes'], out['free_after_bytes'], out['fits']), (None, None, None))
+
+    def test_downloads_now_running_count_against_free_space(self):
+        # 50 GB of a 500 GB file are still to be written by a download already running, so a 60 GB
+        # grab would leave 20 GB: refused, even though 130 GB reads as free.
+        running = {'name': 'Big.2024.2160p.mkv', 'dest': dp.MOVIES_DIR, 'state': 'downloading',
+                   'total_bytes': 500 * self.GB, 'bytes': 450 * self.GB}
+        out, err, calls = self.add_with(free=130 * self.GB, size=60 * self.GB, state=[running])
+        self.assertIsNone(out)
+        self.assertNotIn('start', [c['cmd'] for c in calls])
+        self.assertIn('will not fit', err)
+
+    def test_a_search_get_is_refused_before_the_torrent_reaches_a_service(self):
+        self.write_state([])
+        asked = []
+        # The token carries the indexer's own size; the guard runs before either service is asked.
+        token = 'tk'
+        with patch.object(dp, 'RESULTS', {token: {'at': time.time(), 'title': 'Dune 2021', 'infoHash': 'a' * 40,
+                                                 'protocol': 'torrent', 'size': 80 * self.GB}}), \
+             patch.object(dp, '_indexer_torrent', return_value=('file', b't')),\
+             patch.object(dp, '_rd_key', return_value='key'), \
+             patch.object(dp, '_rd_add_torrent', side_effect=lambda k, p: asked.append('rd') or ('1', 'h')),\
+             patch.object(dp, '_download_rpc', side_effect=self.worker(free=60 * self.GB)):
+            with self.assertRaises(dp.NoSpace):
+                dp.grab_debrid(token)
+        self.assertEqual(asked, [])   # Real-Debrid was never asked for the torrent
+
+    def test_indexer_sizes_are_read_in_both_forms(self):
+        self.assertEqual(dp._indexer_bytes(1500000000), 1500000000)
+        self.assertEqual(dp._indexer_bytes('1.5 GB'), int(1.5 * self.GB))
+        self.assertEqual(dp._indexer_bytes('940 MB'), 940 * 1024 ** 2)
+        for blank in ('', None, ' ', 'n/a', 0, -5, True):
+            self.assertIsNone(dp._indexer_bytes(blank), blank)
+
+    def test_space_is_listed_only_when_the_worker_knows_it(self):
+        with patch.object(dp, '_space_supported', return_value=True):
+            self.assertIn('space', dp.debrid_status()['features'])
+        with patch.object(dp, '_space_supported', return_value=False):
+            self.assertNotIn('space', dp.debrid_status()['features'])
+        # A worker that has never heard of the op answers 'unknown command': nothing is listed, so the
+        # panel never sends a space request to it.
+        with patch.object(dp, '_download_rpc', side_effect=RuntimeError('unknown command')):
+            self.assertFalse(dp._space_supported())

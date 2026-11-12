@@ -74,6 +74,14 @@ _DEBRID_CHECK_MAX = 40 # downloads in one check call
 _DEBRID_SCAN_UNTIL = ('finished', 'present')   # states that mean "ask Jellyfin to look"
 _DEBRID_STATE_WORDS = ('downloading', 'finished', 'failed', 'stopped', 'interrupted', 'present', 'missing', 'preparing', 'unknown')
 _RETRY_STATES = ('failed', 'stopped', 'interrupted')   # a stored link can be run again in these
+# Free space that must stay on the share after a grab starts. Grabs are 30-90 GB and the array holds
+# under 1 TB, so a start that would eat the array to the floor is refused before it begins (Task 1).
+RESERVE_BYTES = 50 * 1024 ** 3
+_SPACE_CACHE = {}        # destination folder -> (monotonic seconds, free_bytes); the worker caches too
+_SPACE_TTL = 15.0        # how long this process reuses the worker's own 30 s answer
+_SPACE_SUPPORT = [0.0, False]   # monotonic reading time, whether the worker knows 'space'
+_SIZE_CACHE = {}         # link -> (monotonic seconds, size_bytes); preview and start share one probe
+_SIZE_TTL = 120.0
 # A Debrid-tab Get sends the torrent straight to TorBox and remembers it here as a 'preparing' row.
 # The panel polls /api/debrid; the tick loop (the next step of the spec) picks the row up once TorBox
 # has the files. The key file decides whether this path is on at all: without it, Get behaves exactly
@@ -178,6 +186,9 @@ def search(query, kind):
     rows = prowlarr('/api/v1/search?' + urllib.parse.urlencode({'query': query, 'type': 'search', 'limit': 100}))
     now = time.time()
     out = []
+    # Room on the share (Task 1): the worker reading is cached here, so asking per result costs one round
+    # trip for the whole search, not sixty. A result with no size in it gets size_bytes None and no mark.
+    room, owed = _free_bytes(MOVIES_DIR), _in_flight_bytes()
     with RESULTS_LOCK:
         for key in [k for k, v in RESULTS.items() if now - v['at'] > 1800]: del RESULTS[key]
         for r in rows or []:
@@ -187,11 +198,21 @@ def search(query, kind):
             # key, so none of them may ever be in an HTTP answer. Get needs them to reach TorBox.
             RESULTS[token] = {'at': now, 'guid': r['guid'], 'indexerId': r['indexerId'], 'title': r.get('title'),
                               'magnetUrl': r.get('magnetUrl'), 'downloadUrl': r.get('downloadUrl'),
-                              'infoHash': r.get('infoHash'), 'protocol': r.get('protocol')}
+                              'infoHash': r.get('infoHash'), 'protocol': r.get('protocol'),
+                              'size': _indexer_bytes(r.get('size'))}
             info = r.get('infoUrl') if str(r.get('infoUrl', '')).startswith(('https://', 'http://')) else None
+            size_bytes = _indexer_bytes(r.get('size'))
+            space = {'size_bytes': size_bytes,
+                     'free_bytes': room,
+                     'free_after_bytes': room - owed - size_bytes if room is not None and size_bytes else
+                         (room - owed if room is not None else None),
+                     'fits': None if room is None else
+                         True if not size_bytes else room - owed - size_bytes >= RESERVE_BYTES}
+            if space['fits'] is False:
+                space['space_note'] = _space_sentence(size_bytes, room - owed)
             out.append({'id': token, 'title': r.get('title'), 'size': r.get('size'), 'seeders': r.get('seeders'),
                         'leechers': r.get('leechers'), 'grabs': r.get('grabs'), 'indexer': r.get('indexer'),
-                        'published': r.get('publishDate'), 'info': info})
+                        'published': r.get('publishDate'), 'info': info, **space})
     key = (lambda x: x['seeders'] or 0) if kind == 'torrent' else (lambda x: x['grabs'] or 0)
     out.sort(key=key, reverse=True)
     return out[:60]
@@ -481,6 +502,10 @@ def grab_debrid(token):
     if existing:
         return dict(ok=True, title=existing.get('title') or hit.get('title'), via='debrid')
     kind, payload = _indexer_torrent(hit)
+    # Room on the share (Task 1): the indexer states the torrent's size. Movies and Shows live on the
+    # same filesystem, so the reading for Movies measures where this grab would land. Nothing is asked
+    # from the debrid services before that check, so a grab that cannot fit never reaches either one.
+    _space_guard(MOVIES_DIR, hit.get('size'))
     reasons, tried = [], []
     for name, display, prefix, key_get, add in _PROVIDERS:
         if not key_get():
@@ -569,6 +594,136 @@ def _download_rpc(payload, timeout=45):
     raise RuntimeError((r.stderr or 'the download worker did not answer').strip()[:200] or 'no answer')
 
 
+class NoSpace(Exception):
+    """A start that would leave the share below RESERVE_BYTES free. Answered 409 with one sentence."""
+
+
+def _size_words(n):
+    """A byte count in the words the panel uses (88 GB, 640 MB), for the sentences in answers."""
+    for unit, power in (('GB', 1024 ** 3), ('MB', 1024 ** 2), ('KB', 1024)):
+        if n >= power:
+            return '%s %s' % ('%g' % round(n / power, 1), unit)
+    return '%d B' % n
+
+
+def _free_bytes(dest):
+    """Free space on the filesystem the worker would write to, read there and not here.
+
+    The share can land on the cache pool or on the array, and only the machine the file goes to knows
+    which and how full it is; the dashboard's own disk tiles measure other filesystems. None when the
+    worker did not answer, or is too old to know the 'space' command: the check fails open, so a
+    missing reading never blocks a download.
+    """
+    now = time.monotonic()
+    hit = _SPACE_CACHE.get(dest)
+    if hit and now - hit[0] < _SPACE_TTL:
+        return hit[1]
+    try:
+        out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'space', 'dest': dest}, timeout=8)
+    except Exception:
+        return None
+    free = int(out.get('free_bytes')) if isinstance(out.get('free_bytes'), int) else None
+    if free is not None:
+        if len(_SPACE_CACHE) > 16:
+            _SPACE_CACHE.clear()
+        _SPACE_CACHE[dest] = (now, free)
+    return free
+
+
+def _space_supported():
+    """Whether the worker knows the 'space' command, asked at most once a ten minutes.
+
+    The panel reads this from /api/debrid 'features' and never sends a space request to an older
+    worker; the download tick polls the same answer many times a minute, so the result is held longer
+    than the free-space reading itself.
+    """
+    global _SPACE_SUPPORT
+    now = time.monotonic()
+    if now - _SPACE_SUPPORT[0] < 600.0:
+        return _SPACE_SUPPORT[1]
+    ok = _free_bytes(MOVIES_DIR) is not None
+    _SPACE_SUPPORT = [now, ok]
+    return ok
+
+
+def _in_flight_bytes():
+    """Bytes the downloads already running still have to write: they count against free space now."""
+    with _STATE_LOCK:
+        state = _load_state()
+    out = 0
+    for d in state['downloads']:
+        if d.get('state') == 'downloading':
+            out += max(0, int(d.get('total_bytes') or 0) - int(d.get('bytes') or 0))
+    return out
+
+
+def _space_sentence(size_bytes, room):
+    """The one sentence that says why a start will not fit, for the 409 answer and for the panel line."""
+    return ('%s will not fit: it leaves %s free after the downloads now running, and %s must stay free '
+            'on the share' % (_size_words(size_bytes), _size_words(room - size_bytes), _size_words(RESERVE_BYTES)))
+
+
+def _space_answer(dest, size_bytes, in_flight=None):
+    """The space fields one answer carries (size_bytes, free_bytes, free_after_bytes, fits, space_note).
+
+    free_after_bytes is what will be free once this file lands and the running downloads finish. An
+    unknown size never blocks anything: fits stays True and the panel says the size is not known. space_note
+    is the sentence the panel shows when the start would not fit, so the line and the 409 answer agree.
+    """
+    free = _free_bytes(dest)
+    if in_flight is None:
+        in_flight = _in_flight_bytes()
+    if free is None:
+        return {'size_bytes': size_bytes, 'free_bytes': None, 'free_after_bytes': None, 'fits': None}
+    room = free - in_flight
+    out = {'size_bytes': size_bytes, 'free_bytes': free,
+           'free_after_bytes': room - size_bytes if size_bytes else room,
+           'fits': True if not size_bytes else room - size_bytes >= RESERVE_BYTES}
+    if not out['fits']:
+        out['space_note'] = _space_sentence(size_bytes, room)
+    return out
+
+
+def _indexer_bytes(value):
+    """Prowlarr's own size field, in bytes, or None when the indexer left it out.
+
+    Prowlarr reports search sizes in bytes; some indexers hand over a human string instead, so both
+    forms are read. Only used for the space mark and the room line: nothing here starts a download.
+    """
+    if value is None or value == '':
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value) if value > 0 else None
+    text = str(value).strip().upper().replace(',', ' ')
+    m = re.match(r'^([0-9.]+)\s*(B|K|M|G|T)?(?:I?B)?$', text)
+    if not m:
+        return None
+    units = {'B': 1, 'K': 1024, 'M': 1024 ** 2, 'G': 1024 ** 3, 'T': 1024 ** 4, None: 1}
+    try:
+        return int(float(m.group(1)) * units[m.group(2)])
+    except (ValueError, OverflowError):
+        return None
+
+
+def _space_guard(dest, size_bytes):
+    """Refuse a start that would leave less than RESERVE_BYTES free. Raises NoSpace with the sentence.
+
+    Unknown size or unknown free space: no refusal. A reading from the worker costs one round trip, so
+    the panel's preview and the start it follows share the cached answer.
+    """
+    if not size_bytes:
+        return None
+    free = _free_bytes(dest)
+    if free is None:
+        return None
+    room = free - _in_flight_bytes()
+    if room - size_bytes < RESERVE_BYTES:
+        raise NoSpace(_space_sentence(size_bytes, room))
+    return None
+
+
 # The same rules the n100 worker enforces, applied here first so the panel can explain a refusal.
 # The worker (homelab_download_lib.py) has the last word; tests/test_debrid_parity.py keeps the two equal.
 _NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -582,9 +737,58 @@ _PROBE_REDIRECTS = 4
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Redirects are followed one hop at a time, so every hop passes _safe_url (https, not the LAN)."""
+    """Redirects are followed one hop at a time, so every hop passes _safe_url (https, not the LAN).
+
+    One probe answer below also carries the size the server states, so the same walk gives the
+    panel both a name and a byte count.
+    """
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+def _content_length(url):
+    """How many bytes the link's own server says the file is, or None when it does not say.
+
+    The same walk _discover_name uses: every redirect hop passes _safe_url first, and only the
+    headers are read. A 206 answer states the whole size in Content-Range, a 200 answer in
+    Content-Length. A server that ignores the Range request is asked again with HEAD, which carries
+    no body at all. Cached per link for two minutes, because the panel previews a link and then starts
+    it; never logged, because these links carry an access token.
+    """
+    hit = _SIZE_CACHE.get(url)
+    if hit and time.monotonic() - hit[0] < _SIZE_TTL:
+        return hit[1]
+
+    def walk(range_request):
+        target, total = url, None
+        for _ in range(_PROBE_REDIRECTS + 1):
+            try:
+                req = urllib.request.Request(target, headers={'Range': 'bytes=0-0'}) if range_request \
+                    else urllib.request.Request(target, method='HEAD')
+                with _probe_opener().open(req, timeout=15) as r:
+                    whole = re.search(r'bytes \d+-\d+/(\d+)', str(r.headers.get('Content-Range') or ''))
+                    stated = r.headers.get('Content-Length')
+                    if whole:
+                        return int(whole.group(1))
+                    if stated and str(r.status) == '200':
+                        return int(stated)
+                    return None          # answered, but stated no size
+            except urllib.error.HTTPError as exc:
+                if exc.code in (301, 302, 303, 307, 308):
+                    target = _safe_url(urllib.parse.urljoin(target, exc.headers.get('Location') or ''))
+                    continue
+                return None              # refused, gone or out of range: the size stays unknown
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+                return None              # the server did not answer; never block a start on it
+        return None
+
+    total = walk(True)
+    if total is None:
+        total = walk(False)
+    if len(_SIZE_CACHE) > 32:            # one entry per link probed, never unbounded
+        _SIZE_CACHE.clear()
+    _SIZE_CACHE[url] = (time.monotonic(), total)
+    return total
 
 
 def _probe_opener():
@@ -1075,7 +1279,10 @@ def preview_debrid(url, kind=None):
     info = plan['info']
     return dict(ok=True, preview=True, kind=info['kind'], title=info['title'], season=info['season'],
                 episode=info['episode'], year=info['year'], dest=plan['dest'], name=plan['name'],
-                kind_source=plan['source'], grounded=plan['grounded'])
+                kind_source=plan['source'], grounded=plan['grounded'],
+                # Size and room (Task 1). size_bytes is None when the server states no size, and the
+                # panel then says so; a size it cannot know never blocks the start.
+                **_space_answer(plan['dest'], _content_length(plan['url'])))
 
 
 def add_debrid(url, kind=None):
@@ -1083,6 +1290,8 @@ def add_debrid(url, kind=None):
     plan = plan_debrid(url, kind)
     info = plan['info']
     dest, name, source, grounded = plan['dest'], plan['name'], plan['source'], plan['grounded']
+    size = _content_length(plan['url'])
+    _space_guard(dest, size)   # NoSpace: the share would be eaten to the floor; answered 409, nothing started
     out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': plan['url'], 'dest': dest, 'name': name})
     row = {'dest': dest, 'name': name, 'url': plan['url'], 'unit': out.get('unit') or 'dl-' + name, 'kind': info['kind'],
            'title': info['title'], 'season': info['season'], 'episode': info['episode'],
@@ -1099,7 +1308,9 @@ def add_debrid(url, kind=None):
         _save_state(state)
     return dict(ok=True, kind=info['kind'], title=info['title'], season=info['season'], episode=info['episode'],
                 grounded=grounded, kind_source=source, dest=dest, name=name, state=row['state'], unit=row['unit'],
-                message=out.get('message') or ('started ' + name))
+                message=out.get('message') or ('started ' + name),
+                # Room after the file lands, for the line the panel keeps beside the button.
+                **_space_answer(dest, size))
 
 
 def _debrid_tick():
@@ -1971,6 +2182,11 @@ def debrid_status():
     # only offers a control when its name is here, because an older backend would run the new request as a
     # real download.
     features = ['preview', 'retry', 'dismiss']
+    if _space_supported():
+        # The worker answered the 'space' command, so the room marks and the refusal are live (Task 1).
+        # An older worker that has never heard of it answers 'unknown command': nothing is listed, and
+        # the panel never sends a space request.
+        features.append('space')
     # 'search' (the Debrid tab and its Cancel button) needs a service to send a torrent to. With no key file,
     # Get keeps working exactly as it always did - Prowlarr to RdtClient - and the tab would be a dead control.
     if _rd_key() or _torbox_key():
@@ -2119,6 +2335,7 @@ def handle(handler, post=False):
         if protocol == 'torrent' and (_rd_key() or _torbox_key()):
             # A Debrid-tab Get with either key file: Real-Debrid first, TorBox as its fallback (no RdtClient).
             try: _reply(handler, 200, grab_debrid(token))
+            except NoSpace as e: _reply(handler, 409, {'ok': False, 'error': str(e)})
             except LookupError: _reply(handler, 410, {'ok': False, 'error': 'That result expired. Search again.'})
             except ValueError as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
             except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
@@ -2136,9 +2353,11 @@ def handle(handler, post=False):
             # Preview only: nothing reaches the worker, the state file is not touched.
             try: _reply(handler, 200, preview_debrid(url, kind))
             except ValueError as e: _reply(handler, 400, {'ok': False, 'error': str(e)[:200]})
+            except NoSpace as e: _reply(handler, 409, {'ok': False, 'error': str(e)})
             except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
             return True
         try: _reply(handler, 200, add_debrid(url, kind))
+        except NoSpace as e: _reply(handler, 409, {'ok': False, 'error': str(e)})
         except Exception as e: _reply(handler, 503, {'ok': False, 'error': str(e)[:200]})
         return True
     if isinstance(magnet, str):
