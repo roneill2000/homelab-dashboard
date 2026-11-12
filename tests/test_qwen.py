@@ -108,9 +108,10 @@ class QwenTests(unittest.TestCase):
         broker=q.Broker();broker.job=dict(status='queued',prompt='x',updated_at=1000,target='pc:gemma-4-26b-a4b')
         lock=SimpleNamespace(close=unittest.mock.Mock())
         response={'choices':[{'finish_reason':'stop','message':{'content':'ok'}}],'usage':{}}
-        with patch.object(q,'pc_token',return_value='k') as tok,patch.object(q,'ask_pc',return_value=response) as ask,patch.object(q.r,'fetch',side_effect=[storage(),{}]):
+        with patch.object(q,'PC_TOKEN',SimpleNamespace(read_text=lambda:'k\n')),patch.object(q,'ask_pc',return_value=response) as ask,patch.object(q.r,'fetch',side_effect=[storage(),{}]):
             broker.work(lock)
-        tok.assert_called_once_with('gemma-4-26b-a4b');self.assertEqual(ask.call_args.args[2],'gemma-4-26b-a4b')
+        # Broker wake-on-request (12 Nov 2026): a named PC target skips the live probe and goes straight to the broker.
+        self.assertEqual(ask.call_args.args[2],'gemma-4-26b-a4b')
         self.assertEqual(broker.state()['model'],'Gemma 4 26B · gaming PC')
 
     def test_strata_answers_through_the_broker_without_a_router_token(self):

@@ -10,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'updates'))
 import homelab_update as u
 import update_proxy as proxy
+import pc_net as net
 from backend_patch import patch_updates
 
 
@@ -85,7 +86,7 @@ class WakeTests(unittest.TestCase):
             def __exit__(self, *a): pass
             def setsockopt(self, *a): pass
             def sendto(self, data, addr): sent.append((data, addr))
-        with patch.object(proxy.socket, 'socket', Sock):
+        with patch.object(net.socket, 'socket', Sock):
             proxy.wake_pc()
         self.assertEqual(len(sent[0][0]), 102)
         self.assertEqual(sent[0][0][:6], b'\xff' * 6)

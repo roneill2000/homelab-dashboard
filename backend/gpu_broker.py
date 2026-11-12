@@ -18,9 +18,11 @@ import socketserver
 import sys
 import threading
 import time
+import urllib.request
 
 import ai_history
 import ai_monitor
+import pc_net
 
 PC = '192.168.0.12'
 PORTS = {8080: 'llama', 8088: 'strata', 8089: 'coder'}
@@ -92,6 +94,75 @@ def llama_busy():
                    for m in ai_monitor.models(ai_monitor.fetch(config['url'] + '/models', config['token'])))
     except Exception:
         return False
+
+
+# Broker wake-on-request (12 Nov 2026): a sleeping gaming PC is woken by the first generation request itself, so
+# Ryan can leave it asleep overnight and still ask a model. Only generate/load requests wake; status reads never do.
+WAKE_TIMEOUT = 90  # the whole budget: PC coming up plus the requested engine answering its health URL
+WAKE_RESEND = 15   # re-send the magic packet at most this often while waiting (the NIC can miss one packet)
+_wake_lock = threading.Lock()          # one wake sequence at a time; concurrent requests share it
+_cancel = {'at': 0.0}                 # last sleep-countdown cancel (Part A rule: at most once per 60 s)
+_sleep_requested_at = 0.0             # Part B hook: set when the broker itself asks the PC to sleep
+
+
+class WakeTimeout(RuntimeError):
+    pass
+
+
+def engine_ready(engine):
+    """True when the requested engine answers its cheap status URL (:8080/:8088/:8089 /health, the ones ai_monitor
+    already uses; they do not count as model activity)."""
+    try:
+        if engine == 'llama':
+            req = urllib.request.Request(f'http://{PC}:8080/health', headers={'Authorization': 'Bearer ' + llama_token()})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                return resp.status == 200
+        return isinstance(ai_monitor.strata(STRATA[engine]), dict)
+    except Exception:
+        return False
+
+
+def ensure_awake(engine, timeout=WAKE_TIMEOUT, sleep=time.sleep):
+    """Wake the gaming PC when a generation request finds it asleep. Fast path: awake -> None (~1 ms LAN TCP).
+    Otherwise one wake sequence at a time under _wake_lock: magic packet, then poll pc_awake every 1 s (re-sending
+    the packet every WAKE_RESEND s) until the PC answers, then wait within the same deadline for engine_ready.
+    Returns the seconds spent waking; raises WakeTimeout on the deadline."""
+    if pc_net.pc_awake(timeout=1):
+        return None
+    deadline = time.time() + timeout
+    with _wake_lock:
+        if pc_net.pc_awake(timeout=1):  # woken by a concurrent request while this one waited on the lock
+            return None
+        t0 = time.time()
+        pc_net.wake_pc()
+        log('wake: sent')
+        sent_at = t0
+        while not pc_net.pc_awake(timeout=1):
+            if time.time() >= deadline:
+                raise WakeTimeout('the gaming PC did not come up')
+            if time.time() - sent_at >= WAKE_RESEND:
+                pc_net.wake_pc()
+                log('wake: sent')
+                sent_at = time.time()
+            sleep(1)
+        log(f'wake: PC up after {time.time() - t0:.0f} s')
+        while not engine_ready(engine):
+            if time.time() >= deadline:
+                raise WakeTimeout('the engine did not answer its health URL')
+            sleep(1)
+        log(f'wake: engine ready after {time.time() - t0:.0f} s')
+        return time.time() - t0
+
+
+def maybe_cancel_sleep():
+    """A generation request cancels a sleep countdown it is about to run into (Part B's, or the dashboard's Sleep).
+    At most once per 60 s, never delaying the request: the cancel forced-command SSH runs in a thread. Cheap when no
+    countdown is running. (Part B will only call this path when _sleep_requested_at is recent; for dashboard-initiated
+    sleeps, cancelling once a minute while requests arrive is the accepted simplification.)"""
+    if time.time() - _cancel['at'] < 60:
+        return
+    _cancel['at'] = time.time()
+    threading.Thread(target=lambda: pc_net.sleep_pc(command='cancel'), daemon=True).start()
 
 
 def drain(engine, timeout=DRAIN_TIMEOUT):
@@ -439,6 +510,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         row = dict(ts=t0, engine=engine, model=ai_history.model_of(body) if generate and body else None, ok=0, status=None)
         if generate or load:
             try:
+                woke = ensure_awake(engine)
+            except WakeTimeout as exc:
+                log(f'wake: failed after {time.time() - t0:.0f} s ({exc})')
+                if generate:
+                    remember(dict(row, status=503, swap='wake-failed', wall_s=time.time() - t0))
+                return self.fail(503, f'The gaming PC did not wake up within {WAKE_TIMEOUT} s. Try again, or wake it '
+                                      'from the dashboard.')
+            if woke is None:
+                maybe_cancel_sleep()  # the PC is up; a sleep countdown must not cut this request's work
+            try:
                 row['swap'] = ensure(engine, hold=generate)
                 held = generate
             except GamePaused:
@@ -450,7 +531,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if generate:
                     remember(dict(row, status=503, swap='failed', wall_s=time.time() - t0))
                 return self.fail(503, 'The gaming PC could not switch its GPU to this engine. Try again shortly.')
-            row['swap_s'] = time.time() - t0 if row['swap'] else None
+            if woke is not None:
+                row['swap'] = f'wake+{row["swap"]}' if row['swap'] else 'wake'
+                row['swap_s'] = time.time() - t0
+            else:
+                row['swap_s'] = time.time() - t0 if row['swap'] else None
         t1, tail, first = time.time(), b'', None
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP}
         if extra:  # the unified port's own credentials replace whatever key the client sent

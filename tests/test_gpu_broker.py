@@ -54,6 +54,11 @@ class BrokerTests(unittest.TestCase):
         self.pc = serve(http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakePC))
         self.broker = serve(g.Server(('127.0.0.1', 0), 'llama', ('127.0.0.1', self.pc.server_address[1])))
         self.port = self.broker.server_address[1]
+        # The wake fast path (broker wake-on-request): pretend the PC is up unless a test says otherwise, so
+        # these tests never send real magic packets or probe 192.168.0.12.
+        self.awake = patch.object(g.pc_net, 'pc_awake', return_value=True)
+        self.awake.start()
+        self.addCleanup(self.awake.stop)
 
     def tearDown(self):
         FakePC.release.set()

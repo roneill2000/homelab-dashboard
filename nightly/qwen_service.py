@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+import urllib.error
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import runner as r
@@ -243,12 +244,23 @@ class Broker:
                 except Exception:
                     raise ValueError('Strata did not finish an answer. The gaming PC may be off or asleep; try again, or ask the A310.')
             pc_model=target[3:] if target.startswith('pc:') else PC_MODEL
-            token=pc_token(pc_model) if target=='auto' or target.startswith('pc') else None
+            if target.startswith('pc'):
+                # Broker wake-on-request (12 Nov 2026): an explicit PC target always goes to the broker, asleep or not
+                # (the broker wakes the PC itself); the gate is just that the router key file exists. 'auto' keeps
+                # today's probe: no live PC means the A310 answers without waking anything.
+                try:token=PC_TOKEN.read_text().strip()
+                except OSError:token=None
+            elif target=='auto':token=pc_token(pc_model)
+            else:token=None
             if target.startswith('pc') and not token:
                 raise ValueError('The gaming PC is off, asleep or not serving the 27B. Wake it from Overview, or ask the A310.')
             if token:
                 try:
                     result=self.answer_on_pc(token,pc_model);return
+                except urllib.error.HTTPError as pc_http_error:
+                    if pc_http_error.code==503 and b'did not wake up' in (pc_http_error.read() or b''):
+                        raise ValueError('The gaming PC did not wake up in time (about a minute needed from sleep). Ask again, or ask the A310.')
+                    raise
                 except Exception:
                     if target.startswith('pc'):
                         raise ValueError('The gaming PC did not finish an answer. Try again, or ask the A310.')
