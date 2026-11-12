@@ -61,6 +61,10 @@ JF_SCAN = 'http://192.168.0.17:8096/ScheduledTasks/Running/7738148ffcd07979c7ceb
 JF_ITEMS = 'http://192.168.0.17:8096/Items'
 DEBRID_STATE = '/var/lib/homelab-dashboard/debrid.json'
 DEBRID_STATE_OLD = '/etc/homelab-dashboard/debrid.json'
+# The ntfy topic and server for download-end messages (Task 2). A 0600 file on LXC 104 only: never in the
+# repo, the state file, a log line or an API answer. No file means the feature is off and 'notify' is not
+# listed, so the panel never sends a message it cannot deliver.
+NTFY_CONFIG = '/etc/homelab-dashboard/ntfy.json'
 MOVIES_DIR = '/mnt/unraid/Movies'
 SHOWS_DIR = '/mnt/unraid/Shows'
 _DOWNLOAD_KEY = '/etc/homelab-dashboard/download_ed25519'
@@ -1313,7 +1317,251 @@ def add_debrid(url, kind=None):
                 **_space_answer(dest, size))
 
 
+# --- Flow step 6: tell Ryan when a download ends (Task 2 in docs/SPEC-downloads-augmentations.md) ---------
+#
+# One ntfy message per download, from the dashboard's own tick, sent when the row reaches the point the
+# panel calls it done: after Jellyfin accepted the item, not when the bytes landed. The row keeps 'notified',
+# so restarting the service does not tell the same news twice. A season grab speaks once, for the whole grab,
+# when its last file ends and the service has handed over every file it had. Tapping the message opens the
+# Downloads panel (Click), and a later result for the same download replaces the earlier one (X-Sequence-ID).
+# The alert snooze does not hold these: they answer something the person started themselves.
+
+NTFY_TIMEOUT = 5.0            # one POST; the tick never waits longer than this for a message
+NTFY_READ_TTL = 60.0         # seconds the config file's answer is reused
+NTFY_TRIES = 5               # a topic that will not answer is retried this many times, then left alone
+_ENDED_STATES = _DEBRID_SCAN_UNTIL + ('failed', 'interrupted')   # how a row can end; 'stopped' is silent
+_NTFY_CACHE = [0.0, None]     # monotonic read time, the post URL or None when the file is absent
+
+
+def _ntfy_url():
+    """The ntfy post URL from the private config file, or None when it is missing or unreadable."""
+    global _NTFY_CACHE
+    now = time.monotonic()
+    if now - _NTFY_CACHE[0] < NTFY_READ_TTL:
+        return _NTFY_CACHE[1]
+    url = None
+    try:
+        with open(NTFY_CONFIG) as f:
+            cfg = json.load(f)
+        topic = str(cfg.get('topic') or '').strip()
+        server = str(cfg.get('server') or '').strip().rstrip('/')
+        if topic and server:
+            url = server + '/' + topic
+    except (OSError, ValueError):
+        url = None                     # off, not an error: no file, no messages
+    _NTFY_CACHE = [now, url]
+    return url
+
+
+def _ntfy_header(text):
+    """ntfy reads raw header bytes as UTF-8, so anything outside ASCII (°, ·, accents) goes as an RFC 2047 word.
+
+    Copied from the homelab-alerts sender (Proxmox /usr/local/bin/homelab-alerts) so both senders look the
+    same to the app.
+    """
+    try:
+        text.encode('ascii')
+        return text
+    except UnicodeEncodeError:
+        return '=?UTF-8?B?' + base64.b64encode(text.encode('utf-8')).decode('ascii') + '?='
+
+
+def _ntfy_send(title, body, priority, sequence):
+    """Post one message. True only when ntfy accepted it; the topic never appears in any answer or log line."""
+    url = _ntfy_url()
+    if not url:
+        return False
+    try:
+        req = urllib.request.Request(url, data=str(body).encode('utf-8'), method='POST',
+                                     headers={'Title': _ntfy_header(title), 'Priority': str(int(priority)),
+                                              'Click': 'homelab://view/media',
+                                              'X-Sequence-ID': str(sequence)[:120]})
+        with urllib.request.urlopen(req, timeout=NTFY_TIMEOUT) as r:
+            return 200 <= int(r.status or 0) < 300
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return False
+
+
+def _dur_words(seconds):
+    """How long a download took, in words: 5 min 33 s, 12 min, 1 h 4 min."""
+    try:
+        s = int(round(float(seconds)))
+    except (TypeError, ValueError):
+        return ''
+    if s < 0:
+        s = 0
+    if s < 60:
+        return '%d s' % s
+    if s < 3600:
+        return '%d min %d s' % (s // 60, s % 60) if s % 60 else '%d min' % (s // 60)
+    return '%d h %d min' % (s // 3600, (s % 3600) // 60)
+
+
+def _share_folder(dest):
+    """The share folder a file landed in, written the way the panel writes it (Movies, Shows/<Show>)."""
+    path = re.sub(r'^/mnt/unraid/?', '', str(dest or ''))
+    return '/'.join(part for part in path.split('/') if part) or str(dest or '')
+
+
+def _grab_key(d):
+    """Rows handed over from one torrent share that torrent's service id: a season grab is one news item."""
+    dev = d.get('debrid') or {}
+    return str(dev.get('id') or '') or None
+
+
+def _grab_title(rows):
+    """The name one message speaks for: a show grab says the show and its season, a file says its title."""
+    row = rows[0]
+    title = str(row.get('title') or row.get('name') or 'the download')
+    if (row.get('kind') or 'movie') == 'show' and row.get('season') is not None and row.get('show_dir'):
+        return '%s season %s' % (str(row.get('show_dir')), row.get('season'))
+    return title
+
+
+def _size_of(rows):
+    """Bytes the whole grab wrote, or the single file's own size."""
+    total = sum(int(d.get('total_bytes') or d.get('bytes') or 0) for d in rows)
+    return _size_words(total) if total else 'unknown size'
+
+
+def _news_for(rows, grab):
+    """One (title, body, priority, sequence) for one finished download or grab.
+
+    The body of a failure is the same sentence the panel shows under the row, so tapping the message and
+    opening the panel say the same thing.
+    """
+    bad = [d for d in rows if d.get('state') in ('failed', 'interrupted')]
+    if grab:
+        title = 'Added: %s' % _grab_title(rows)
+        files = '%d of %d files' % (len(rows) - len(bad), len(rows)) if len(rows) != 1 else '1 file'
+        if not bad:
+            body = '%s · %s' % (files, _size_of(rows))
+        elif len(bad) == len(rows):
+            return ('Download failed: %s' % _grab_title(rows),
+                    str(bad[0].get('error') or 'the download did not finish')[:350], 3,
+                    'dl-%s' % _grab_key(rows[0]))
+        else:
+            body = '%s · %s · %s' % (files, _size_of(rows), str(bad[0].get('error') or '')[:200])
+        return (title, body, 2, 'dl-%s' % _grab_key(rows[0]))
+    row = rows[0]
+    if row.get('state') in ('failed', 'interrupted'):
+        return ('Download failed: %s' % (row.get('title') or row.get('name')),
+                str(row.get('error') or 'the download did not finish')[:350], 3, 'dl-%s' % row.get('name'))
+    size = _size_words(int(row.get('total_bytes') or row.get('bytes') or 0))
+    took = _dur_words(max(0, int(row.get('state_since') or time.time()) - int(row.get('started') or time.time())))
+    folder = _share_folder(row.get('dest'))
+    body = '%s in %s · %s' % (size, took, folder) if took else '%s · %s' % (size, folder)
+    return ('Added: %s' % (row.get('title') or row.get('name')), body, 2, 'dl-%s' % row.get('name'))
+
+
+def _row_ended(d):
+    """True when a row has ended in a way worth telling Ryan about.
+
+    A row that finished is only news once Jellyfin accepted the item (scanned), which is the point the panel
+    calls it done, not the moment the bytes landed. A row that finished but is stuck in the library scan
+    stays silent until the file is really in the library. 'stopped' is a person's own action: no message.
+    """
+    st = d.get('state')
+    if st in _DEBRID_SCAN_UNTIL:
+        return bool(d.get('scanned'))
+    return st in ('failed', 'interrupted')
+
+
+def _pending_news(state):
+    """Every end since the last send, as (news, rows to mark) pairs.
+
+    A row that came from a torrent never speaks on its own: the grab speaks once, when the service has
+    handed over every file it had (no preparing row with that id left) and every file of the grab has ended.
+    A grab whose torrent moved service mid-grab keeps two ids, so it speaks once per service, which is what
+    the rows themselves show.
+    """
+    open_keys, groups, singles = set(), {}, []
+    for d in state['downloads']:
+        key = _grab_key(d)
+        if d.get('state') == 'preparing':
+            if key:
+                open_keys.add(key)
+            continue                        # a preparing row is not an end: step 1 is silent
+        if key:
+            groups.setdefault(key, []).append(d)
+        else:
+            singles.append(d)
+    out = []
+    for d in singles:
+        if d.get('notified') or int(d.get('notify_tries') or 0) >= NTFY_TRIES:
+            continue                        # already told about, or the topic refused five times
+        if d.get('state') == 'stopped':     # a person's own action: silence, marked so it stays silent
+            d['notified'] = 'stopped'
+            continue
+        if not _row_ended(d):
+            continue
+        out.append((_news_for([d], False), [d]))
+    for key, members in groups.items():
+        if key in open_keys:
+            continue                        # more files of this torrent may still be handed over
+        if any(m.get('notified') for m in members):
+            continue                        # this grab already spoke
+        if all(m.get('state') == 'stopped' for m in members):
+            for m in members:               # stopped on purpose: no message, and no message later either
+                m['notified'] = 'stopped'
+            continue
+        if not all(_row_ended(m) for m in members):
+            continue                        # wait for the last file of the grab
+        out.append((_news_for(members, True), members))
+    return out
+
+
+def _mark_ends(state, members, sent):
+    """Write the end (or the failed try) onto the live copy of those rows.
+
+    The rows read a moment ago can be stale by the time the message is back, so each one is looked up again
+    by its folder and name.
+    """
+    live = {(str(d.get('dest') or ''), str(d.get('name') or '')): d for d in state['downloads']}
+    for row in members:
+        d = live.get((str(row.get('dest') or ''), str(row.get('name') or '')), row)
+        if sent:
+            # 'notified' is the end the rows were told about, so a restart of the service cannot repeat it.
+            d['notified'] = (str(d.get('state') or '')[:24] if len(members) == 1
+                             else '+'.join(sorted({str(m.get('state') or '')[:10] for m in members}))[:120])
+            d['notify_error'], d['notify_tries'] = None, 0
+        else:
+            if not d.get('notify_error'):
+                d['notify_error'] = 'the message did not reach ntfy'   # stated once, whatever the tick does next
+            d['notify_tries'] = int(d.get('notify_tries') or 0) + 1
+
+
+def _notify_pending():
+    """Send what is new, then write 'notified' on the rows it spoke for.
+
+    A send that failed leaves the rows unmarked, so the next tick tries again, but the reason is recorded
+    once on the rows (notify_error) and counted, so a dead topic is stated once and given up after NTFY_TRIES
+    tries. The state lock is never held across the POST, so a slow ntfy cannot hold up a panel read.
+    """
+    with _STATE_LOCK:
+        state = _load_state()
+        pending = _pending_news(state)
+        _save_state(state)      # keep the silence marks made while reading, even when nothing sends
+    if not pending:
+        return
+    sent = [bool(_ntfy_send(*news)) for news, _members in pending]
+    with _STATE_LOCK:
+        state = _load_state()
+        for (news, members), ok in zip(pending, sent):
+            _mark_ends(state, members, ok)
+        _save_state(state)
+
+
 def _debrid_tick():
+    """One tick: refresh the rows from the worker and Jellyfin, then tell Ryan about anything that ended.
+
+    The rows are saved before the messages go out, so the panel always shows the item first.
+    """
+    _debrid_tick_rows()
+    _notify_pending()
+
+
+def _debrid_tick_rows():
     """Refresh rows from the n100 worker, then ask Jellyfin once for everything that just finished.
 
     A row is only marked scanned after Jellyfin accepted the scan; otherwise scan_error is stored and
@@ -2191,6 +2439,10 @@ def debrid_status():
     # Get keeps working exactly as it always did - Prowlarr to RdtClient - and the tab would be a dead control.
     if _rd_key() or _torbox_key():
         features.append('search')
+    if _ntfy_url():
+        # 'notify' (Task 2) needs the private topic file: with it missing, nothing is listed and no message
+        # is ever sent, so an operator without a topic sees exactly the panel as before.
+        features.append('notify')
     return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated'),
             'features': features}
 

@@ -1,4 +1,5 @@
 """Manual download routes; nothing here touches RdtClient or Prowlarr."""
+import base64
 import io
 import json
 import os
@@ -2408,3 +2409,177 @@ class DebridSpaceTests(DebridTests):
         # panel never sends a space request to it.
         with patch.object(dp, '_download_rpc', side_effect=RuntimeError('unknown command')):
             self.assertFalse(dp._space_supported())
+
+
+class DebridNotifyTests(DebridTests):
+    """Task 2 in docs/SPEC-downloads-augmentations.md: the dashboard's own tick tells Ryan over ntfy when
+    a download ends. The topic lives in a private file this test writes; every POST is captured, none sent.
+    """
+
+    def setUp(self):
+        DebridTests.setUp(self)
+        self.ntfy_path = os.path.join(self.tmp.name, 'ntfy.json')
+        self.posts, self.ntfy_ok = [], True
+        self.p_ntfy = patch.object(dp, 'NTFY_CONFIG', self.ntfy_path)
+        self.p_url = patch.object(dp.urllib.request, 'urlopen', side_effect=self._capture)
+        self.p_ntfy.start()
+        self.p_url.start()
+        self.addCleanup(self.p_ntfy.stop)
+        self.addCleanup(self.p_url.stop)
+        self.addCleanup(setattr, dp, '_NTFY_CACHE', [0.0, None])
+
+    class _Accepted:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _capture(self, request, timeout=None):
+        self.posts.append(request)
+        if not self.ntfy_ok:
+            raise urllib.error.URLError('no route to ntfy')
+        return self._Accepted()
+
+    def ntfy_config(self, topic='fake-topic-value'):
+        with open(self.ntfy_path, 'w') as f:
+            json.dump({'server': 'https://ntfy.test', 'topic': topic}, f)
+
+    @staticmethod
+    def headers(request):
+        return {str(k).lower(): v for k, v in request.header_items()}
+
+    def nrow(self, **over):
+        base = {'dest': dp.MOVIES_DIR, 'name': 'Dune.2021.mkv', 'kind': 'movie', 'title': 'Dune',
+                'season': None, 'episode': None, 'started': 1, 'state': 'finished', 'bytes': 5 * 1024 ** 3,
+                'total_bytes': 5 * 1024 ** 3, 'scanned': True}
+        base.update(over)
+        return base
+
+    def tick(self, jobs=None, scan=True):
+        """One tick of the real loop with a worker that answers the check with `jobs`."""
+        answer = {'ok': True, 'jobs': jobs if jobs is not None else []}
+
+        def call(payload, timeout=None):
+            return answer
+
+        with patch.object(dp, '_download_rpc', side_effect=call), \
+             patch.object(dp, '_jellyfin_scan', return_value=scan), \
+             patch.object(dp, '_debrid_prep_tick'):   # step 2 is another test's subject
+            dp._debrid_tick()
+
+    def test_the_library_having_it_sends_one_message(self):
+        self.ntfy_config()
+        self.write_state([self.nrow()])
+        self.tick()
+        self.tick()                     # a second tick, and a restart, must not tell it twice
+        self.assertEqual(len(self.posts), 1)
+        req = self.posts[0]
+        head = self.headers(req)
+        self.assertEqual(req.get_method(), 'POST')
+        self.assertEqual(req.full_url, 'https://ntfy.test/fake-topic-value')
+        self.assertEqual(head['title'], 'Added: Dune')
+        self.assertEqual(head['priority'], '2')
+        self.assertEqual(head['click'], 'homelab://view/media')      # tapping it opens the Downloads panel
+        self.assertEqual(head['x-sequence-id'], 'dl-Dune.2021.mkv')  # a later result replaces the earlier one
+        body = req.data.decode('utf-8')
+        self.assertIn('5 GB', body)
+        self.assertIn('Movies', body)                            # the folder it landed in, as the panel writes it
+        self.assertEqual(self.read_state()[0]['notified'], 'finished')   # the end it was told about
+
+    def test_the_bytes_landing_is_not_yet_the_news(self):
+        self.ntfy_config()
+        self.write_state([self.nrow(scanned=False)])
+        self.tick(scan=False)                   # Jellyfin refused the scan: the item is not in the library
+        self.assertEqual(self.posts, [])
+        self.tick(scan=True)
+        self.assertEqual(len(self.posts), 1)    # the message waits for the library, like the panel does
+
+    def test_a_download_stopped_by_the_person_is_silent(self):
+        self.ntfy_config()
+        self.write_state([self.nrow(state='stopped', scanned=True)])
+        self.tick()
+        self.tick()
+        self.assertEqual(self.posts, [])
+        self.assertEqual(self.read_state()[0]['notified'], 'stopped')   # silence, marked so it stays silence
+
+    def test_a_failure_says_the_same_sentence_the_panel_shows(self):
+        self.ntfy_config()
+        self.write_state([self.nrow(state='failed', error='peer closed connection without sending complete '
+                                   'message body', scanned=False)])
+        self.tick()
+        self.assertEqual(len(self.posts), 1)
+        head = self.headers(self.posts[0])
+        self.assertEqual(head['title'], 'Download failed: Dune')
+        self.assertEqual(head['priority'], '3')                       # louder than an added item
+        self.assertIn('peer closed connection', self.posts[0].data.decode('utf-8'))
+
+    def test_a_season_grab_speaks_once_for_the_whole_grab(self):
+        self.ntfy_config()
+        grab = {'id': 'rd-9'}
+        self.write_state([self.nrow(name='S02E01.mkv', title='Severance S02E01', kind='show', season=2,
+                                   show_dir='Severance', debrid=dict(grab)),
+                          self.nrow(name='S02E02.mkv', title='Severance S02E02', kind='show', season=2,
+                                   show_dir='Severance', debrid=dict(grab)),
+                          {'dest': dp.SHOWS_DIR, 'name': 'rd-9', 'kind': 'show', 'title': 'Severance season 2',
+                           'season': 2, 'state': 'preparing', 'debrid': dict(grab)}])
+        self.tick()                       # the torrent is still handing files over
+        self.tick()
+        self.assertEqual(self.posts, [])
+        self.write_state(self.read_state()[:2])   # every file of the grab has now been handed over
+        self.tick()
+        self.assertEqual(len(self.posts), 1)
+        self.assertEqual(self.headers(self.posts[0])['title'], 'Added: Severance season 2')
+        self.assertIn('2 files', self.posts[0].data.decode('utf-8'))
+
+    def test_a_partial_grab_says_what_arrived(self):
+        self.ntfy_config()
+        grab = {'id': 'rd-9'}
+        self.write_state([self.nrow(name='S02E01.mkv', title='Severance S02E01', kind='show', season=2,
+                                   show_dir='Severance', debrid=dict(grab)),
+                          self.nrow(name='S02E02.mkv', title='Severance S02E02', kind='show', season=2,
+                                   show_dir='Severance', state='failed', error='link refused', scanned=False,
+                                   debrid=dict(grab))])
+        self.tick()
+        self.assertEqual(len(self.posts), 1)
+        body = self.posts[0].data.decode('utf-8')
+        self.assertIn('1 of 2 files', body)
+        self.assertIn('link refused', body)
+
+    def test_a_dead_topic_says_it_once_and_the_tick_keeps_running(self):
+        self.ntfy_config()
+        self.write_state([self.nrow()])
+        self.ntfy_ok = False
+        for _ in range(8):
+            self.tick()                   # the tick never stops because of a message
+        row = self.read_state()[0]
+        self.assertEqual(len(self.posts), dp.NTFY_TRIES)   # retried up to the cap, then left alone
+        self.assertEqual(row['notify_tries'], dp.NTFY_TRIES)
+        self.assertEqual(row['notify_error'], 'the message did not reach ntfy')
+        self.assertNotIn('notified', row)
+        self.tick()
+        self.assertEqual(len(self.posts), dp.NTFY_TRIES)   # the row left the queue: no more tries
+
+    def test_a_non_ascii_title_goes_as_an_encoded_header(self):
+        self.ntfy_config()
+        self.write_state([self.nrow(name='\u00c4\u00f1\u00f5.mkv', title='\u00c4\u00f1\u00f5')])
+        self.tick()
+        self.assertEqual(len(self.posts), 1)
+        title = self.headers(self.posts[0])['title']
+        self.assertTrue(title.startswith('=?UTF-8?B?'))            # raw UTF-8 cannot ride a header
+        decoded = base64.b64decode(title[len('=?UTF-8?B?'):-len('?=')]).decode('utf-8')
+        self.assertEqual(decoded, 'Added: Äñõ')      # and it still says the same thing
+
+    def test_the_topic_never_leaves_the_backend_and_the_flag_needs_the_file(self):
+        self.ntfy_config(topic='secret-topic-value')
+        self.write_state([self.nrow()])
+        self.tick()
+        answer = json.dumps(dp.debrid_status(), default=str)
+        self.assertNotIn('secret-topic-value', answer)              # no topic in any panel answer
+        self.assertNotIn('ntfy.test', answer)                     # nor the server
+        self.assertIn('notify', dp.debrid_status()['features'])
+        with patch.object(dp, 'NTFY_CONFIG', os.path.join(self.tmp.name, 'absent.json')):
+            dp._NTFY_CACHE = [0.0, None]
+            self.assertNotIn('notify', dp.debrid_status()['features'])   # no file: no flag, nothing to send
