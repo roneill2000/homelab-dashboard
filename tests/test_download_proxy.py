@@ -1,6 +1,7 @@
 """Manual download routes; nothing here touches RdtClient or Prowlarr."""
 import base64
 import io
+import contextlib
 import json
 import os
 import tempfile
@@ -499,7 +500,8 @@ class DebridTests(unittest.TestCase):
             _, codes, body = call('/api/debrid', OK, post=False)
         self.assertEqual(codes, [200])
         # 'search' and 'cached' ride with the key files, so only the always-on ones are checked here
-        self.assertEqual([f for f in body['features'] if f not in ('search', 'cached')], ['preview', 'retry', 'dismiss'])
+        self.assertEqual([f for f in body['features'] if f not in ('search', 'cached')],
+                         ['preview', 'retry', 'dismiss', 'queue'])   # 'queue' is always on: the state file holds it
 
     # ------------------------------------------------- name discovery (TorBox) ---
     def test_a_name_in_the_headers_is_read_out_of_content_disposition(self):
@@ -1179,7 +1181,7 @@ class DebridGrabTests(DebridTests):
             _, codes, body = call('/api/debrid', OK, post=False)
         # Both key files are present here, so the Ready now check ('cached', Task 3) is offered as well:
         # it is key-gated for the same reason - with no TorBox to ask, the mark could only ever be unknown.
-        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss', 'search', 'cached'])
+        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss', 'queue', 'search', 'cached'])
 
     # --------------------------------------------------------------- which provider ---
     def test_only_torbox_key_get_goes_straight_to_torbox(self):
@@ -1846,6 +1848,11 @@ class DebridHandoverTests(DebridTests):
             self.started.append(payload)
             return {'ok': True, 'unit': 'dl-' + payload['name'], 'state': 'downloading'}
         p = patch.object(dp, '_download_rpc', side_effect=rpc)
+        p.start()
+        self.addCleanup(p.stop)
+        # Task 4 caps the worker at two units at a time; these tests watch hand-over mechanics with more
+        # than two files in flight, so they are given room. The limit has its own test class below.
+        p = patch.object(dp, '_free_slots', lambda extra=0: 99)
         p.start()
         self.addCleanup(p.stop)
         self.addCleanup(dp.RESULTS.clear)
@@ -2706,3 +2713,194 @@ class DebridCachedTests(DebridTests):
         flags = dp._cached_flags(['0123456789abcdef0123456789abcdef01234567'])
         self.assertIsInstance(flags, set)         # a set of cached hashes, empty when none are cached
         self.assertEqual(flags, set())
+
+
+class DebridQueueTests(DebridTests):
+    """Task 4 in docs/SPEC-downloads-augmentations.md: two worker units at a time. Over the limit a start
+    waits in the state file as state 'queued', and the tick takes the oldest one when a slot frees."""
+
+    SIZE = 2 * 1024 ** 3   # every file in these tests is 2 GB, so the 50 GB reserve is never the question
+
+    def setUp(self):
+        DebridTests.setUp(self)
+        # The room and the file size are set per test below, not per class: these tests are about the
+        # queue, and Task 1 has its own class for the room rules.
+        self.addCleanup(dp._SPACE_CACHE.clear)
+        self.addCleanup(dp._SIZE_CACHE.clear)
+
+    @contextlib.contextmanager
+    def room(self, free=5 * 1024 ** 4, size=SIZE):
+        """Room on the share and the size of each file, set straight: no worker room reading is asked for."""
+        dp._SPACE_CACHE.clear()
+        dp._SIZE_CACHE.clear()
+        with patch.object(dp, '_free_bytes', lambda dest: free), \
+             patch.object(dp, '_content_length', lambda url: size):
+            yield
+
+    def link(self, name='Memento.2000.BluRay.1080p.mkv'):
+        return 'https://nyk.example.com/d/abc/' + name
+
+    def running(self, count, first_at=None):
+        """`count` downloads already on the worker, with room to spare."""
+        now = int(first_at if first_at is not None else time.time())
+        return [{'dest': dp.MOVIES_DIR, 'name': 'run%d.mkv' % i, 'kind': 'movie', 'title': 'run%d' % i,
+                 'season': None, 'episode': None, 'started': now - 600 - i, 'state': 'downloading', 'bytes': 0}
+                for i in range(count)]
+
+    def queued(self, name, at, **over):
+        row = {'dest': dp.MOVIES_DIR, 'name': name, 'url': self.link(name), 'kind': 'movie', 'title': name,
+               'season': None, 'episode': None, 'started': int(at), 'state': 'queued', 'bytes': 0,
+               'scanned': False, 'scan_error': None, 'error': None}
+        row.update(over)
+        return row
+
+    def add(self, name='Memento.2000.BluRay.1080p.mkv'):
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)), \
+             patch.object(dp, 'searxng_ground', return_value=None):
+            out = dp.add_debrid(self.link(name))
+        return out, calls
+
+    def test_the_third_start_waits_its_turn(self):
+        self.write_state(self.running(2))
+        with self.room():
+            out, calls = self.add()
+        self.assertEqual((out['queued'], out['state']), (True, 'queued'))   # answered 200, no worker start
+        self.assertEqual(calls, [])   # the room reading here is patched, so a queued start makes no call at all
+        row = self.read_state()[-1]
+        self.assertEqual((row['state'], row['name'], row['url'] is not None), ('queued',
+                                                                              'Memento.2000.BluRay.1080p.mkv', True))
+        self.assertEqual(self.add('Other.2001.1080p.mkv')[0]['queued'], True)   # the line is not cut at one
+
+    def test_a_free_slot_takes_the_oldest_queued_row(self):
+        self.write_state(self.running(1) + [self.queued('old.mkv', time.time() - 900),
+                                            self.queued('new.mkv', time.time() - 100)])
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)):
+            self.assertEqual(dp._debrid_queue_tick(time.time()), 1)   # one slot free: one row starts
+        self.assertEqual([c['name'] for c in calls if c.get('cmd') == 'start'], ['old.mkv'])
+        rows = {d['name']: d for d in self.read_state()}
+        self.assertEqual((rows['old.mkv']['state'], rows['new.mkv']['state']), ('downloading', 'queued'))
+        self.assertEqual(rows['old.mkv']['unit'], 'dl-old.mkv')   # the worker's own unit name, as always
+
+    def test_the_queue_order_survives_a_restart(self):
+        # The queue is only the state file, so a restart cannot reshuffle it: the row that asked first goes
+        # first, whatever order the file happens to be written in.
+        self.write_state([self.queued('third.mkv', time.time() - 100),
+                          self.queued('second.mkv', time.time() - 500),
+                          self.queued('first.mkv', time.time() - 2000)])
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)):
+            for _ in range(3):   # each row is made to finish, so the next tick has a free slot again
+                dp._debrid_queue_tick(time.time())
+                rows = self.read_state()
+                for row in rows:
+                    if row.get('state') == 'downloading':
+                        row['state'] = 'finished'
+                self.write_state(rows)
+        self.assertEqual([c['name'] for c in calls if c.get('cmd') == 'start'],
+                         ['first.mkv', 'second.mkv', 'third.mkv'])
+
+    def test_cancel_on_a_queued_row_makes_no_call_at_all(self):
+        self.write_state(self.running(2) + [self.queued('waiting.mkv', time.time() - 60)])
+        with patch.object(dp, '_download_rpc',
+                          side_effect=AssertionError('a queued row never reached the worker')):
+            out = dp.cancel_debrid('waiting.mkv')
+        self.assertEqual((out['ok'], out['cancelled']), (True, 1))
+        self.assertIn('queue', out['message'])
+        self.assertEqual([d['name'] for d in self.read_state()], ['run0.mkv', 'run1.mkv'])
+
+    def test_the_room_is_checked_again_at_the_moment_it_starts(self):
+        self.write_state(self.running(1) + [self.queued('waiting.mkv', time.time() - 600)])
+        calls = []
+        with self.room(free=10 * 1024 ** 3), \
+             patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)):
+            dp._debrid_queue_tick(time.time())   # 10 GB free, 50 GB must stay: the row cannot start
+        self.assertEqual([c['cmd'] for c in calls if c.get('cmd') == 'start'], [])   # nothing started
+        row = next(d for d in self.read_state() if d['name'] == 'waiting.mkv')
+        self.assertEqual(row['state'], 'failed')
+        self.assertIn('will not fit', row['error'] or '')   # Task 1's own sentence, verbatim
+
+    def test_a_link_that_went_dead_in_the_queue_says_so_in_the_old_words(self):
+        self.write_state(self.running(1) + [self.queued('waiting.mkv', time.time() - 60)])
+        boom = RuntimeError('aria2c exited with code 22: too many redirects or expired link')
+
+        def call(payload, timeout=None):
+            if payload.get('cmd') == 'start':
+                raise boom
+            return {'ok': True}
+        with patch.object(dp, '_download_rpc', side_effect=call):
+            dp._debrid_queue_tick(time.time())
+        row = next(d for d in self.read_state() if d['name'] == 'waiting.mkv')
+        self.assertEqual((row['state'], row['error']), ('failed', 'the link has expired; paste a fresh one'))
+
+    def test_a_retry_waits_its_turn_and_asks_for_a_fresh_link_later(self):
+        row = {'dest': dp.MOVIES_DIR, 'name': 'dead.mkv', 'url': self.link('dead.mkv'), 'kind': 'movie',
+               'title': 'dead', 'season': None, 'episode': None, 'started': int(time.time()) - 700,
+               'state': 'failed', 'bytes': 0, 'scanned': True, 'scan_error': None, 'error': 'aria2c stopped'}
+        self.write_state(self.running(2) + [row])
+        with patch.object(dp, '_download_rpc', side_effect=AssertionError('over the limit: no worker call yet')):
+            out = dp.retry_debrid('dead.mkv')
+        self.assertEqual((out['queued'], out['state']), (True, 'queued'))
+        self.assertEqual(next(d for d in self.read_state() if d['name'] == 'dead.mkv')['state'], 'queued')
+        # Now a slot frees, and only then is its link asked for at the provider it names.
+        self.write_state(self.running(1) + [d for d in self.read_state() if d['name'] == 'dead.mkv'])
+        calls = []
+        with patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=calls)):
+            dp._debrid_queue_tick(time.time())
+        self.assertEqual([c['name'] for c in calls if c.get('cmd') == 'start'], ['dead.mkv'])
+
+    def test_a_queued_row_is_never_asked_about_at_the_worker(self):
+        self.write_state(self.running(1) + [self.queued('waiting.mkv', time.time() - 60)])
+        jobs = []
+
+        def call(payload, timeout=None):
+            jobs.append(payload)
+            return {'ok': True, 'jobs': []} if payload.get('cmd') == 'check' else {'ok': True, 'unit': 'dl-x'}
+        with patch.object(dp, '_download_rpc', side_effect=call), \
+             patch.object(dp, '_jellyfin_scan', return_value=True), \
+             patch.object(dp, '_debrid_prep_tick'):
+            dp._debrid_tick()
+        asked = [job['name'] for p in jobs if p.get('cmd') == 'check' for job in p['jobs']]
+        self.assertNotIn('waiting.mkv', asked)   # the worker never heard of it: its answer would say 'missing'
+
+    def test_a_season_grab_hands_over_only_into_a_free_slot(self):
+        """A season of ten runs two at a time: the hand-over itself waits, so no link is asked for early
+        and no file waits in the queue with a link that could go dead."""
+        files = [{'id': i, 'name': 'S02E%02d.mkv' % i, 'bytes': 800 * 1024 * 1024} for i in range(1, 11)]
+        self.write_state(self.running(2) + [{'dest': dp.SHOWS_DIR, 'name': 'rd-9', 'kind': 'show',
+                                            'title': 'Show County Building', 'season': 2, 'episode': None,
+                                            'started': int(time.time()) - 3600, 'state': 'preparing', 'read': 0.0,
+                                            'debrid': {'id': 1, 'hash': self.hash(), 'link': 'realdebrid'},
+                                            'provider': 'realdebrid'}])
+        asked, started = [], []
+
+        def read_provider(provider, torrent_id):
+            return {'files': files, 'status': 'ok', 'progress': 1, 'seeds': 9, 'ready': True}
+
+        def link_for(view, torrent_id, wanted, now):
+            asked.append(wanted['name'])
+            return 'realdebrid', 'https://rd-dl-invalid.dl/f/%d/%s' % (wanted['id'], wanted['name']), wanted['name'], 0
+
+        def plan(row, file_name, link):
+            return {'info': {'kind': 'show', 'title': 'Show County Building', 'season': 2, 'episode': None,
+                             'year': None, 'ambiguous': False}, 'dest': dp.SHOWS_DIR + '/Show County Building',
+                    'name': file_name, 'source': 'torrent'}
+        with patch.object(dp, '_read_provider', side_effect=read_provider), \
+             patch.object(dp, '_rd_link_for', side_effect=link_for), \
+             patch.object(dp, '_plan_handover', side_effect=plan), \
+             patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=started)):
+            dp._debrid_prep_tick(time.time())   # no free slot: no link is asked for at all
+            dp._debrid_prep_tick(time.time() + 30)
+        self.assertEqual(asked, [])
+        self.assertEqual([s['name'] for s in started if s.get('cmd') == 'start'], [])
+        with patch.object(dp, '_read_provider', side_effect=read_provider), \
+             patch.object(dp, '_rd_link_for', side_effect=link_for), \
+             patch.object(dp, '_plan_handover', side_effect=plan), \
+             patch.object(dp, '_download_rpc', side_effect=self.rpc(calls=started)):
+            self.write_state(self.running(1) + [d for d in self.read_state() if d.get('state') == 'preparing'])
+            dp._debrid_prep_tick(time.time() + 60)   # one slot free: exactly one file is handed over
+        self.assertEqual(len(asked), 1)
+
+    def hash(self):
+        return 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1f'

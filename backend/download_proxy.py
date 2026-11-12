@@ -76,8 +76,12 @@ _DEBRID_AGE = 7 * 86400   # how long a finished row stays on the homepage list
 _DEBRID_ROWS = 15      # rows the homepage shows
 _DEBRID_CHECK_MAX = 40 # downloads in one check call
 _DEBRID_SCAN_UNTIL = ('finished', 'present')   # states that mean "ask Jellyfin to look"
-_DEBRID_STATE_WORDS = ('downloading', 'finished', 'failed', 'stopped', 'interrupted', 'present', 'missing', 'preparing', 'unknown')
+_DEBRID_STATE_WORDS = ('downloading', 'finished', 'failed', 'stopped', 'interrupted', 'present', 'missing', 'preparing',
+                       'queued', 'unknown')
 _RETRY_STATES = ('failed', 'stopped', 'interrupted')   # a stored link can be run again in these
+MAX_RUNNING = 2            # worker units at once (Task 4): three at once share one 2.3 Gbps line and one array disk,
+# so each one runs slower and the disk thrashes. Counts rows in state 'downloading', pasted links and grab
+# files alike; a start over the limit waits its turn in state 'queued' instead of starting.
 # Free space that must stay on the share after a grab starts. Grabs are 30-90 GB and the array holds
 # under 1 TB, so a start that would eat the array to the floor is refused before it begins (Task 1).
 RESERVE_BYTES = 50 * 1024 ** 3
@@ -1377,13 +1381,19 @@ def add_debrid(url, kind=None):
     dest, name, source, grounded = plan['dest'], plan['name'], plan['source'], plan['grounded']
     size = _content_length(plan['url'])
     _space_guard(dest, size)   # NoSpace: the share would be eaten to the floor; answered 409, nothing started
-    out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': plan['url'], 'dest': dest, 'name': name})
-    row = {'dest': dest, 'name': name, 'url': plan['url'], 'unit': out.get('unit') or 'dl-' + name, 'kind': info['kind'],
+    waiting = not _free_slots()   # Task 4: over the limit, this link waits its turn instead of starting
+    row = {'dest': dest, 'name': name, 'url': plan['url'], 'unit': 'dl-' + name, 'kind': info['kind'],
            'title': info['title'], 'season': info['season'], 'episode': info['episode'],
            'year': info['year'], 'kind_source': source,
-           'state': out.get('state') if out.get('state') in _DEBRID_STATE_WORDS else 'downloading',
+           # The link is kept on a queued row: it can go dead while it waits, and the queue tick says so
+           # in the same words step 4 uses for an expired link.
+           'state': 'queued' if waiting else 'downloading',
            'bytes': 0, 'started': int(time.time()), 'scanned': False, 'scan_error': None, 'error': None,
            'grounded': grounded}
+    if not waiting:
+        out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': plan['url'], 'dest': dest, 'name': name})
+        row['state'] = out.get('state') if out.get('state') in _DEBRID_STATE_WORDS else 'downloading'
+        row['unit'] = out.get('unit') or ('dl-' + name)
     with _STATE_LOCK:
         state = _load_state()
         old = next((d for d in state['downloads'] if d['dest'] == dest and d['name'] == name), None)
@@ -1393,7 +1403,9 @@ def add_debrid(url, kind=None):
         _save_state(state)
     return dict(ok=True, kind=info['kind'], title=info['title'], season=info['season'], episode=info['episode'],
                 grounded=grounded, kind_source=source, dest=dest, name=name, state=row['state'], unit=row['unit'],
-                message=out.get('message') or ('started ' + name),
+                queued=waiting,
+                message='waiting its turn: two downloads are already running' if waiting else
+                        (out.get('message') or ('started ' + name)),
                 # Room after the file lands, for the line the panel keeps beside the button.
                 **_space_answer(dest, size))
 
@@ -1633,6 +1645,90 @@ def _notify_pending():
         _save_state(state)
 
 
+def _free_slots(extra=0):
+    """How many more worker units fit right now (Task 4 in docs/SPEC-downloads-augmentations.md).
+
+    Counts rows in state 'downloading' in the state file, so a pasted link and a season grab's files
+    all count toward MAX_RUNNING. `extra` says how many the caller is about to start itself.
+    """
+    with _STATE_LOCK:
+        running = sum(1 for d in _load_state()['downloads'] if d.get('state') == 'downloading')
+    return max(0, MAX_RUNNING - running - int(extra or 0))
+
+
+def _row_update(dest, name, mutate):
+    """Write one download row, found by its folder and file name (the queue's own writer)."""
+    with _STATE_LOCK:
+        state = _load_state()
+        row = next((d for d in state['downloads'] if d.get('dest') == dest and d.get('name') == name), None)
+        if row is None:
+            return False                 # Cancel or Clear took it away in the meantime: nothing to write
+        mutate(row)
+        _save_state(state)
+        return True
+
+
+def _queue_open(d, now, word, unit):
+    """A queued row leaving the queue: it is a running download from this moment on."""
+    d['state'], d['state_since'] = word, int(now)
+    d['unit'] = unit or d.get('unit') or ('dl-' + d['name'])
+    d['error'], d['scanned'], d['scan_error'] = None, False, None
+    d['waited'] = int(now) - int(d.get('started') or now)   # how long it stood in line, for the panel line
+
+
+def _queue_close(d, now, text):
+    """A queued row that cannot start: it ends failed, with the reason in its own words."""
+    d['state'], d['state_since'] = 'failed', int(now)
+    d['error'] = _scrub_key(text)[:200]
+    d['scanned'], d['scan_error'] = False, None   # Retry can take it from here
+
+
+def _debrid_queue_tick(now):
+    """Flow step 5 (Task 4): a free slot takes the oldest queued row, oldest request first.
+
+    Only a pasted link or a Retry sits in the queue: a season grab queues its hand-over instead, so a
+    service link is only ever asked for at the moment the file starts and cannot go dead in the queue. A
+    queued row that came from a torrent has no url of its own, so its link is re-asked here, at that
+    service's own pace. Space is checked again at this moment (Task 1): the share can fill up while a row
+    waits, and one that no longer fits becomes failed with Task 1's own sentence. Every worker and service
+    call happens with the state lock free.
+    """
+    with _STATE_LOCK:
+        state = _load_state()
+        free = MAX_RUNNING - sum(1 for d in state['downloads'] if d.get('state') == 'downloading')
+        if free <= 0:
+            return 0
+        waiting = sorted([d for d in state['downloads'] if d.get('state') == 'queued'],
+                         key=lambda d: (float(d.get('started') or 0), str(d.get('name') or '')))[:free]
+    started = 0
+    for row in waiting:
+        name, dest = str(row.get('name') or ''), row.get('dest')
+        try:
+            url = row.get('url') or _retry_link(row)   # a torrent row's link is asked for only now
+        except Exception as exc:
+            _row_update(dest, name, lambda d, r=_scrub_key(str(exc)): _queue_close(d, now, r))
+            continue
+        answer = _space_answer(dest, _content_length(url))
+        if answer.get('fits') is False:
+            _row_update(dest, name, lambda d, r=(answer.get('space_note') or
+                                               'not enough room left on the share'): _queue_close(d, now, r))
+            continue
+        try:
+            out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': url,
+                                 'dest': dest, 'name': name}, timeout=45)
+        except Exception as exc:
+            reason = _scrub_key(str(exc))
+            if _EXPIRED_LINK.search(reason) or row.get('retried'):
+                # The link went dead while it waited, which is what the same row says after a Retry.
+                reason = 'the link has expired; paste a fresh one'
+            _row_update(dest, name, lambda d, r=reason: _queue_close(d, now, r))
+            continue
+        word = out.get('state') if out.get('state') in _DEBRID_STATE_WORDS else 'downloading'
+        if _row_update(dest, name, lambda d, w=word, u=out.get('unit'): _queue_open(d, now, w, u)):
+            started += 1 if word == 'downloading' else 0
+    return started
+
+
 def _debrid_tick():
     """One tick: refresh the rows from the worker and Jellyfin, then tell Ryan about anything that ended.
 
@@ -1643,6 +1739,14 @@ def _debrid_tick():
 
 
 def _debrid_tick_rows():
+    """One tick's work on the rows: refresh them from the worker and Jellyfin, then let a free slot
+    take the oldest queued download (Task 4).
+    """
+    _debrid_tick_body()
+    _debrid_queue_tick(time.time())
+
+
+def _debrid_tick_body():
     """Refresh rows from the n100 worker, then ask Jellyfin once for everything that just finished.
 
     A row is only marked scanned after Jellyfin accepted the scan; otherwise scan_error is stored and
@@ -1651,7 +1755,9 @@ def _debrid_tick_rows():
     _age_out_rows()
     with _STATE_LOCK:
         state = _load_state()
-        due = [d for d in state['downloads'] if d['state'] != 'preparing'
+        # A queued row has never been told to the worker, so it is not due: its check answer would read
+        # 'missing' and wipe the state the queue is keeping.
+        due = [d for d in state['downloads'] if d['state'] not in ('preparing', 'queued')
                 and (d['state'] not in _DEBRID_SCAN_UNTIL or not d.get('scanned'))]
         jobs = [{'dest': d['dest'], 'name': d['name']} for d in due[-_DEBRID_CHECK_MAX:]]
     _debrid_prep_tick(time.time())
@@ -2068,9 +2174,11 @@ def cancel_debrid(name):
         row = next((d for d in _load_state()['downloads'] if d['name'] == name), None)
         if row is None:
             raise ValueError('that row is not in the list anymore')
-        if row.get('state') != 'preparing':
-            raise ValueError('that row is %s; Cancel is for a row still waiting at its service' % (row.get('state') or 'unknown'))
-        provider, torrent_id = _row_provider(row), _row_torrent_id(row)
+        waiting = row.get('state') == 'queued'   # Task 4: a queued row never reached a service or the worker
+        if not waiting and row.get('state') != 'preparing':
+            raise ValueError('that row is %s; Cancel is for a row still waiting at its service or in the queue'
+                             % (row.get('state') or 'unknown'))
+        provider, torrent_id = (_row_provider(row), _row_torrent_id(row)) if not waiting else (None, None)
     reason = None
     if torrent_id:
         try:
@@ -2085,7 +2193,7 @@ def cancel_debrid(name):
             state['downloads'] = keep
             _save_state(state)
     _sidecar_forget(name)
-    message = 'stopped ' + name
+    message = ('removed ' + name + ' from the queue') if waiting else ('stopped ' + name)
     if reason:
         message += ('; %s did not free its torrent: %s' % ('Real-Debrid' if provider == 'realdebrid' else 'TorBox', reason))
     return dict(ok=True, name=name, message=message, cancelled=gone)
@@ -2115,7 +2223,8 @@ def _debrid_prep_tick(now):
     Runs in the tick loop."""
     with _STATE_LOCK:
         rows = [d for d in _load_state()['downloads'] if d.get('state') == 'preparing'][-_DEBRID_PREP_ROWS:]
-    budget = _DEBRID_HANDOVER
+    budget = min(_DEBRID_HANDOVER, _free_slots())   # Task 4: a hand-over only fills a free slot; the links are
+    # asked for at that same moment, so a season grab queues its hand-over rather than a dead link.
     for row in rows:
         try:
             if now - float(row.get('read') or 0) >= _DEBRID_PREP_READ:
@@ -2464,6 +2573,21 @@ def retry_debrid(name):
         if not row.get('url') and not _row_torrent_id(row):
             raise ValueError('no link is stored for that download; paste a fresh one')
         url, dest = row.get('url'), row['dest']
+    if not _free_slots():
+        # Task 4: a Retry goes through the queue when the two slots are taken. The row is opened again and
+        # waits its turn; its link is asked for only when the queue tick starts it, so it cannot go dead here.
+        with _STATE_LOCK:
+            state = _load_state()
+            row = next((d for d in state['downloads'] if d['name'] == name), None)
+            if row is None:
+                raise ValueError('that download left the list while it was being queued')
+            row['state'], row['state_since'] = 'queued', int(time.time())
+            row['error'], row['scanned'], row['scan_error'] = None, False, None
+            row['started'] = int(time.time())
+            row['retried'] = True
+            _save_state(state)
+        return dict(ok=True, name=name, state='queued', queued=True,
+                    message='queued: two downloads are already running')
     if not url:
         url = _retry_link(row)   # fresh from the provider this row came from, at that service's own pace
     out = _download_rpc({'v': _DEBRID_IF_VERSION, 'cmd': 'start', 'url': url, 'dest': dest, 'name': name})
@@ -2496,6 +2620,7 @@ def clear_debrid() -> dict:
         state = _load_state()
         keep = [d for d in state['downloads'] if d.get('state') == 'downloading'
                 or d.get('state') == 'preparing'   # Clear is not Cancel: a row at its service stays
+                or d.get('state') == 'queued'      # ... or a row waiting its turn in the queue (Task 4)
                 or (d.get('state') in _DEBRID_SCAN_UNTIL and not d.get('scanned'))]
         cleared = len(state['downloads']) - len(keep)
         state['downloads'] = keep
@@ -2510,7 +2635,7 @@ def debrid_status():
     # 'preview', 'retry' and 'dismiss' go live with the routes that answer them, in the same commits; the panel
     # only offers a control when its name is here, because an older backend would run the new request as a
     # real download.
-    features = ['preview', 'retry', 'dismiss']
+    features = ['preview', 'retry', 'dismiss', 'queue']
     if _space_supported():
         # The worker answered the 'space' command, so the room marks and the refusal are live (Task 1).
         # An older worker that has never heard of it answers 'unknown command': nothing is listed, and

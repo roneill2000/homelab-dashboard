@@ -128,9 +128,12 @@ class SharedRoot(unittest.TestCase):
                     'dest': payload['dest'], 'name': payload['name'], 'message': 'started'}
 
         state_file = os.path.join(self.movies, 'debrid-parity.json')
+        # Two units at a time is the worker's own limit (Task 4); this test checks every folder and name
+        # the dashboard could send, so it is always given a free slot.
         with patch.object(dp, '_download_rpc', side_effect=lambda payload: fake_rpc(payload)), \
              patch.object(dp, 'DEBRID_STATE', state_file), \
-             patch.object(dp, 'searxng_ground', return_value=grounding):
+             patch.object(dp, 'searxng_ground', return_value=grounding), \
+             patch.object(dp, '_free_slots', lambda extra=0: 99):
             out = dp.add_debrid(url)
         return out, sent
 

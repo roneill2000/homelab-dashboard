@@ -14,10 +14,10 @@ Two live regressions were found and fixed by Claude (commit 5f541df, deployed 19
 
 ## Open (not fixed; for pi, decisions for Ryan marked)
 
-3. **F2 still open:** an archive answer after a file was already handed over in the same tick throws away
-   `started_rows` (download_proxy.py `_prep_refresh`, `if archive:`), so that download runs with no row (no
-   progress, no Stop) and TorBox later hands the same file again. pi's own notes chose "keep the started rows,
-   skip only the packed file"; no commit yet.
+3. **F2 fixed by 776c28f (11 Nov): ** an archive answer after a file was already handed over in the same tick
+   keeps that file's row (only the packed file is skipped), guarded by the test
+   `test_a_packed_answer_after_a_started_file_keeps_that_file_and_skips_only_the_packed_one`. Marked here as
+   still open when the review was written; the same-tick case passes now (checked 12 Nov 2026 by pi).
 4. **Same orphan via Cancel (new):** the tick copies the row, hands files to the worker, then `_prep_update`
    returns False if Cancel removed the row meanwhile, and `add_rows` are dropped. Downloads run with no row.
    Fix: in `_prep_update`, when the row is gone but `add_rows` exist, still add them (or stop those units).
