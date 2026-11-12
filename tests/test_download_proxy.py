@@ -2240,3 +2240,58 @@ class DebridFinishTests(DebridHandoverTests):
         _, codes, body = call('/api/debrid', OK, {'retry': 'Old.Thing.mkv'})
         self.assertEqual(codes, [400])
         self.assertIn('paste a fresh one', body['error'])
+
+
+class DebridCancelRaceTests(unittest.TestCase):
+    """Owns only the state file: the race is inside _prep_update, no service or worker is involved."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state_path = os.path.join(self.tmp.name, 'debrid.json')
+        p = patch.object(dp, 'DEBRID_STATE', self.state_path)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def write_state(self, rows):
+        with open(self.state_path, 'w') as f:
+            json.dump({'downloads': rows}, f)
+
+    def read_state(self):
+        with open(self.state_path) as f:
+            return json.load(f)['downloads']
+
+    # Review item 4 (11 Nov 2026): the tick hands files to the worker, then writes the rows back. If
+    # Cancel removed the preparing row meanwhile, the started rows must still land, or the download runs
+    # with no row: no progress line, no Stop, and the service hands the same file out again.
+
+    STARTED = [{'dest': '/mnt/unraid/Movies', 'name': 'Dune.2021.2160p.mkv', 'unit': 'dl-Dune.2021.2160p.mkv',
+                'state': 'downloading', 'kind': 'movie', 'title': 'Dune', 'bytes': 0, 'started': 1}]
+
+    def test_a_cancelled_parent_still_gets_its_started_rows(self):
+        self.write_state([])          # Cancel took the preparing row away mid-tick
+        self.assertFalse(dp._prep_update('rd-Dune.2021.2160p', lambda r: r.update(seen=1), add_rows=self.STARTED))
+        rows = self.read_state()
+        self.assertEqual([d['name'] for d in rows], ['Dune.2021.2160p.mkv'])
+        self.assertEqual(rows[0]['unit'], 'dl-Dune.2021.2160p.mkv')
+        self.assertEqual(rows[0]['state'], 'downloading')
+
+    def test_the_same_rows_are_added_once(self):
+        self.write_state([])
+        dp._prep_update('rd-Dune.2021.2160p', lambda r: None, add_rows=self.STARTED)
+        dp._prep_update('rd-Dune.2021.2160p', lambda r: None, add_rows=self.STARTED)
+        self.assertEqual(len(self.read_state()), 1)
+
+    def test_a_parent_that_ended_during_the_handover_keeps_its_files_too(self):
+        # A row closed by the 24 hour clock is no longer 'preparing'; the worker still got its file.
+        self.write_state([{'name': 'rd-Dune.2021.2160p', 'dest': '/mnt/unraid/Movies', 'state': 'failed',
+                       'error': 'did not finish this torrent in 24 hours'}])
+        self.assertFalse(dp._prep_update('rd-Dune.2021.2160p', lambda r: r.update(seen=1), add_rows=self.STARTED))
+        rows = self.read_state()
+        self.assertEqual([d['name'] for d in rows], ['rd-Dune.2021.2160p', 'Dune.2021.2160p.mkv'])
+        self.assertEqual(rows[0]['state'], 'failed')     # the parent keeps the reason, not the mutation
+
+    def test_a_cancel_with_nothing_started_still_leaves_nothing(self):
+        self.write_state([])
+        self.assertFalse(dp._prep_update('rd-Dune.2021.2160p', lambda r: r.update(seen=1)))
+        self.assertEqual(self.read_state(), [])

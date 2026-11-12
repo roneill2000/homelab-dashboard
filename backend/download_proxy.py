@@ -1612,6 +1612,14 @@ def _prep_update(name, mutate, add_rows=None):
         state = _load_state()
         row = next((d for d in state['downloads'] if d['name'] == name), None)
         if row is None or row.get('state') != 'preparing':
+            if add_rows:
+                # Review item 4 (11 Nov 2026): Cancel removed the preparing row while the tick was already
+                # handing its files to the worker. Those units are running, so keep their rows; dropping them
+                # would leave a download with no row to show, time or stop.
+                keys = {(d['dest'], d['name']) for d in add_rows}
+                state['downloads'] = [d for d in state['downloads'] if (d.get('dest'), d.get('name')) not in keys]
+                state['downloads'].extend(add_rows)
+                _save_state(state)
             return False
         mutate(row)
         if add_rows:
