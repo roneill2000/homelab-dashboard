@@ -44,6 +44,7 @@ _opener = None; _opener_lock = threading.Lock()
 # dashboard process's own Jellyfin header (__main__._JF_HDR), the same one posters use.
 # State: /var/lib/homelab-dashboard/debrid.json (older deploys kept it in /etc/homelab-dashboard).
 DEBRID_HTTP = re.compile(r'https://[^\s"\'<>|\\]+')
+RD_ID = re.compile(r'[A-Za-z0-9]{1,32}')   # a Real-Debrid torrent id: opaque text (12 Nov 2026: PS3FDW37BOEOU)
 # Episode evidence in a file name. Case matters for the shorthand forms, so a lowercase hex or uuid
 # name cannot read as S01E02, and classify() ignores a shorthand that sits after a tech tag segment:
 # 16x9, 21x9, and a release tag like -E9 are release tags, not episodes.
@@ -1297,7 +1298,13 @@ def _load_state():
     rows = state.get('downloads') if isinstance(state, dict) else None
     if not isinstance(rows, list):
         return {'downloads': []}
-    return {'downloads': [_migrate_row(d) for d in rows if isinstance(d, dict) and d.get('name') and (d.get('dest') or d.get('state') == 'preparing')]}
+    # A row is kept when it names a file (dest) or is still preparing. Since 12 Nov 2026 a row whose files
+    # never arrived (a torrent that died at the service) has no dest of its own either: it is kept while it
+    # names a torrent, so its failure still reaches the panel and the History sheet instead of being
+    # dropped in silence by the next read.
+    rows = [d for d in rows if isinstance(d, dict) and d.get('name')
+            and (d.get('dest') or d.get('state') == 'preparing' or isinstance(d.get('debrid'), dict))]
+    return {'downloads': [_migrate_row(d) for d in rows]}
 
 
 def _save_state(state):
@@ -1945,15 +1952,28 @@ def _row_provider(d):
 
 
 def _row_torrent_id(d):
-    """The service's own torrent id for a row, from its debrid object or the older torbox one."""
+    """The service's own torrent id for a row, as the string the service wrote.
+
+    Read from its debrid object or the older torbox one. Real-Debrid's ids are letters and digits since
+    12 Nov 2026 (PS3FDW37BOEOU), so the id is kept as text and never turned into a number: every call that
+    formats it must use %s. TorBox still uses numbers, and those call sites do their own int cast (_tb_id).
+    """
     for holder in ('debrid', 'torbox'):
         item = d.get(holder)
         if isinstance(item, dict):
             for field in ('id', 'torrent_id'):
                 value = item.get(field)
-                if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
-                    return int(value)
+                if isinstance(value, int):
+                    return str(value)
+                if isinstance(value, str) and RD_ID.fullmatch(value):
+                    return value
     return None
+
+
+def _tb_id(torrent_id):
+    """TorBox wants a number in its URLs; None when the id is not one (a Real-Debrid id on a TorBox row)."""
+    text = str(torrent_id).strip()
+    return int(text) if text.isdigit() else None
 
 
 def _rd_view(info):
@@ -2042,8 +2062,15 @@ def _is_media_name(name):
 def _read_provider(provider, torrent_id):
     """One read of a preparing row's torrent at its own service. Raises what the service raises."""
     if provider == 'realdebrid':
-        return _rd_view(realdebrid('GET', '/torrents/info/%d' % torrent_id))
-    ans = torbox('GET', '/torrents/mylist?id=%d&bypass_cache=true' % torrent_id)
+        # %s, not %d: a Real-Debrid id is an opaque string now (12 Nov 2026: PS3FDW37BOEOU).
+        rid = RD_ID.fullmatch(str(torrent_id)) and str(torrent_id)
+        if not rid:
+            raise ValueError('that row names no Real-Debrid torrent')
+        return _rd_view(realdebrid('GET', '/torrents/info/%s' % rid))
+    tbid = _tb_id(torrent_id)
+    if tbid is None:
+        raise ValueError('that row names no TorBox torrent')
+    ans = torbox('GET', '/torrents/mylist?id=%d&bypass_cache=true' % tbid)
     data = ans.get('data') if isinstance(ans, dict) else None
     entry = (data[0] if isinstance(data, list) and data else {})
     return _tb_view(entry)
@@ -2098,7 +2125,7 @@ def _tb_link(torrent_id, file_id, now):
     if not key:
         raise RuntimeError('the debrid service is not set up')
     now = _pace('tb', now)
-    ans = torbox('GET', '/torrents/requestdl?token=%s&torrent_id=%d&file_id=%d' % (key, torrent_id, file_id))
+    ans = torbox('GET', '/torrents/requestdl?token=%s&torrent_id=%d&file_id=%d' % (key, _tb_id(torrent_id), int(file_id)))
     data = ans.get('data') if isinstance(ans, dict) else None
     link = str(data.get('download') or data.get('link') or '') if isinstance(data, dict) else str(data or '')
     if not DEBRID_HTTP.fullmatch(link):
@@ -2228,7 +2255,10 @@ def cancel_debrid(name):
 def _free_torrent(provider, torrent_id):
     """Ask the service to drop a torrent it is still holding for this row."""
     if provider == 'realdebrid':
-        realdebrid('DELETE', '/torrents/delete/%d' % int(torrent_id), timeout=20)
+        rid = RD_ID.fullmatch(str(torrent_id)) and str(torrent_id)
+        if not rid:
+            raise ValueError('this row names no Real-Debrid torrent to free')
+        realdebrid('DELETE', '/torrents/delete/%s' % rid, timeout=20)
         return
     torbox('POST', '/torrents/controltorrent', json_body={'torrent_id': int(torrent_id), 'operation': 'delete'})
 
@@ -2392,7 +2422,7 @@ def _prep_refresh(name, now, budget=2):
         else:
             ids = ','.join(str(f['id']) for f in media if f.get('id') is not None)
             try:
-                realdebrid('POST', '/torrents/selectFiles/%d' % torrent_id, fields={'files': ids})
+                realdebrid('POST', '/torrents/selectFiles/%s' % torrent_id, fields={'files': ids})
                 select_ids = [f['id'] for f in media]
             except Exception as exc:
                 select_error = _scrub_key(str(exc))
@@ -2433,7 +2463,7 @@ def _prep_refresh(name, now, budget=2):
             moved_error = 'the torrent for the fallback is gone'
         else:
             try:
-                realdebrid('DELETE', '/torrents/delete/%d' % torrent_id)
+                realdebrid('DELETE', '/torrents/delete/%s' % torrent_id)
             except Exception:
                 pass   # already gone at Real-Debrid: TorBox can take the torrent either way
             try:

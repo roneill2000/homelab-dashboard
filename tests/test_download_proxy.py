@@ -2057,6 +2057,45 @@ class DebridHandoverTests(DebridTests):
         self.assertNotIn('rd-1', rows)                    # both files went, so rd-1's watching row retired
         self.assertEqual(rows['rd-2']['state'], 'preparing')
 
+    def test_a_realdebrid_id_of_letters_and_digits_is_read_back(self):
+        """Live (12 Nov 2026): Real-Debrid answers with ids like PS3FDW37BOEOU. Every path used %d, so the
+        read raised TypeError inside the tick, and a Ready-now row was never read again: the grab was lost
+        with nothing in the panel, the state file or the History sheet."""
+        self.prep_row(name='rd-PS3FDW37BOEOU', tid='PS3FDW37BOEOU', release=self.MOVIE)
+        seen = []
+
+        def call(method, path, fields=None, raw=None, timeout=20):
+            seen.append(method + ' ' + path)
+            if path == '/torrents/info/PS3FDW37BOEOU':
+                return {'id': 'PS3FDW37BOEOU', 'status': 'downloaded', 'progress': 100, 'hash': self.HASH,
+                        'files': self.rd_files([self.MOVIE]), 'links': ['https://rd-lan-invalid.dl/l/1'],
+                        'filename': self.MOVIE, 'bytes': self.SIZE, 'original_bytes': self.SIZE}
+            if path == '/unrestrict/link':
+                return {'download': 'https://rd-dl-invalid.dl/f/1/%s' % self.MOVIE, 'filename': self.MOVIE,
+                        'filesize': self.SIZE}
+            return {}
+        with patch.object(dp, 'realdebrid', side_effect=call):
+            dp._debrid_prep_tick(time.time())   # the tick that reads the row and hands its file over
+        self.assertEqual(seen[0], 'GET /torrents/info/PS3FDW37BOEOU')  # the id travels as text, not %d
+        self.assertEqual(len(self.started), 1)
+        self.assertEqual(self.started[0]['name'], self.MOVIE)
+        rows = dp._debrid_rows(dp._load_state())
+        self.assertEqual((len(rows), rows[0]['state'], rows[0]['name']), (1, 'downloading', self.MOVIE))
+        self.assertEqual(dp._load_state()['downloads'][0]['debrid']['id'], 'PS3FDW37BOEOU')
+
+    def test_a_torrent_row_that_died_at_the_service_is_still_listed_and_in_history(self):
+        """Such a row owns no file, so it has no dest: the reader dropped every dest-less row that was no
+        longer preparing, which hid a failure at the service from the panel and from History (Task 5)."""
+        row = self.prep_row(name='rd-dead', tid=9, release=self.MOVIE)
+        self.write_state([row])
+        dp._prep_update('rd-dead', lambda d: dp._prep_close(d, time.time(), 'the file is not shareable', solo=True))
+        self.assertEqual(dp._load_state()['downloads'][0]['state'], 'failed')   # a re-read keeps it
+        _, codes, body = call('/api/debrid?history=1', OK, post=False)
+        self.assertEqual(codes, [200])
+        self.assertEqual([(l['title'], l['state']) for l in body['history']],
+                         [('Big Buck Bunny', 'failed')])
+        self.assertIn('not shareable', body['history'][0]['reason'])
+
     def test_a_ready_torrent_becomes_one_download_row_under_movies(self):
         self.prep_row(release=self.MOVIE)
         rd = []
@@ -2080,7 +2119,7 @@ class DebridHandoverTests(DebridTests):
             dp._debrid_prep_tick(time.time())
         row = dp._load_state()['downloads'][0]
         # the hoster link, not the resolved one: a retry re-asks it, and a resolved link goes dead
-        self.assertEqual(row['debrid'], {'id': 1, 'file': 1, 'link': 'https://rd-lan-invalid.dl/l/1'})
+        self.assertEqual(row['debrid'], {'id': '1', 'file': 1, 'link': 'https://rd-lan-invalid.dl/l/1'})   # ids are opaque text now
         self.assertIsNone(row['url'])   # the worker got a url; the row keeps only the service call
         self.assertEqual(row['provider'], 'realdebrid')
         _, codes, body = call('/api/debrid', OK, post=False)
@@ -2172,7 +2211,7 @@ class DebridHandoverTests(DebridTests):
         self.assertEqual([c['name'] for c in self.started], [names[0]])
         rows = {d['name']: d for d in dp._load_state()['downloads']}
         self.assertEqual((rows[names[0]]['state'], rows[names[0]]['provider']), ('downloading', 'realdebrid'))
-        self.assertEqual(rows[names[0]]['debrid'], {'id': 1, 'file': 1, 'link': 'https://rd-lan-invalid.dl/l/1'})
+        self.assertEqual(rows[names[0]]['debrid'], {'id': '1', 'file': 1, 'link': 'https://rd-lan-invalid.dl/l/1'})   # ids are opaque text now
         watch = rows['rd-7']
         self.assertEqual((watch['state'], watch['provider']), ('preparing', 'torbox'))
         self.assertIn('packed into an archive', watch['error'])
@@ -2188,7 +2227,7 @@ class DebridHandoverTests(DebridTests):
         self.assertEqual([d for d in rows if d.get('state') == 'preparing'], [])
         part2 = next(d for d in rows if d['name'] == names[1])
         self.assertEqual(part2['provider'], 'torbox')
-        self.assertEqual(part2['debrid'], {'id': 7, 'file': 6, 'link': None})
+        self.assertEqual(part2['debrid'], {'id': '7', 'file': 6, 'link': None})   # a service id is text
         self.assertEqual(dp._sidecar_load(), {})
 
     # ------------------------------------------------------------------ the other service
@@ -2217,7 +2256,7 @@ class DebridHandoverTests(DebridTests):
         self.assertNotIn(self.TB_KEY, blob)
         self.assertNotIn('tb-dl-invalid', blob)
         row = dp._load_state()['downloads'][0]
-        self.assertEqual((row['debrid']['id'], row['debrid']['file']), (7, 1))
+        self.assertEqual((row['debrid']['id'], row['debrid']['file']), ('7', 1))   # a service id is text
         self.assertIsNone(row['debrid']['link'])   # TorBox re-asks by ids, so no link of its own is kept
 
     # ------------------------------------------------------------------ spacing
