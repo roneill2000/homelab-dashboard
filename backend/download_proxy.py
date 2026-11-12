@@ -546,10 +546,10 @@ _PROVIDERS = (('realdebrid', 'Real-Debrid', 'rd', _rd_key, _rd_add_torrent),
 def _indexer_torrent(hit):
     """The torrent of a Prowlarr result: a magnet, or the .torrent bytes the indexer serves.
 
-    The magnet wins when it is there and usable. Otherwise the downloadUrl (Prowlarr's own download
-    endpoint on 192.168.0.13:9696) is fetched with redirects off: a redirect to a magnet: link is
-    that magnet, a body that starts a bencoded .torrent is the file itself. Anything else is not
-    usable, and so is a file over the size cap.
+    The magnet wins when it is there and usable. Otherwise Prowlarr's download endpoint is fetched
+    (downloadUrl, or magnetUrl when an indexer puts it there), with redirects not followed by the fetcher
+    itself: a redirect to a magnet: link is that magnet, a body that starts a bencoded .torrent is the file
+    itself. Anything else is not usable, and so is a file over the size cap.
 
     A redirect is followed up to _INDEXER_HOPS times, checking every hop: Prowlarr answers its own
     endpoint first, and many indexers answer that with a second redirect - to their own download URL,
@@ -560,7 +560,14 @@ def _indexer_torrent(hit):
     magnet = hit.get('magnetUrl') or ''
     if magnet.startswith('magnet:') and MAGNET.fullmatch(magnet):
         return 'magnet', magnet
+    # Live shape (seen 12 Nov): magnet-only indexers such as The Pirate Bay leave downloadUrl empty and
+    # put Prowlarr's own download endpoint in magnetUrl instead. So the endpoint to ask for is
+    # downloadUrl when it is there, and magnetUrl when that is an http URL. Its answer is then followed
+    # through the hops below, which is where those magnets are. Neither URL is ever shown to the panel:
+    # both carry Prowlarr's API key.
     url = hit.get('downloadUrl') or ''
+    if not url.startswith(('http://', 'https://')):
+        url = magnet if magnet.startswith(('http://', 'https://')) else ''
     if not url.startswith(('http://', 'https://')):
         raise ValueError('the indexer did not give a usable torrent for this result.')
     asked = set()

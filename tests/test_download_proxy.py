@@ -1375,6 +1375,34 @@ class DebridGrabTests(DebridTests):
         self.assertEqual((rd, tb), ([], []))
         self.assertFalse(os.path.exists(self.state_path))
 
+    def test_a_magnet_only_indexer_endpoints_in_magnet_url_are_fetched(self):
+        """Live shape: The Pirate Bay leaves downloadUrl empty and puts Prowlarr's endpoint in magnetUrl."""
+        self.reset_key_cache()
+        self.seed('tm', magnet='http://192.168.0.13:9696/8/download?apikey=secret', download=None)
+        magnet = 'magnet:?xt=urn:btih:' + self.HASH + '&dn=Severance.S02E01'
+
+        def get(url_):
+            self.assertEqual(url_, 'http://192.168.0.13:9696/8/download?apikey=secret')
+            return 302, magnet, b''
+        rd, tb = [], []
+        with patch.object(dp, 'realdebrid', side_effect=self.fake_rd(calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=tb)), \
+             patch.object(dp, '_indexer_get', side_effect=get):
+            _, codes, body = call('/api/action/download', OK, {'result': 'tm'})
+        self.assertEqual(codes, [200])
+        self.assertEqual((rd[0]['method'], rd[0]['path']), ('POST', '/torrents/addMagnet'))
+        self.assertEqual(rd[0]['fields'], {'magnet': magnet})
+        self.assertEqual(tb, [])
+
+    def test_a_result_with_no_magnet_and_no_endpoint_is_still_refused(self):
+        self.reset_key_cache()
+        self.seed('tn', magnet=None, download=None)
+        with patch.object(dp, 'realdebrid', side_effect=AssertionError('nothing may be added')), \
+             patch.object(dp, '_indexer_get', side_effect=AssertionError('nothing to fetch')):
+            _, codes, body = call('/api/action/download', OK, {'result': 'tn'})
+        self.assertEqual(codes, [503])
+        self.assertIn('usable torrent', body['error'])
+
     def test_an_indexer_that_redirects_twice_still_gives_the_magnet(self):
         """Live (12 Nov): Prowlarr answers its own endpoint, the indexer answers that with a second
         redirect, and only the hop after that holds the magnet. One hop said 'no usable torrent'."""
