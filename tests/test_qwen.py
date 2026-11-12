@@ -140,6 +140,9 @@ class QwenTests(unittest.TestCase):
     def test_sampling_follows_the_model_family(self):
         self.assertEqual(q.body_for('x',{},'gemma-4-E4B-it-Q4_K_M')['top_k'],64)
         self.assertEqual(q.body_for('x',{},'qwen3.8-27b')['top_k'],20)
+        self.assertEqual(q.body_for('x',{},'qwen3.8-27b')['temperature'],1.0)   # stock 27B: the card's thinking values
+        self.assertEqual(q.body_for('x',{},'qwen3.8-27b-long')['temperature'],1.0)
+        self.assertEqual(q.body_for('x',{},'qwen3.8-27b-uncensored')['temperature'],0.6)   # Cold Fusion: measured 7 Nov
         b=q.body_for('x',{},q.STRATA_MODEL,'strata');self.assertNotIn('temperature',b);self.assertNotIn('top_k',b)  # Strata applies the model card
 
     def test_retired_12b_choice_is_answered_on_e4b(self):

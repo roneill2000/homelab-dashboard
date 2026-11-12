@@ -90,11 +90,17 @@ def context(storage, now):
 # Per model family, measured 30 Oct 2026 (/mnt/share/model-validation, Ask A/B on the 10 eval questions): Google's
 # values for Gemma (A310 and PC), Qwen's thinking-mode values for Qwen, greedy for Strata's 2-bit Swift quant.
 SAMPLING = {'gemma': dict(temperature=1.0, top_p=0.95, top_k=64), 'qwen': dict(temperature=0.6, top_p=0.95, top_k=20),  # 7 Nov: Cold Fusion maths 12/12 at 0.6 vs 10/12 at 1.0
+            'qwen-card': dict(temperature=1.0, top_p=0.95, top_k=20, min_p=0.0),  # 12 Nov: stock 27B follows its card's thinking mode
             'strata': {}}  # 1 Nov: Strata applies the model card (thinking 1.0/0.95/20); greedy is advised against with thinking
 
 
 def family(model):
-    return 'gemma' if 'gemma' in (model or '').lower() else 'qwen'
+    m = (model or '').lower()
+    if 'gemma' in m:
+        return 'gemma'
+    if m.startswith('qwen3.8-27b') and 'uncensored' not in m:
+        return 'qwen-card'      # stock 27B and 27B Long; Cold Fusion keeps its measured 0.6
+    return 'qwen'
 
 
 def body_for(prompt, evidence=None, model=None, kind=None):
