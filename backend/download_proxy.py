@@ -111,6 +111,7 @@ _RES_720 = re.compile(r'720p', re.I)
 _CAM_RELEASE = re.compile(r'(^|[.\s_/|-])(CAM|TS|WORKPRINT|SKAKET)([.\s_/|-]|$)', re.I)
 _TORBOX_KEY_LOCK = threading.Lock()
 _TORBOX_MAX_TORRENT_BYTES = 5 * 1024 * 1024   # the indexer's .torrent file, at most
+_INDEXER_HOPS = 3   # redirects followed when asking an indexer for its .torrent (Prowlarr -> indexer -> magnet)
 RD_API = 'https://api.real-debrid.com/rest/1.0'   # the primary service: its downloads are not capped
 RD_KEY = None
 RD_KEY_AT = 0
@@ -549,6 +550,12 @@ def _indexer_torrent(hit):
     endpoint on 192.168.0.13:9696) is fetched with redirects off: a redirect to a magnet: link is
     that magnet, a body that starts a bencoded .torrent is the file itself. Anything else is not
     usable, and so is a file over the size cap.
+
+    A redirect is followed up to _INDEXER_HOPS times, checking every hop: Prowlarr answers its own
+    endpoint first, and many indexers answer that with a second redirect - to their own download URL,
+    and only then to the magnet or the .torrent. Following one hop only (seen 12 Nov) made every Get from
+    such an indexer answer "the indexer did not give a usable torrent": the magnet was real, one hop
+    further away. A hop back to a URL already asked is a loop, so it stops; the size cap still applies.
     """
     magnet = hit.get('magnetUrl') or ''
     if magnet.startswith('magnet:') and MAGNET.fullmatch(magnet):
@@ -556,13 +563,21 @@ def _indexer_torrent(hit):
     url = hit.get('downloadUrl') or ''
     if not url.startswith(('http://', 'https://')):
         raise ValueError('the indexer did not give a usable torrent for this result.')
-    code, location, body = _indexer_get(url)
-    if location.startswith('magnet:') and MAGNET.fullmatch(location):
-        return 'magnet', location
-    if body[:11] == b'd8:announce' or (body[:1] == b'd' and b'4:info' in body):
-        if len(body) > _TORBOX_MAX_TORRENT_BYTES:
-            raise ValueError('the indexer did not give a usable torrent for this result.')
-        return 'torrent', body
+    asked = set()
+    for _hop in range(_INDEXER_HOPS):
+        if url in asked:
+            break                      # the same URL twice is a loop, not a new hop
+        asked.add(url)
+        _code, location, body = _indexer_get(url)
+        if location.startswith('magnet:') and MAGNET.fullmatch(location):
+            return 'magnet', location
+        if body[:11] == b'd8:announce' or (body[:1] == b'd' and b'4:info' in body):
+            if len(body) > _TORBOX_MAX_TORRENT_BYTES:
+                raise ValueError('the indexer did not give a usable torrent for this result.')
+            return 'torrent', body
+        if not location.startswith(('http://', 'https://')):
+            break
+        url = location
     raise ValueError('the indexer did not give a usable torrent for this result.')
 
 

@@ -1375,6 +1375,66 @@ class DebridGrabTests(DebridTests):
         self.assertEqual((rd, tb), ([], []))
         self.assertFalse(os.path.exists(self.state_path))
 
+    def test_an_indexer_that_redirects_twice_still_gives_the_magnet(self):
+        """Live (12 Nov): Prowlarr answers its own endpoint, the indexer answers that with a second
+        redirect, and only the hop after that holds the magnet. One hop said 'no usable torrent'."""
+        self.reset_key_cache()
+        self.seed('th', download='http://192.168.0.13:9696/6/download?apikey=secret')
+        magnet = 'magnet:?xt=urn:btih:' + self.HASH + '&dn=Big.Buck.Bunny.2008.720p'
+        asked = []
+
+        def get(url_):
+            asked.append(url_)
+            if url_ == 'http://192.168.0.13:9696/6/download?apikey=secret':
+                return 302, 'https://indexer.invalid/dl/7890', b''          # Prowlarr -> the indexer's own URL
+            if url_ == 'https://indexer.invalid/dl/7890':
+                return 302, magnet, b''                                    # ... and the magnet one hop later
+            raise AssertionError('asked for a hop after the magnet: %s' % url_)
+        rd, tb = [], []
+        with patch.object(dp, 'realdebrid', side_effect=self.fake_rd(calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=self.fake_torbox(calls=tb)), \
+             patch.object(dp, '_indexer_get', side_effect=get):
+            _, codes, body = call('/api/action/download', OK, {'result': 'th'})
+        self.assertEqual(codes, [200])
+        self.assertEqual(asked, ['http://192.168.0.13:9696/6/download?apikey=secret', 'https://indexer.invalid/dl/7890'])
+        self.assertEqual((rd[0]['method'], rd[0]['path']), ('POST', '/torrents/addMagnet'))
+        self.assertEqual(rd[0]['fields'], {'magnet': magnet})   # the magnet of the second hop, used as is
+        self.assertEqual(tb, [])
+
+    def test_an_indexer_that_serves_the_file_after_one_hop_uploads_it(self):
+        """The other two-hop shape: the second hop is the .torrent body itself."""
+        self.reset_key_cache()
+        self.seed('ti', download='http://192.168.0.13:9696/6/download?apikey=secret')
+        torrent_bytes = b'd8:announce12:tracker.com4:info' + b'y' * 40
+
+        def get(url_):
+            if url_.startswith('http://192.168.0.13:9696'):
+                return 302, 'https://indexer.invalid/f.torrent', b''
+            return 200, '', torrent_bytes
+        rd = []
+        with patch.object(dp, 'realdebrid', side_effect=self.fake_rd(calls=rd)), \
+             patch.object(dp, 'torbox', side_effect=self.fake_torbox()), \
+             patch.object(dp, '_indexer_get', side_effect=get):
+            _, codes, _ = call('/api/action/download', OK, {'result': 'ti'})
+        self.assertEqual(codes, [200])
+        self.assertEqual(rd[0]['raw'], torrent_bytes)
+
+    def test_an_indexer_redirect_back_to_a_url_already_asked_stops(self):
+        """A loop must not spin: the URL asked twice ends the search for the torrent."""
+        self.reset_key_cache()
+        self.seed('tl', download='http://192.168.0.13:9696/6/download?apikey=secret')
+        asked = []
+
+        def get(url_):
+            asked.append(url_)
+            return 302, url_, b''        # the same URL again
+        with patch.object(dp, 'realdebrid', side_effect=AssertionError('no add after a loop')), \
+             patch.object(dp, '_indexer_get', side_effect=get):
+            _, codes, body = call('/api/action/download', OK, {'result': 'tl'})
+        self.assertEqual(codes, [503])
+        self.assertIn('usable torrent', body['error'])
+        self.assertEqual(len(asked), 1)   # asked once, saw the loop, stopped
+
     def test_a_torrent_file_over_the_size_cap_is_refused(self):
         self.reset_key_cache()
         self.seed('tc', download='http://192.168.0.13:9696/9/download?apikey=secret')
