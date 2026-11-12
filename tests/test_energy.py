@@ -27,6 +27,7 @@ DISKS = [dict(name='parity', rotational=True, spundown=False), dict(name='disk1'
 class EnergyTests(unittest.TestCase):
     def setUp(self):
         m._prev.clear(); m._watts.clear(); m._latest.clear(); m._last_tick = None
+        m._pc_cpu.update(prev=None, at=None, j=None, w=None)
 
     def test_counter_rates_handle_wrap_and_reset(self):
         self.assertEqual(m.rates({'a': (100_000_000, 1000_000_000)}, {'a': (200_000_000, 1000_000_000)}, 10), {'a': 10.0})
@@ -107,6 +108,49 @@ class EnergyTests(unittest.TestCase):
                 m.collect(connect, {}, None, False, 1000); m.collect(connect, {}, None, False, 1010)
                 snap = m.snapshot(connect, 1010)
             self.assertIsNone(snap['rate_per_kwh']); self.assertIsNone(snap['today']['cost']); self.assertIsNone(snap['per_day_at_now']['cost'])
+
+    def test_cpu_energy_diff_used_and_memoised(self):
+        self.assertIsNone(m.pc_cpu_watts({'cpu_energy_j': 1000.0}, 100))       # first read: no window yet
+        self.assertEqual(m.pc_cpu_watts({'cpu_energy_j': 1115.0}, 110), 11.5)  # joules over 10 s
+        self.assertEqual(m.pc_cpu_watts({'cpu_energy_j': 1115.0}, 110), 11.5)  # same tick asks again: same window, not 0 s
+        self.assertIsNone(m.pc_cpu_watts(None, 120))                              # asleep PC: keep nothing new
+
+    def test_cpu_diff_bad_values_fall_back_to_the_estimate(self):
+        m.pc_cpu_watts({'cpu_energy_j': 1000.0}, 100)
+        self.assertIsNone(m.pc_cpu_watts({'cpu_energy_j': 999.0}, 110))       # counter reset (reboot)
+        m.pc_cpu_watts({'cpu_energy_j': 1000.0}, 120)
+        self.assertIsNone(m.pc_cpu_watts({'cpu_energy_j': 1000.0 + 5_000_000}, 130))  # 500 kW: implausible
+        m.pc_cpu_watts({'cpu_energy_j': 1000.0}, 140)
+        self.assertIsNone(m.pc_cpu_watts({'cpu_energy_j': 1010.0}, 240))      # 100 s gap (PC slept): stale
+        self.assertIsNone(m.pc_cpu_watts({'cpu_energy_j': 'x'}, 250))         # non-numeric
+        self.assertEqual(m.pc_cpu_watts({'cpu_energy_j': 1011.0}, 260), 0.05)  # fresh window after the gap works again
+
+    def test_pc_with_cpu_reading_measured_parts(self):
+        m.pc_cpu_watts({'cpu_energy_j': 1000.0}, 100)
+        devs = {d['id']: d for d in m.readings({}, {'power_w': 19.0, 'cpu_energy_j': 1115.0}, True, 110, m.DEFAULTS)}
+        pc = devs['pc']
+        self.assertAlmostEqual(pc['measured_w'], 19 + 11.5)
+        self.assertAlmostEqual(pc['watts'], (19 + 11.5 + 43) / 0.9)
+        self.assertAlmostEqual(pc['watts'], (19 + 55) / 0.9, delta=0.8)  # idle totals stay about where they were
+        labels = {p['label']: p['measured'] for p in pc['parts']}
+        self.assertEqual(labels, {'GPU': True, 'CPU': True, 'Board, RAM, fans, SSDs': False})
+        self.assertEqual(pc['detail'], 'Awake · GPU+CPU measured')
+
+    def test_pc_without_cpu_reading_is_exactly_today(self):
+        m.pc_cpu_watts({'power_w': 19.0}, 100)  # payload without cpu fields: no diff started
+        devs = {d['id']: d for d in m.readings({}, {'power_w': 19.0}, True, 110, m.DEFAULTS)}
+        pc = devs['pc']
+        self.assertAlmostEqual(pc['watts'], (19 + 55) / 0.9)
+        self.assertEqual(pc['detail'], 'Awake · RTX 5070 Ti')
+        self.assertEqual({p['label']: p['measured'] for p in pc['parts']}, {'GPU': True, 'CPU, board, SSDs': False})
+
+    def test_board_rest_w_overridable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'energy.json'
+            with patch.object(m, 'CONFIG', path):
+                path.write_text(json.dumps({'pc': {'board_rest_w': 50}}))
+                self.assertEqual(m.config()['pc']['board_rest_w'], 50)
+        self.assertEqual(m.DEFAULTS['pc']['board_rest_w'], 43.0)
 
 
 if __name__ == '__main__':

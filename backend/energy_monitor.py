@@ -20,7 +20,7 @@ DEFAULTS = dict(
     rate_per_kwh=None, rate_label=None,
     proxmox=dict(base_w=6.0, psu_efficiency=0.88),
     unraid=dict(base_w=10.0, psu_efficiency=0.88, hdd_active_w=6.5, hdd_standby_w=0.9, ssd_w=1.0),
-    pc=dict(rest_awake_w=55.0, gpu_unmeasured_w=20.0, asleep_w=2.0, psu_efficiency=0.90),
+    pc=dict(rest_awake_w=55.0, gpu_unmeasured_w=20.0, asleep_w=2.0, psu_efficiency=0.90, board_rest_w=43.0),
     fixed=[dict(id='router', name='Router', detail='GL.iNet Flint 3', w=12.0),
            dict(id='orangepi', name='Orange Pi', detail='Secondary DNS', w=2.5)])
 
@@ -29,6 +29,9 @@ _prev = {}      # host -> (sampled_at, {counter: (uj, max_uj)})
 _watts = {}     # host -> (sampled_at, {counter: watts})
 _latest = {}
 _last_tick = None
+# Gaming PC CPU: previous cpu_energy_j from the /gpu JSON and the watts it produced; memoised on (now, j) so the
+# energy log and the pc_gpu_samples column share one averaging window (the same diff, computed once).
+_pc_cpu = {'prev': None, 'at': None, 'j': None, 'w': None}
 
 
 def config():
@@ -95,6 +98,30 @@ def device(id, name, detail, measured, estimated, efficiency, state='on', parts=
     return dict(id=id, name=name, detail=detail, state=state, watts=(measured + estimated) / eff, measured_w=measured, parts=parts or [])
 
 
+def pc_cpu_watts(pc_gpu, now):
+    """Gaming PC CPU watts from the difference of the cumulative RAPL joule readings (cpu_energy_j in the /gpu JSON),
+    preferred over the exporter's cpu_pkg_w so live-page polling never shifts the averaging window. A counter reset,
+    a sleep/resume gap or an implausible value returns None (today's estimate is used). Idempotent for the same
+    (now, cpu_energy_j) pair, so gpu_monitor.pc_collect and readings() share one diff per collector tick."""
+    reading = pc_gpu if isinstance(pc_gpu, dict) else {}
+    j = reading.get('cpu_energy_j')
+    if not number(j) or j < 0:
+        return None
+    if _pc_cpu['at'] == now and _pc_cpu['j'] == j:
+        return _pc_cpu['w']
+    prev = _pc_cpu['prev']
+    _pc_cpu['prev'] = (now, j)
+    w = None
+    if prev:
+        dt = now - prev[0]
+        if 0 < dt <= MAX_GAP and j >= prev[1]:
+            w = (j - prev[1]) / dt
+            if not 0 <= w <= 300:
+                w = None  # reset, wrap or sleep/resume jump: no CPU reading this tick
+    _pc_cpu['at'] = now; _pc_cpu['j'] = j; _pc_cpu['w'] = w
+    return w
+
+
 def readings(hosts, pc_gpu, pc_online, now, cfg):
     pve = host_watts('pve', probe(hosts.get('192.168.0.3')), now)
     unraid_probe = probe(hosts.get('192.168.0.4'))
@@ -120,7 +147,14 @@ def readings(hosts, pc_gpu, pc_online, now, cfg):
     else: out.append(device('unraid', 'Unraid', 'i7-7700T · Arc A310 · disks', None, 0, 1))
     c = cfg['pc']
     gpu_w = (pc_gpu or {}).get('power_w')
-    if number(gpu_w) and 0 <= gpu_w < 1000:
+    cpu_w = pc_cpu_watts(pc_gpu, now)
+    if number(gpu_w) and 0 <= gpu_w < 1000 and cpu_w is not None:
+        measured = gpu_w + cpu_w
+        board = c['board_rest_w'] if number(c.get('board_rest_w')) else 43.0
+        out.append(device('pc', 'Gaming PC', 'Awake · GPU+CPU measured', measured, board, c['psu_efficiency'], 'awake',
+                          parts=[dict(label='GPU', w=gpu_w, measured=True), dict(label='CPU', w=cpu_w, measured=True),
+                                 dict(label='Board, RAM, fans, SSDs', w=board, measured=False)]))
+    elif number(gpu_w) and 0 <= gpu_w < 1000:
         out.append(device('pc', 'Gaming PC', 'Awake · RTX 5070 Ti', gpu_w, c['rest_awake_w'], c['psu_efficiency'], 'awake',
                           parts=[dict(label='GPU', w=gpu_w, measured=True), dict(label='CPU, board, SSDs', w=c['rest_awake_w'], measured=False)]))
     elif pc_online:

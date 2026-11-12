@@ -94,6 +94,8 @@ def collect():
     gpu_monitor.collect(connect,gpu,now)
     try:pc_gpu=pc_future.result()
     except Exception:pc_gpu=None
+    try:gpu_monitor.pc_collect(connect,pc_gpu,now)  # keeps the reading the energy log already has; no new requests to the PC
+    except Exception as exc:print('PC GPU collector:',type(exc).__name__,flush=True)
     try:energy_monitor.collect(connect,hosts,pc_gpu,(ai_monitor.snapshot().get('desktop') or {}).get('online') is True,now)
     except Exception as exc:print('Energy collector:',type(exc).__name__,flush=True)
     rows, latest = [], {}
@@ -202,7 +204,7 @@ def snapshot(window=3600):
         latest[key]['exhaustion'] = estimates[key]
         latest[key]['bucket_seconds'] = bucket
         latest[key]['history'] = histories.get(key, [])
-    return dict(ai=ai_monitor.snapshot(),network=net_monitor.snapshot(connect,window,bucket,aggregate_history),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), energy=energy_snapshot(), ai_history=history_snapshot(), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
+    return dict(ai=ai_monitor.snapshot(),network=net_monitor.snapshot(connect,window,bucket,aggregate_history),gpu=gpu_monitor.snapshot(connect,window,bucket,aggregate_history),pc_gpu=pc_gpu_snapshot(connect,window,bucket,aggregate_history),activity=activity_monitor.snapshot(connect, window, bucket, aggregate_history), energy=energy_snapshot(), ai_history=history_snapshot(), disks=list(latest.values()), collected_at=now, history_since=first, window=window,
                 sample_seconds=10, bucket_seconds=bucket, retention_hours=24, source='Glances cumulative disk counters')
 
 def history_snapshot():
@@ -214,6 +216,11 @@ def energy_snapshot():
     try: return energy_monitor.snapshot(connect)
     except Exception as exc:
         print('Energy snapshot:', type(exc).__name__, flush=True); return None
+
+def pc_gpu_snapshot(connect, window, bucket, aggregate):
+    try: return gpu_monitor.pc_snapshot(connect, window, bucket, aggregate)
+    except Exception as exc:
+        print('PC GPU snapshot:', type(exc).__name__, flush=True); return None
 
 _snap = {}
 _snap_lock = threading.Lock()
