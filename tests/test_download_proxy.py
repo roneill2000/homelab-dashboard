@@ -211,6 +211,12 @@ class DebridTests(unittest.TestCase):
         self.addCleanup(dp._SPACE_CACHE.clear)
         self.addCleanup(dp._SIZE_CACHE.clear)
         self.addCleanup(setattr, dp, '_SPACE_SUPPORT', [0.0, False])
+        # Both service keys are cached for 60 s once read, so a key one test fakes would otherwise leak into
+        # the next one and turn on a key-gated feature ('search', 'cached') it never asked for.
+        self.addCleanup(setattr, dp, 'RD_KEY', None)
+        self.addCleanup(setattr, dp, 'RD_KEY_AT', 0)
+        self.addCleanup(setattr, dp, 'TORBOX_KEY', None)
+        self.addCleanup(setattr, dp, 'TORBOX_KEY_AT', 0)
 
     def write_state(self, rows):
         with open(self.state_path, 'w') as f:
@@ -492,8 +498,8 @@ class DebridTests(unittest.TestCase):
         with patch.object(dp, '_download_rpc', side_effect=lambda *a, **k: self.fail('the worker must not be asked')):
             _, codes, body = call('/api/debrid', OK, post=False)
         self.assertEqual(codes, [200])
-        # 'search' rides with the key files, so only the other three are checked here
-        self.assertEqual([f for f in body['features'] if f != 'search'], ['preview', 'retry', 'dismiss'])
+        # 'search' and 'cached' ride with the key files, so only the always-on ones are checked here
+        self.assertEqual([f for f in body['features'] if f not in ('search', 'cached')], ['preview', 'retry', 'dismiss'])
 
     # ------------------------------------------------- name discovery (TorBox) ---
     def test_a_name_in_the_headers_is_read_out_of_content_disposition(self):
@@ -1171,7 +1177,9 @@ class DebridGrabTests(DebridTests):
              patch.object(dp, 'torbox', side_effect=self.fake_torbox()):
             call('/api/action/download', OK, {'result': 't9'})
             _, codes, body = call('/api/debrid', OK, post=False)
-        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss', 'search'])
+        # Both key files are present here, so the Ready now check ('cached', Task 3) is offered as well:
+        # it is key-gated for the same reason - with no TorBox to ask, the mark could only ever be unknown.
+        self.assertEqual(body['features'], ['preview', 'retry', 'dismiss', 'search', 'cached'])
 
     # --------------------------------------------------------------- which provider ---
     def test_only_torbox_key_get_goes_straight_to_torbox(self):
@@ -2583,3 +2591,118 @@ class DebridNotifyTests(DebridTests):
         with patch.object(dp, 'NTFY_CONFIG', os.path.join(self.tmp.name, 'absent.json')):
             dp._NTFY_CACHE = [0.0, None]
             self.assertNotIn('notify', dp.debrid_status()['features'])   # no file: no flag, nothing to send
+
+
+class DebridCachedTests(DebridTests):
+    """Task 3 in docs/SPEC-downloads-augmentations.md: the search answer says which results TorBox already
+    has ('Ready now') and marks one suggested pick. The TorBox call is captured here; the live answer shape
+    is written up in docs/SPEC-search-via-debrid.md."""
+
+    HASH = 'dd8255ecdc7ca55fb0bbf81323d87062db1f6d1f'
+
+    def setUp(self):
+        DebridTests.setUp(self)
+        dp.RESULTS.clear()
+        self.addCleanup(dp.RESULTS.clear)
+
+    def hit(self, title, seeders=10, size='1.1 GB', info_hash=HASH):
+        return {'guid': 'https://idx/' + title, 'indexerId': 1, 'title': title, 'protocol': 'torrent',
+                'seeders': seeders, 'size': size, 'infoHash': info_hash}
+
+    def search(self, rows, cached=(), broken=None, key='fake-torbox-key'):
+        """One search: Prowlarr faked, TorBox's cached check captured. `cached` is what TorBox is made to
+        answer that it already holds; `broken` makes the check fail instead (a missing key, a timeout)."""
+        hits = []
+
+        def fake(method, path, fields=(), files=(), timeout=20, json_body=None):
+            hits.append({'method': method, 'path': path, 'timeout': timeout})
+            if broken:
+                raise broken
+            have = {h: {'name': 'x', 'size': 1, 'hash': h} for h in cached}
+            return {'success': True, 'error': None, 'detail': '', 'data': have}
+
+        with patch.object(dp, 'prowlarr', return_value=rows), \
+             patch.object(dp, 'torbox', side_effect=fake), \
+             patch.object(dp, '_torbox_key', return_value=key):   # 'the service is set up here'
+            return dp.search('dune', 'torrent'), hits
+
+    def hashes_asked_about(self, hit):
+        return [h for h in hit['path'].split('hash=')[1].split('?')[0].split(',') if h]
+
+    def test_the_check_runs_once_for_the_whole_search(self):
+        rows, hits = self.search([self.hit('Dune A', info_hash=self.HASH),
+                                  self.hit('Dune B', info_hash='0123456789abcdef0123456789abcdef01234567'),
+                                  self.hit('Dune C', info_hash='abcdef0123456789abcdef0123456789abcdef')],
+                                cached=[self.HASH])
+        self.assertEqual(len(hits), 1)                       # one batch call, not one per result
+        self.assertEqual(hits[0]['method'], 'GET')
+        self.assertIn('/torrents/checkcached', hits[0]['path'])
+        self.assertEqual(len(self.hashes_asked_about(hits[0])), 3)
+        out = {r['title']: r['cached'] for r in rows}
+        self.assertEqual(out, {'Dune A': True, 'Dune B': False, 'Dune C': False})
+
+    def test_a_hashless_result_is_never_fetched_just_to_ask(self):
+        rows, hits = self.search([self.hit('Dune A'), self.hit('No hash here', info_hash=None)],
+                                cached=[self.HASH])
+        self.assertEqual(self.hashes_asked_about(hits[0]), [self.HASH])   # only the hash it was given
+        self.assertEqual([(r['title'], r['cached']) for r in rows],
+                         [('Dune A', True), ('No hash here', None)])      # unknown, not a no
+
+    def test_a_check_that_did_not_answer_leaves_the_search_normal(self):
+        rows, hits = self.search([self.hit('Dune A', info_hash=self.HASH, seeders=4),
+                                  self.hit('Dune B.2160p', info_hash='0123456789abcdef0123456789abcdef01234567')],
+                                broken=RuntimeError('TorBox did not answer in time'))
+        self.assertEqual([r['cached'] for r in rows], [None, None])   # everything unknown
+        self.assertEqual([r for r in rows if r.get('suggested')][0]['title'], 'Dune B.2160p')  # still a pick
+        self.assertTrue(all(r['title'] in rows[0]['title'] or r['title'] for r in rows))
+
+    def test_the_pick_prefers_4k_then_seeders(self):
+        rows, _ = self.search([self.hit('Dune 1080p', seeders=900, info_hash=self.HASH),
+                               self.hit('Dune 2160p', seeders=3, info_hash='0123456789abcdef0123456789abcdef01234567')],
+                              cached=[self.HASH, '0123456789abcdef0123456789abcdef01234567'])
+        picks = [r['title'] for r in rows if r.get('suggested')]
+        self.assertEqual(picks, ['Dune 2160p'])                     # resolution beats raw seeders
+        self.assertEqual(sum(1 for r in rows if r.get('suggested')), 1)
+
+    def test_a_cam_or_ts_is_never_the_pick(self):
+        rows, _ = self.search([self.hit('Dune CAM 2160p', seeders=900, info_hash=self.HASH),
+                               self.hit('Dune.TS.1080p', seeders=20, info_hash='0123456789abcdef0123456789abcdef01234567'),
+                               self.hit('Dune 1080p', seeders=12, info_hash='abcdef0123456789abcdef0123456789abcdef')],
+                              cached=[self.HASH, '0123456789abcdef0123456789abcdef01234567',
+                                      'abcdef0123456789abcdef0123456789abcdef'])
+        self.assertEqual([r['title'] for r in rows if r.get('suggested')], ['Dune 1080p'])
+
+    def test_a_release_bigger_than_the_cap_is_never_the_pick(self):
+        rows, _ = self.search([self.hit('Dune remux 2160p', seeders=900, size='120 GB', info_hash=self.HASH),
+                               self.hit('Dune 1080p', seeders=5, info_hash='0123456789abcdef0123456789abcdef01234567')],
+                              cached=[self.HASH, '0123456789abcdef0123456789abcdef01234567'])
+        self.assertEqual([r['title'] for r in rows if r.get('suggested')], ['Dune 1080p'])
+
+    def test_a_known_answer_of_no_leaves_the_search_without_a_pick(self):
+        rows, _ = self.search([self.hit('Dune A', seeders=900), self.hit('Dune B.2160p', seeders=800)], cached=[])
+        self.assertEqual([r['cached'] for r in rows], [False, False])   # all known, none ready
+        self.assertEqual([r for r in rows if r.get('suggested')], [])
+
+    def test_a_batch_stays_inside_the_documented_cap(self):
+        rows, hits = self.search([self.hit('Dune %02d 1080p' % i, info_hash='%040x' % i) for i in range(120)])
+        self.assertEqual(len(hits), 1)
+        self.assertLessEqual(len(self.hashes_asked_about(hits[0])), dp.CACHED_MAX)   # about 100 per call
+        self.assertEqual(len(rows), 60)                                          # and 60 results at most
+
+    def test_the_cached_flag_needs_a_torbox_key(self):
+        with patch.object(dp, '_torbox_key', return_value=None):
+            self.assertNotIn('cached', dp.debrid_status()['features'])
+        rows, hits = self.search([self.hit('Dune A')], key=None)
+        self.assertEqual(hits, [])                     # no key: no call, so no request to a service that is off
+        self.assertEqual([r['cached'] for r in rows], [None])
+        with patch.object(dp, '_torbox_key', return_value='fake-key'):
+            self.assertIn('cached', dp.debrid_status()['features'])
+
+    @unittest.skipUnless(os.path.exists(dp.TORBOX), "needs Ryan's TorBox key file (only LXC 104 has it)")
+    def test_the_live_answer_shape(self):
+        """The one live read the spec asks for: an uncached hash is absent, and the call answers well inside
+        the 3 s budget."""
+        self.assertTrue(dp._torbox_key())
+        flags = dp._cached_flags(['0123456789abcdef0123456789abcdef01234567'])
+        self.assertIsInstance(flags, set)         # a set of cached hashes, empty when none are cached
+        self.assertEqual(flags, set())

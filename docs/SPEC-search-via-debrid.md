@@ -65,12 +65,18 @@ grab at Real-Debrid and fall back to TorBox.
 **torrent and file fields confirmed with a live read-only `mylist`.** Base `https://api.torbox.app/v1/api`, header
 `Authorization: Bearer <key>`. A 404 `{"detail":"Not Found"}` means a wrong path; 401 a missing key.
 
+**User-Agent matters (confirmed 12 Nov 2026 by pi with a key):** their Cloudflare rejects urllib's own
+`Python-urllib/*` with `403` and body `error code: 1010`, and answers `200` for the same URL with any other UA
+(`homelab-dashboard` works, `curl/8.5.0` works). Real-Debrid does not care: `200` with the default UA. So every
+TorBox call from the dashboard sends a `User-Agent`; a TorBox feature that only ever got 403 was never live.
+
 | Purpose | Call |
 |---|---|
 | Add a torrent | `POST /torrents/createtorrent`, multipart form `magnet` or `file` (the .torrent bytes), optional `name`, `seed`, `as_queued`, `add_only_if_cached`. |
 | Read one torrent | `GET /torrents/mylist?id=<id>&bypass_cache=true`. Envelope `{"success", "error", "detail", "data"}`. Torrent: `id`, `hash`, `name`, `size`, `progress` (**0 to 1**), `download_state`, `download_finished`, `download_present`, `cached`, `seeds`, `download_speed`, `eta`, `files[]` (`id`, `name`, `short_name`, `size`, `mimetype`, `infected`). Ready = `download_finished and download_present`. |
 | Link for one file | `GET /torrents/requestdl?token=<key>&torrent_id=<id>&file_id=<id>` (the key goes in `token`). `data` = the https link. Throttled (about 20 a minute reported). **Never `redirect=true`** (a permanent link with the key in it). |
 | Remove a torrent | `POST /torrents/controltorrent`, JSON `{"torrent_id": <id>, "operation": "delete"}`. Never send `all`. |
+| Is a torrent already at TorBox (cached check, Task 3) | `GET /torrents/checkcached?format=object&hash=<a>,<b>,<c>` (repeated `hash=` works too; `format=list` returns an array). Confirmed live 12 Nov 2026 with a key: envelope `{"success", "error", "detail", "data"}`, and `data` is `{"<hash>": {"name", "size", "hash"}}` **only for the hashes that are cached** - an uncached hash is simply absent, there is no `false`. About 100 hashes per call (their docs), one call is well under 1 s, and TorBox caches its own answer for an hour, so ask once per search and never in a loop. `list_files=true` adds the file list (not used). |
 
 TorBox downloads are capped at about 1 Gbps on Ryan's plan; that is why it is second.
 

@@ -93,6 +93,17 @@ _SIZE_TTL = 120.0
 TORBOX_API = 'https://api.torbox.app/v1/api'
 TORBOX_KEY = None
 TORBOX_KEY_AT = 0
+# The cached check (Task 3 in docs/SPEC-downloads-augmentations.md): one TorBox call per search, at most
+# CACHED_MAX hashes in it (their documented limit), answered within CACHED_TIMEOUT or the results get no mark.
+# SUGGEST_MAX_BYTES keeps a 100 GB-plus release from ever being the suggested pick.
+CACHED_TIMEOUT = 3.0
+CACHED_MAX = 100
+SUGGEST_MAX_BYTES = 100 * 1024 ** 3
+_RES_4K = re.compile(r'2160p|4k|uhd', re.I)
+_RES_1080 = re.compile(r'1080p', re.I)
+_RES_720 = re.compile(r'720p', re.I)
+# A cam, a theatrical-recording TS, or a workprint: never worth suggesting, however many seeders it shows.
+_CAM_RELEASE = re.compile(r'(^|[.\s_/|-])(CAM|TS|WORKPRINT|SKAKET)([.\s_/|-]|$)', re.I)
 _TORBOX_KEY_LOCK = threading.Lock()
 _TORBOX_MAX_TORRENT_BYTES = 5 * 1024 * 1024   # the indexer's .torrent file, at most
 RD_API = 'https://api.real-debrid.com/rest/1.0'   # the primary service: its downloads are not capped
@@ -186,10 +197,65 @@ def recent():
     return out
 
 
+def _cached_flags(hashes):
+    """Which of these torrents TorBox already has (Task 3 in docs/SPEC-downloads-augmentations.md).
+
+    One call for the whole search: GET /torrents/checkcached?format=object&hash=<a>,<b>,<c>. The answer's
+    data holds an entry per cached hash only, so what is missing is not cached; the confirmed live shape
+    is written up in docs/SPEC-search-via-debrid.md. Returns the set of cached hashes, or None when the
+    answer did not arrive (no key, an error, or slower than CACHED_TIMEOUT), which the caller turns into
+    cached: null so an unknown never reads as a no. TorBox caches its own answer for an hour.
+    """
+    if not _torbox_key():
+        return None                      # the service is not set up here: no request, and nothing to say
+    wanted = sorted({str(h).lower() for h in hashes if h})[:CACHED_MAX]
+    if not wanted:
+        return set()
+    try:
+        ans = torbox('GET', '/torrents/checkcached?format=object&hash=' + ','.join(wanted),
+                     timeout=CACHED_TIMEOUT)
+    except Exception:
+        return None                      # unknown: the search answers anyway, with no marks
+    data = ans.get('data') or []
+    if isinstance(data, list):           # format=list answers with an array instead
+        return {str(r.get('hash') or '').lower() for r in data if isinstance(r, dict)}
+    return {str(h).lower() for h in data}
+
+
+def _res_rank(title):
+    """How the suggested pick orders resolution: 4K first, then 1080p, then anything else."""
+    text = str(title or '')
+    if _RES_4K.search(text):
+        return 3
+    if _RES_1080.search(text):
+        return 2
+    return 1 if _RES_720.search(text) else 0
+
+
+def _mark_suggested(rows):
+    """Mark the one result the panel puts first, suggested: true (Task 3).
+
+    Candidates are the results already at TorBox; when no result is known at all, every result is a candidate,
+    and when all of them are known and none is ready, there is no pick. A pick is a hint about TorBox only:
+    the grab still goes to Real-Debrid first.
+    """
+    pool = [r for r in rows if r.get('cached') is True]
+    if not pool and not any(r.get('cached') is not None for r in rows):
+        pool = list(rows)                # nothing known: judge on resolution and seeders alone
+    picks = [r for r in pool
+             if not _CAM_RELEASE.search(str(r.get('title') or ''))
+             and int(r.get('size_bytes') or 0) <= SUGGEST_MAX_BYTES]
+    if not picks:
+        return
+    best = max(picks, key=lambda r: (_res_rank(r.get('title')), int(r.get('seeders') or 0), str(r.get('id'))))
+    best['suggested'] = True
+
+
 def search(query, kind):
     rows = prowlarr('/api/v1/search?' + urllib.parse.urlencode({'query': query, 'type': 'search', 'limit': 100}))
     now = time.time()
-    out = []
+    out, hash_of = [], {}
+    # A result the indexer gave no hash to cannot be checked at TorBox, and it is not fetched just to ask.
     # Room on the share (Task 1): the worker reading is cached here, so asking per result costs one round
     # trip for the whole search, not sixty. A result with no size in it gets size_bytes None and no mark.
     room, owed = _free_bytes(MOVIES_DIR), _in_flight_bytes()
@@ -204,6 +270,8 @@ def search(query, kind):
                               'magnetUrl': r.get('magnetUrl'), 'downloadUrl': r.get('downloadUrl'),
                               'infoHash': r.get('infoHash'), 'protocol': r.get('protocol'),
                               'size': _indexer_bytes(r.get('size'))}
+            if r.get('infoHash'):
+                hash_of[token] = str(r['infoHash']).lower()
             info = r.get('infoUrl') if str(r.get('infoUrl', '')).startswith(('https://', 'http://')) else None
             size_bytes = _indexer_bytes(r.get('size'))
             space = {'size_bytes': size_bytes,
@@ -219,7 +287,17 @@ def search(query, kind):
                         'published': r.get('publishDate'), 'info': info, **space})
     key = (lambda x: x['seeders'] or 0) if kind == 'torrent' else (lambda x: x['grabs'] or 0)
     out.sort(key=key, reverse=True)
-    return out[:60]
+    visible = out[:60]
+    # Ready now (Task 3): one TorBox call for the hashes these results carry. It runs outside RESULTS_LOCK,
+    # so its 3 s budget cannot hold up another search or a Get.
+    flags = _cached_flags([hash_of.get(r['id']) for r in visible])
+    for row in visible:
+        h = str(hash_of.get(row['id']) or '').lower()
+        # A hash the indexer never gave, or a check that did not answer, is unknown: an unknown must never
+        # read as 'not at TorBox'.
+        row['cached'] = None if (not h or flags is None) else (h in flags)
+    _mark_suggested(visible)
+    return visible
 
 
 def add_magnet(magnet):
@@ -348,7 +426,10 @@ def torbox(method, path, fields=(), files=(), timeout=20, json_body=None):
             buf.write(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n' % (boundary, name)).encode())
         buf.write(data)
         buf.write(b'\r\n')
-    hdrs = {'Authorization': 'Bearer ' + key}
+    hdrs = {'Authorization': 'Bearer ' + key,
+            # TorBox's Cloudflare answers 403 (error code 1010) for urllib's own User-Agent and 200 for any
+            # other one, so every TorBox call says who it is. Real-Debrid does not care. Confirmed 12 Nov 2026.
+            'User-Agent': 'homelab-dashboard'}
     payload = None
     if json_body is not None:
         payload = json.dumps(json_body).encode()
@@ -2443,6 +2524,10 @@ def debrid_status():
         # 'notify' (Task 2) needs the private topic file: with it missing, nothing is listed and no message
         # is ever sent, so an operator without a topic sees exactly the panel as before.
         features.append('notify')
+    if _torbox_key():
+        # 'cached' (Task 3) asks TorBox which torrents it already holds: with no TorBox key the answer can
+        # only ever be null, so the panel is not offered the Ready now and Suggested marks.
+        features.append('cached')
     return {'ok': True, 'downloads': _debrid_rows(state), 'updated': state.get('updated'),
             'features': features}
 
