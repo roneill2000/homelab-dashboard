@@ -1194,3 +1194,69 @@ def patch_wireguard_lxc117(source):
     source = source.replace("('WireGuard Gateway', 'VM 107',", "('WireGuard Gateway', 'LXC 117',")
     compile(source, '<dashboard>', 'exec')
     return source + '\n' + marker + '\n'
+
+
+def patch_network_map_rows(source):
+    """Network map wording and hosts (spec 11 Nov 2026). The router is the Flint 3 (the GL-BE9300
+    name was the vendor label, not the product), the hypervisor row is Proxmox VE 9, and the WireGuard
+    row loses its syslog link (LXC 117 has no web page of its own). The Gaming PC (.12), the Caddy
+    proxy (.20, LXC 115) and Roam 6 (.22, living-room Wi-Fi) join the map. The new rows have no TCP
+    probe of their own, so their check is False and 'online' comes from the ARP scan fallback
+    (ip in active_ips); the PC then reads offline while it sleeps, which is correct. The octet loop
+    is kept in address order, so pi (key 255, address .21) sits between .20 and .22 instead of last.
+    Idempotent: a second run changes nothing."""
+    tree = ast.parse(source)
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix')
+    found = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name == 'known':
+                assert isinstance(node.value, ast.Dict)
+                keys = [getattr(k, 'value', None) for k in node.value.keys]
+
+                def set_field(octet, index, value):
+                    i = keys.index(octet)
+                    row = node.value.values[i]
+                    assert isinstance(row, ast.Tuple) and len(row.elts) == 4, octet
+                    row.elts[index] = ast.fix_missing_locations(expression(value))
+
+                set_field(1, 0, "'Flint 3'")
+                set_field(3, 0, "'Proxmox VE 9'")
+                set_field(30, 2, "None")
+                for octet, row in ((12, "('Gaming PC', 'RTX 5070 Ti', None, False)"),
+                                   (20, "('Caddy proxy', 'LXC 115', 'https://proxy.lan', False)"),
+                                   (22, "('Roam 6', 'Living-room Wi-Fi', 'http://192.168.0.22', False)")):
+                    if octet not in keys:
+                        node.value.keys.append(ast.Constant(octet))
+                        node.value.values.append(ast.fix_missing_locations(expression(row)))
+                        keys.append(octet)
+                found.add(name)
+        if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
+            elts, nums = node.iter.elts, [v.value for v in node.iter.elts if isinstance(v, ast.Constant)]
+            address = {n: n for n in nums}
+            for stmt in node.body:
+                if (isinstance(stmt, ast.Assign) and isinstance(stmt.targets[0], ast.Name)
+                        and stmt.targets[0].id == 'ip'):
+                    value = stmt.value
+                    while isinstance(value, ast.IfExp):
+                        test = value.test
+                        if (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name) and test.left.id == 'i'
+                                and isinstance(test.ops[0], ast.Eq)
+                                and isinstance(test.comparators[0], ast.Constant) and isinstance(test.comparators[0].value, int)
+                                and isinstance(value.body, ast.Constant)):
+                            key = test.comparators[0].value
+                            address[key] = int(str(value.body.value).rsplit('.', 1)[1])
+                        value = value.orelse
+            for octet in (12, 20, 22):
+                if octet not in nums:
+                    elts.append(ast.Constant(octet))
+                    nums.append(octet)
+                    address[octet] = octet
+            elts.sort(key=lambda v: address.get(getattr(v, 'value', None), getattr(v, 'value', None)))
+            found.add('matrix')
+    assert found == {'known', 'matrix'}, found
+    lines = source.splitlines(keepends=True)
+    lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn)) + '\n']
+    compile(''.join(lines), '<dashboard>', 'exec')
+    return ''.join(lines)

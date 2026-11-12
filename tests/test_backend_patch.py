@@ -593,3 +593,50 @@ class TestWireGuardLxc117(unittest.TestCase):
         from backend_patch import patch_wireguard_lxc117
         with self.assertRaises(ValueError):
             patch_wireguard_lxc117("checks = {}\n")
+
+
+MAP_FIXTURE = (
+    "def poll_network_and_matrix():\n"
+    "    checks = {}\n"
+    "    port_targets = {'router': ('192.168.0.1', 80), 'wireguard_ssh': ('192.168.0.30', 51820)}\n"
+    "    known = {1: ('GL-BE9300 Router', 'Gateway', 'http://192.168.0.1', checks.get('router', False)), "
+    "3: ('Proxmox VE 8', 'Hypervisor', 'https://192.168.0.3:8006', checks.get('pve', False)), "
+    "30: ('WireGuard Gateway', 'LXC 117', 'http://192.168.0.3:8999', checks.get('wireguard_ssh', False)), "
+    "254: ('Macvlan Shim', 'Unraid Route', 'http://192.168.0.4', checks.get('unraid', False)), "
+    "255: ('pi', 'LXC 116', 'https://pi.lan', checks.get('pi', False))}\n"
+    "    matrix = []\n"
+    "    for i in [1, 3, 30, 254, 255]:\n"
+    "        ip = '192.168.0.21' if i == 255 else f'192.168.0.{i}'\n"
+    "        name, role, url, tcp_ok = known[i]\n"
+    "        matrix.append({'octet': f\".{ip.rsplit('.', 1)[1]}\", 'ip': ip, 'name': name, 'role': role, 'url': url, 'online': bool(tcp_ok or ip in active_ips)})\n"
+)
+
+
+class TestNetworkMapRows(unittest.TestCase):
+    """Spec 11 Nov 2026 item 2: the map renames two hosts, loses the syslog link on the WireGuard
+    row (key 20 in this fixture stands in for the live .30 row), and gains .12, .20 and .22."""
+
+    def test_renames_and_new_rows_applied_once(self):
+        from backend_patch import patch_network_map_rows
+        out = patch_network_map_rows(MAP_FIXTURE)
+        self.assertIn("('Flint 3', 'Gateway'", out)
+        self.assertIn("('Proxmox VE 9', 'Hypervisor'", out)
+        self.assertNotIn('GL-BE9300', out)
+        self.assertNotIn("'Proxmox VE 8'", out)
+        self.assertIn("('Gaming PC', 'RTX 5070 Ti', None, False)", out)
+        self.assertIn("('Caddy proxy', 'LXC 115', 'https://proxy.lan', False)", out)
+        self.assertIn("('Roam 6', 'Living-room Wi-Fi', 'http://192.168.0.22', False)", out)
+        self.assertEqual(out, patch_network_map_rows(out))  # second run is a no-op
+
+    def test_rows_render_in_address_order(self):
+        from backend_patch import patch_network_map_rows
+        out = patch_network_map_rows(MAP_FIXTURE)
+        # pi's key (255) is its address .21, so it must sit between .20 and .22, not after .254.
+        self.assertIn("for i in [1, 3, 12, 20, 255, 22, 30, 254]", out)
+        self.assertIn("'192.168.0.21' if i == 255", out)
+        self.assertEqual(out, patch_network_map_rows(out))
+
+    def test_missing_known_table_raises(self):
+        from backend_patch import patch_network_map_rows
+        with self.assertRaises(AssertionError):
+            patch_network_map_rows("def poll_network_and_matrix():\n    checks = {}\n")
