@@ -103,6 +103,26 @@ WAKE_RESEND = 15   # re-send the magic packet at most this often while waiting (
 _wake_lock = threading.Lock()          # one wake sequence at a time; concurrent requests share it
 _cancel = {'at': 0.0}                 # last sleep-countdown cancel (Part A rule: at most once per 60 s)
 _sleep_requested_at = 0.0             # Part B hook: set when the broker itself asks the PC to sleep
+# 'PC confirmed awake' cache: a generation request otherwise opens a fresh port-22 TCP probe per request, which shows
+# up in the PC's OpenSSH log as one 'Connection closed by 192.168.0.3' per model call. A confirmed stamp is trusted for
+# this long; a successful pc_awake() probe sets it, so does any upstream engine reply (a model answered -> the PC is up,
+# no probe needed). A failed upstream connection clears it: that is the only cheap sign the PC may have slept since.
+# The probe stays on port 22 only; the engine ports (8080/8088/8089) close while a game runs, so they cannot tell awake
+# from asleep and must not become the cache's proof.
+AWAKE_CACHE = 15.0
+_awake = {'at': 0.0}
+
+
+def confirm_awake():
+    _awake['at'] = time.time()
+
+
+def awake_cached():
+    return time.time() - _awake['at'] < AWAKE_CACHE
+
+
+def forget_awake():
+    _awake['at'] = 0.0
 
 
 class WakeTimeout(RuntimeError):
@@ -126,12 +146,18 @@ def ensure_awake(engine, timeout=WAKE_TIMEOUT, sleep=time.sleep):
     """Wake the gaming PC when a generation request finds it asleep. Fast path: awake -> None (~1 ms LAN TCP).
     Otherwise one wake sequence at a time under _wake_lock: magic packet, then poll pc_awake every 1 s (re-sending
     the packet every WAKE_RESEND s) until the PC answers, then wait within the same deadline for engine_ready.
-    Returns the seconds spent waking; raises WakeTimeout on the deadline."""
+    Returns the seconds spent waking; raises WakeTimeout on the deadline. A stamp set within AWAKE_CACHE s skips the
+    probe entirely (returns None like an awake PC would); it is never trusted past that, so a PC that slept between
+    requests is still woken on the next one."""
+    if awake_cached():
+        return None
     if pc_net.pc_awake(timeout=1):
+        confirm_awake()
         return None
     deadline = time.time() + timeout
     with _wake_lock:
-        if pc_net.pc_awake(timeout=1):  # woken by a concurrent request while this one waited on the lock
+        if awake_cached() or pc_net.pc_awake(timeout=1):  # woken by a concurrent request while this one waited on the lock
+            confirm_awake()
             return None
         t0 = time.time()
         pc_net.wake_pc()
@@ -145,6 +171,7 @@ def ensure_awake(engine, timeout=WAKE_TIMEOUT, sleep=time.sleep):
                 log('wake: sent')
                 sent_at = time.time()
             sleep(1)
+        confirm_awake()  # the poll that ended the loop was a successful probe
         log(f'wake: PC up after {time.time() - t0:.0f} s')
         while not engine_ready(engine):
             if time.time() >= deadline:
@@ -547,6 +574,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             conn.request(self.command, self.path, body=body, headers=headers)
             upstream = conn.getresponse()
             started = True
+            confirm_awake()  # any upstream answer (any engine, any status) proves the PC is up for the next 15 s
             self.send_response(upstream.status, upstream.reason)
             for k, v in upstream.getheaders():
                 if k.lower() not in HOP or (k.lower() == 'content-length' and not upstream.chunked):
@@ -565,6 +593,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             row['ok'] = int(200 <= upstream.status < 300)
         except (ConnectionError, OSError) as exc:
             if not started:
+                forget_awake()  # the awake stamp was the only reason not to probe: distrust it, wake on the next request
                 try:
                     self.fail(502, 'The gaming PC did not answer.')
                 except OSError:

@@ -125,6 +125,19 @@ class EnergyTests(unittest.TestCase):
         self.assertIsNone(m.pc_cpu_watts({'cpu_energy_j': 'x'}, 250))         # non-numeric
         self.assertEqual(m.pc_cpu_watts({'cpu_energy_j': 1011.0}, 260), 0.05)  # fresh window after the gap works again
 
+    def test_cpu_window_times_with_the_exporter_observed_at(self):
+        # pc/gpu_metrics.py caches its /gpu body for 2 s, so cpu_energy_j belongs to that body's observed_at, not to the
+        # collector's clock: an 8 s exporter window read as 10 s would understate one reading by 20%.
+        self.assertIsNone(m.pc_cpu_watts({'cpu_energy_j': 1000.0, 'observed_at': 102}, 102))          # first read
+        self.assertEqual(m.pc_cpu_watts({'cpu_energy_j': 1100.0, 'observed_at': 110}, 112), 12.5)      # 100 J over 8 s, not 10
+        self.assertEqual(m.pc_cpu_watts({'cpu_energy_j': 1200.0, 'observed_at': 118}, 122), 12.5)      # 100 J over 8 s
+
+    def test_cpu_window_falls_back_when_the_stamp_is_unusable(self):
+        m.pc_cpu_watts({'cpu_energy_j': 1000.0}, 100)  # no observed_at at all: clock pairings, as before the change
+        self.assertEqual(m.pc_cpu_watts({'cpu_energy_j': 1100.0}, 110), 10.0)
+        m.pc_cpu_watts({'cpu_energy_j': 1200.0, 'observed_at': 120}, 120)
+        self.assertEqual(m.pc_cpu_watts({'cpu_energy_j': 1300.0, 'observed_at': 118}, 130), 10.0)  # stamp not newer: clock
+
     def test_pc_with_cpu_reading_measured_parts(self):
         m.pc_cpu_watts({'cpu_energy_j': 1000.0}, 100)
         devs = {d['id']: d for d in m.readings({}, {'power_w': 19.0, 'cpu_energy_j': 1115.0}, True, 110, m.DEFAULTS)}

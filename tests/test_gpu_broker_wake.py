@@ -3,6 +3,7 @@ gaming PC themselves. All network helpers are monkeypatched: no packets, no SSH,
 import io
 import json
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -10,6 +11,10 @@ import gpu_broker as g
 
 
 class Pure(unittest.TestCase):
+    def setUp(self):
+        # The 'PC confirmed awake' stamp is process state; every test starts unserved so probes are not skipped.
+        g._awake['at'] = 0.0
+
     def test_awake_pc_returns_fast_without_waking(self):
         with patch.object(g.pc_net, 'pc_awake', return_value=True) as awake, \
              patch.object(g.pc_net, 'wake_pc') as wake, \
@@ -58,6 +63,49 @@ class Pure(unittest.TestCase):
                 g.ensure_awake('llama', timeout=90, sleep=lambda s: None)
         # first send plus re-sends at +15 s (15, 30, 45, 60, 75 s) before the 90 s deadline
         self.assertEqual(wake.call_count, 6)
+
+    def test_a_confirmed_stamp_skips_the_port_22_probe_for_15_s(self):
+        # One probe per 15 s is what keeps the PC's OpenSSH log quiet while a model is in use; the probe stays on port
+        # 22 (engine ports close during games), it is only skipped, never replaced.
+        probes = {'n': 0}
+
+        def pc_awake(timeout=1.5):
+            probes['n'] += 1
+            return True
+
+        with patch.object(g.pc_net, 'pc_awake', pc_awake), patch.object(g.pc_net, 'wake_pc') as wake, \
+             patch.object(g, 'engine_ready', side_effect=AssertionError('a cached PC waited on a health URL')):
+            self.assertIsNone(g.ensure_awake('strata'))   # probe confirms, then stamps 'awake'
+            self.assertIsNone(g.ensure_awake('strata'))   # inside the stamp: no probe, no wake, no health URL
+            self.assertIsNone(g.ensure_awake('strata'))
+        self.assertEqual(probes['n'], 1)
+        wake.assert_not_called()
+        self.assertGreater(g._awake['at'], 0.0)
+
+    def test_the_probe_comes_back_once_the_stamp_expires(self):
+        g._awake['at'] = time.time() - (g.AWAKE_CACHE + 1)  # a stamp older than 15 s buys nothing
+        with patch.object(g.pc_net, 'pc_awake', return_value=True) as awake, patch.object(g.pc_net, 'wake_pc') as wake:
+            self.assertIsNone(g.ensure_awake('strata'))
+        awake.assert_called_once()
+        wake.assert_not_called()
+
+    def test_a_stamp_is_never_trusted_past_15_s_even_if_requests_keep_arriving(self):
+        clock = {'t': 1_000_000.0}
+
+        def fake_time():
+            return clock['t']
+
+        probes = {'n': 0}
+
+        def pc_awake(timeout=1.5):
+            probes['n'] += 1
+            return True
+
+        with patch.object(g.time, 'time', fake_time), patch.object(g.pc_net, 'pc_awake', pc_awake):
+            for _ in range(20):            # requests every 1 s; the stamp must not be refreshed from itself
+                g.ensure_awake('strata')
+                clock['t'] += 1.0
+        self.assertEqual(probes['n'], 2)   # t=0 and t=16 (the stamp at t=0 covers up to t=15)
 
     def test_never_wakes_raises_waketimeout(self):
         with patch.object(g.pc_net, 'pc_awake', return_value=False), \
@@ -123,6 +171,7 @@ class Pure(unittest.TestCase):
 
 class ThroughHTTP(unittest.TestCase):
     def setUp(self):
+        g._awake['at'] = 0.0  # unserved: this class exercises the stamp through the HTTP path
         self.rows = []
         rows = patch.object(g.ai_history, 'record', side_effect=lambda row: self.rows.append(row))
         rows.start()

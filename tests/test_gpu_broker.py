@@ -51,6 +51,7 @@ class BrokerTests(unittest.TestCase):
     def setUp(self):
         FakePC.seen = []
         FakePC.release = threading.Event()
+        g._awake['at'] = 0.0  # unserved: the awake stamp is process state and would hide probes from later tests
         self.pc = serve(http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakePC))
         self.broker = serve(g.Server(('127.0.0.1', 0), 'llama', ('127.0.0.1', self.pc.server_address[1])))
         self.port = self.broker.server_address[1]
@@ -109,6 +110,25 @@ class BrokerTests(unittest.TestCase):
         finally:
             dead.shutdown()
             dead.server_close()
+
+    def test_an_upstream_reply_stamps_awake_a_dead_upstream_clears_it(self):
+        c = self.conn()
+        c.request('GET', '/v1/models', headers={'Authorization': 'Bearer t'})  # any upstream answer proves the PC is up
+        self.assertEqual(c.getresponse().status, 200)
+        self.assertGreater(g._awake['at'], time.time() - 5)
+        with patch.object(g.pc_net, 'pc_awake', side_effect=AssertionError('a stamped request probed port 22')) as awake:
+            self.assertIsNone(g.ensure_awake('llama'))
+        awake.assert_not_called()
+        g._awake['at'] = time.time()  # a fresh stamp, then the PC turns out to be unreachable
+        dead = serve(g.Server(('127.0.0.1', 0), 'llama', ('127.0.0.1', 1)))
+        try:
+            c = http.client.HTTPConnection('127.0.0.1', dead.server_address[1], timeout=10)
+            c.request('GET', '/health')
+            self.assertEqual(c.getresponse().status, 502)
+        finally:
+            dead.shutdown()
+            dead.server_close()
+        self.assertEqual(g._awake['at'], 0.0)  # distrust the stamp: the next generation request probes and can wake
 
     def test_only_generation_posts_need_the_gpu(self):
         self.assertTrue(g.needs_gpu('POST', '/v1/chat/completions'))

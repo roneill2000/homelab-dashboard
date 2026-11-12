@@ -29,8 +29,9 @@ _prev = {}      # host -> (sampled_at, {counter: (uj, max_uj)})
 _watts = {}     # host -> (sampled_at, {counter: watts})
 _latest = {}
 _last_tick = None
-# Gaming PC CPU: previous cpu_energy_j from the /gpu JSON and the watts it produced; memoised on (now, j) so the
-# energy log and the pc_gpu_samples column share one averaging window (the same diff, computed once).
+# Gaming PC CPU: previous cpu_energy_j from the /gpu JSON plus the stamp that reading belongs to (the exporter's
+# observed_at when it is usable, otherwise the collector's now) and the watts it produced; memoised on (now, cpu_energy_j)
+# so the energy log and the pc_gpu_samples column share one diff per collector tick.
 _pc_cpu = {'prev': None, 'at': None, 'j': None, 'w': None}
 
 
@@ -102,7 +103,10 @@ def pc_cpu_watts(pc_gpu, now):
     """Gaming PC CPU watts from the difference of the cumulative RAPL joule readings (cpu_energy_j in the /gpu JSON),
     preferred over the exporter's cpu_pkg_w so live-page polling never shifts the averaging window. A counter reset,
     a sleep/resume gap or an implausible value returns None (today's estimate is used). Idempotent for the same
-    (now, cpu_energy_j) pair, so gpu_monitor.pc_collect and readings() share one diff per collector tick."""
+    (now, cpu_energy_j) pair, so gpu_monitor.pc_collect and readings() share one diff per collector tick.
+    The window is timed by the exporter's own observed_at (pc/gpu_metrics.py caches its reply for 2 s, so its cpu_energy_j
+    was read up to 2 s before our clock: pairing it with now stretches a single reading's dt and skews the watts by up to
+    ~20%). A missing observed_at, or one not newer than the stamp already stored, falls back to now."""
     reading = pc_gpu if isinstance(pc_gpu, dict) else {}
     j = reading.get('cpu_energy_j')
     if not number(j) or j < 0:
@@ -110,10 +114,12 @@ def pc_cpu_watts(pc_gpu, now):
     if _pc_cpu['at'] == now and _pc_cpu['j'] == j:
         return _pc_cpu['w']
     prev = _pc_cpu['prev']
-    _pc_cpu['prev'] = (now, j)
+    stamp = reading.get('observed_at')
+    t = stamp if number(stamp) and (prev is None or stamp > prev[0]) else now
+    _pc_cpu['prev'] = (t, j)
     w = None
     if prev:
-        dt = now - prev[0]
+        dt = t - prev[0]
         if 0 < dt <= MAX_GAP and j >= prev[1]:
             w = (j - prev[1]) / dt
             if not 0 <= w <= 300:
