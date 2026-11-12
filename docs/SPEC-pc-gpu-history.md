@@ -97,3 +97,69 @@ Size: ~8,640 rows/day max (10 s), a few hundred KB. No change to retention elsew
 - Longer than 24 h history (the daily energy chart covers long-term use).
 - Measuring the PC's CPU/board power (the energy log's flat 55 W estimate stays; a smart plug is the proposed fix).
 - Any change to the Unraid A310 panel, the broker, or the AI request history.
+
+---
+
+# Part 2: measured CPU power for the gaming PC (added 12 Nov, Ryan)
+
+## Why
+
+The energy log counts the gaming PC as *GPU (measured) + 55 W flat estimate* for CPU, board and drives
+(`energy_monitor.DEFAULTS['pc']['rest_awake_w']`). Measured 12 Nov 13:57 with Windows' RAPL counters during one Strata
+Flash reply: **CPU package 11.5 W idle, ~85 W average (peak 102 W) while Flash writes**, CPU ~80 % busy; GPU ~125 W.
+So Flash hours are undercounted by ~70 W and idle hours slightly overcounted. Windows exposes the CPU's own meter as
+performance counters, no extra software needed:
+`\Energy Meter(RAPL_Package0_PKG)\Energy` (cumulative) and `\Energy Meter(RAPL_Package0_PKG)\Power`.
+`RAPL_Package0_DRAM` exists but reads 0 on this board: ignore it.
+
+## Hard constraint: near-zero overhead on the gaming PC (Ryan, explicit)
+
+- **No background thread, no timer, no polling loop** on the PC. Read the counter only inside an incoming `/gpu`
+  request, under the existing 2 s cache (`CACHE_SECONDS`): at most one read per 2 s however many callers.
+- **No subprocess** (no PowerShell, `typeperf`, `Get-Counter`, WMI). Use the PDH API through `ctypes` (`pdh.dll`:
+  `PdhOpenQueryW` + `PdhAddEnglishCounterW` once at start-up, then one `PdhCollectQueryData` +
+  `PdhGetFormattedCounterValue`/`PdhGetRawCounterValue` per refresh), the same way the script already uses `nvml.dll`.
+  Standard library only, as today.
+- If PDH fails to open or the counter is missing: omit the fields, log nothing per request, never break `/gpu`.
+- **Prove it:** record `pythonw` (the "Homelab GPU metrics" task, runs as SYSTEM) CPU seconds and working set over
+  10 minutes before and after the change at the dashboard's normal 10 s polling (`Get-Process -Id <pid>` at start and
+  end). Target: added CPU < 0.05 % of one core averaged, added memory < 5 MB. Report the numbers; if it misses the
+  target, stop and report instead of shipping.
+
+## PC side (`pc/gpu_metrics.py`)
+
+- Add two fields to the `/gpu` JSON:
+  - `cpu_energy_j`: the cumulative package energy counter converted to joules (verify the raw unit against the `Power`
+    counter: two reads 10 s apart must agree with the average `Power` within ~5 %);
+  - `cpu_pkg_w`: package watts averaged since the previous refresh (convenience for the live panel; null on the first
+    read).
+- Update the docstring (it still says "only asks while its Local AI page is open"; after Part 1 the collector reads it
+  every 10 s).
+- Deploy on the PC: back up `gpu_metrics.py` (`.bak-YYYYMMDD-cpu`), copy, restart the scheduled task, check
+  `curl http://192.168.0.12:9835/gpu` from LXC 104 (the firewall allows .2 only). Use `ssh proxmox "pcps <<'EOF' … EOF"`.
+  Never kill python processes by name on the PC (Strata runs python too): stop only the task's own PID.
+
+## Dashboard side
+
+- `energy_monitor`: keep the previous `cpu_energy_j` and its time; per 10 s collector tick compute
+  `cpu_w = Δjoules / Δseconds` when both reads are fresh, Δ > 0 and 0 ≤ cpu_w ≤ 300 (a reset, wrap, sleep/resume gap or
+  bad value → no CPU reading this tick, fall back to today's estimate). Prefer this diff over the exporter's `cpu_pkg_w`
+  so live-page polling never shifts the averaging window.
+- With a CPU reading, the PC device becomes *GPU (measured) + CPU (measured) + `board_rest_w` (estimate)*, with
+  `board_rest_w` default **43 W** (= old 55 W minus the measured 11.5 W idle CPU, so idle totals stay about where they
+  are) in `DEFAULTS` and overridable in `energy.json`. `measured_w` includes the CPU watts. Parts list:
+  `GPU` (measured), `CPU` (measured), `Board, RAM, fans, SSDs` (estimate). Without a CPU reading: exactly today's
+  behaviour.
+- "How this is worked out" text: add the PC CPU to the measured list.
+- Part 1 table `pc_gpu_samples`: add column `cpu_w REAL` (from the same diff) and a **CPU power** metric button in the
+  panel (unit W). `CREATE TABLE IF NOT EXISTS` won't add a column to an existing table: use an `ALTER TABLE … ADD
+  COLUMN` guarded by a `PRAGMA table_info` check (or ship Parts 1 and 2 together so the table is created with it).
+
+## Tests
+
+- Energy: CPU diff used when valid; reset/negative/huge/stale → fallback to estimate; parts and `measured_w` correct
+  both ways; idle example (GPU 19 W + CPU 11.5 W + 43 W) ≈ old estimate (GPU 19 W + 55 W).
+- Exporter: unit-test the conversion and "first read → `cpu_pkg_w` null" with the PDH calls stubbed (the test suite runs
+  on Linux; keep the ctypes loading behind a function that the test replaces).
+- Live check after deploy: one short Flash request; the dashboard's PC watts rise by roughly the CPU increase
+  (~+70 W) instead of only the GPU's.
