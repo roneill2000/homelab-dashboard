@@ -73,6 +73,25 @@ class ActivityTests(unittest.TestCase):
         with self.assertRaises(ValueError): a.debrid_rate(boom,boom)
     def test_explicit_zero_download_rate_is_numeric(self):
         self.assertTrue(a.numeric(0));self.assertFalse(a.numeric(None));self.assertFalse(a.numeric(float('nan')));self.assertFalse(a.numeric(-1))
+    def test_same_probe_sample_twice_keeps_the_reading(self):
+        before=copy.deepcopy(a._latest);previous=copy.deepcopy(a._previous);readings=dict(a._readings)
+        try:
+            a._previous.clear();a._readings.clear()
+            host='192.168.0.3';disk=dict(host=host,device='sda',read_bps=0,write_bps=0)
+            def poll(sample,now):
+                a.collect(s.connect,{host:{'amps':[{'name':'Homelab','result':json.dumps(sample)}]}},{'scratch':disk},now,{})
+                return a._latest['latest']['busy_pct']
+            first=self.reading(100);second=self.reading(110);second['disks']['sda'].update(busy_ms=5100)
+            self.assertIsNone(poll(first,100))
+            self.assertEqual(poll(second,110),50)
+            self.assertEqual(poll(second,120),50)
+            third=self.reading(120);third['disks']['sda'].update(busy_ms=5100)
+            self.assertEqual(poll(third,130),0)
+            self.assertIsNone(poll(third,170))
+        finally:
+            a._latest.clear();a._latest.update(before)
+            a._previous.clear();a._previous.update(previous)
+            a._readings.clear();a._readings.update(readings)
     def test_missing_report_is_unavailable_even_when_host_probe_succeeds(self):
         before=copy.deepcopy(a._latest);previous=copy.deepcopy(a._previous)
         try:

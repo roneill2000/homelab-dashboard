@@ -8,7 +8,7 @@ import time
 import urllib.request
 
 METRICS = ('sab_bps', 'rdt_bps', 'read_bps', 'write_bps', 'busy_pct', 'await_ms', 'queue_depth', 'pressure_pct')
-_latest, _previous = {}, {}
+_latest, _previous, _readings = {}, {}, {}
 _lock = threading.Lock()
 _opener = None
 CONFIG = '/etc/homelab-dashboard/rdt.json'
@@ -118,7 +118,13 @@ def collect(connect, hosts, disks, now, download_results):
     probes = {host:probe(payload, now) for host,payload in hosts.items()}
     for disk in disks.values():
         host= disk['host'];p=probes.get(host)
-        readings=saturation(_previous.get(host), p, disk['device'])
+        prev=_previous.get(host);slot=(host,disk['device'])
+        # The probe refreshes about as often as we poll, so the same sample can arrive twice.
+        # That is not a gap: keep the reading it already gave instead of recording "unknown".
+        if p and prev and p.get('sampled_at')==prev.get('sampled_at') and p.get('boot_id')==prev.get('boot_id'):
+            readings=_readings.get(slot) or saturation(None, None, disk['device'])
+        else:
+            readings=_readings[slot]=saturation(prev, p, disk['device'])
         disk.update(readings)
         disk['latency_ms']=readings['await_ms']
     scratch = disks['scratch'];p=probes.get('192.168.0.3') or {}
