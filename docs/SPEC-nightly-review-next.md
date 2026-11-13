@@ -102,11 +102,12 @@ Builds on `SPEC-nightly-review-context.md` (done, `82c38d7`) and the Bolt switch
 
 ### 6. Regression set (`nightly/regression/`)
 
-- `events.jsonl`: the 15 hard events from `/mnt/share/ai/a310-review-models-20261113/round4/events.jsonl`, plus the
-  10 round-2 events (`round2/`). Each event keeps its exact group dict, so it goes through `request_body` as live.
-- `expected.json`: for each event, the acceptable verdicts and 1–3 key phrases (regex, any one must match), plus
-  forbidden phrases (the traps). Build it from the round-4 rubric, which Claude will hand over: ask for it. Don't
-  invent expectations from model answers.
+- `events.jsonl`: the 15 hard events from `/mnt/share/ai/a310-review-models-20261113/round4/events.jsonl`, each with
+  its exact group dict, so it goes through `request_body` as live. (The 10 real replayed events in `../replay.jsonl`
+  have no written expectations yet; leave them out until Claude writes them.)
+- `expected.json`: per event, the acceptable verdicts, 1–3 key phrases (regex; one must match) and the forbidden
+  phrases (traps), built from the rubric at `/mnt/share/ai/a310-review-models-20261113/round4/rubric.md` (written
+  before any answer was seen). Don't derive expectations from model answers or from `grading.md`/`key.json`.
 - `run_regression.py`: starts the A310 container exactly as `runner.py` does (`container_command`, its own container
   name, port 11438). It runs each event once at seed 42, scores 2/1/0 by the rubric rule (verdict acceptable + key
   phrase = 2; one of the two = 1; a forbidden phrase or two steps off = 0), and prints a table and a total. It writes
