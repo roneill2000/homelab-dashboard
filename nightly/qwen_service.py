@@ -32,9 +32,9 @@ PC_API = LOCAL_API
 STRATA_API = LOCAL_API
 STRATA_MODEL = 'qwen3.8-flash-next-iq3_xxs'
 STRATA_LABEL = 'Qwen3.8 Flash · gaming PC'
-PC_MODEL = 'qwen3.8-27b-uncensored'  # Cold Fusion since 7 Nov 2026 (stock 27B removed)
+PC_MODEL = 'qwen3.8-27b'  # stock 27B since 13 Nov 2026 (Ryan trimmed the Ask menu); Cold Fusion 7-13 Nov
 PC_TOKEN = r.ROOT / 'router-token'
-PC_LABEL = 'Cold Fusion 27B · gaming PC'
+PC_LABEL = 'Qwen3.8 27B · gaming PC'
 A310_LABEL = 'Nemotron Bolt E4B · Unraid'
 PC_NAMES = {'qwen3.8-27b': 'Qwen3.8 27B', 'qwen3.8-27b-uncensored': 'Cold Fusion 27B', 'qwen3.8-27b-uncensored-fast': 'Cold Fusion 27B Fast', 'gemma-4-26b-a4b': 'Gemma 4 26B'}
 # Model choices: 'a310' (Nemotron Bolt E4B since 13 Nov 2026, Gemma 4 E4B before; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
