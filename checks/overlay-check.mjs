@@ -74,7 +74,7 @@ try{
   const now=Math.floor(Date.now()/1000);
   await p.route('**/api/qwen',r=>r.request().method()==='GET'?r.fulfill({json:{status:'complete',model:'Strata · Swift 1.5 IQ3_XXS · gaming PC',id:'f',prompt:'q',answer:'An answer.',performance:{tokens_per_second:40,input_tokens:10,output_tokens:20,generation_seconds:1},total_seconds:3,context_at:now,context_note:'Readings captured',evidence:{observed_at:now,sources:{},not_selected:[],budget_omissions:[]},updated_at:now}}):r.abort());
   await p.reload();await p.waitForTimeout(1500);
-  await expect(p.locator('.qwen-model')).toHaveText('Gemma 4 E4B · Unraid');
+  await expect(p.locator('.qwen-model')).toHaveText('Nemotron Bolt E4B · Unraid');
   await expect(p.locator('.qwen-panel')).toContainText('Strata · Swift 1.5 IQ3_XXS · gaming PC');await p.close()});
 
  await test('badges: the warning tone is amber, not the neutral grey',async()=>{

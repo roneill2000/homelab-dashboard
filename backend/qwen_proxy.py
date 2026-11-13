@@ -51,5 +51,5 @@ def handle(handler,post=False):
         if len(raw)>131072:raise ValueError()
         reply(code,json.loads(raw))
     except Exception:
-        reply(503,dict(status='failed',model='Gemma 4 E4B · A310',error='Qwen is unavailable. Try again shortly.'))
+        reply(503,dict(status='failed',model='Nemotron Bolt E4B · A310',error='Qwen is unavailable. Try again shortly.'))
     return True

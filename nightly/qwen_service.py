@@ -35,9 +35,9 @@ STRATA_LABEL = 'Qwen3.8 Flash · gaming PC'
 PC_MODEL = 'qwen3.8-27b-uncensored'  # Cold Fusion since 7 Nov 2026 (stock 27B removed)
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Cold Fusion 27B · gaming PC'
-A310_LABEL = 'Gemma 4 E4B · Unraid'
+A310_LABEL = 'Nemotron Bolt E4B · Unraid'
 PC_NAMES = {'qwen3.8-27b': 'Qwen3.8 27B', 'qwen3.8-27b-uncensored': 'Cold Fusion 27B', 'qwen3.8-27b-uncensored-fast': 'Cold Fusion 27B Fast', 'gemma-4-26b-a4b': 'Gemma 4 26B'}
-# Model choices: 'a310' (Gemma 4 E4B; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
+# Model choices: 'a310' (Nemotron Bolt E4B since 13 Nov 2026, Gemma 4 E4B before; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
 # 'auto' (27B if the PC is on),
 # 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves, or 'strata'.
 TARGET_RE = re.compile(r'^(a310|a310-12b|auto|strata|pc|pc:[a-z0-9][a-z0-9.\-]{0,63})$')
@@ -92,6 +92,7 @@ def context(storage, now):
 # values for Gemma (A310 and PC), Qwen's thinking-mode values for Qwen, greedy for Strata's 2-bit Swift quant.
 SAMPLING = {'gemma': dict(temperature=1.0, top_p=0.95, top_k=64), 'qwen': dict(temperature=0.6, top_p=0.95, top_k=20),  # 7 Nov: Cold Fusion maths 12/12 at 0.6 vs 10/12 at 1.0
             'qwen-card': dict(temperature=1.0, top_p=0.95, top_k=20, min_p=0.0),  # 12 Nov: stock 27B follows its card's thinking mode
+            'bolt': dict(temperature=1.0, top_p=0.95, top_k=0),  # 13 Nov: NVIDIA's card values for Nemotron 3.5 Bolt (A310)
             'strata': {}}  # 1 Nov: Strata applies the model card (thinking 1.0/0.95/20); greedy is advised against with thinking
 
 
@@ -99,6 +100,8 @@ def family(model):
     m = (model or '').lower()
     if 'gemma' in m:
         return 'gemma'
+    if 'nemotron' in m:
+        return 'bolt'
     if m.startswith('qwen3.8-27b') and 'uncensored' not in m:
         return 'qwen-card'      # stock 27B and 27B Long; Cold Fusion keeps its measured 0.6
     return 'qwen'

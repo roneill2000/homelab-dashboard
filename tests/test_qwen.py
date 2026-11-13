@@ -141,6 +141,7 @@ class QwenTests(unittest.TestCase):
     def test_sampling_follows_the_model_family(self):
         self.assertEqual(q.body_for('x',{},'gemma-4-E4B-it-Q4_K_M')['top_k'],64)
         self.assertEqual(q.body_for('x',{},'qwen3.8-27b')['top_k'],20)
+        b=q.body_for('x',{},q.r.MODEL);self.assertEqual((b['temperature'],b['top_p'],b['top_k']),(1.0,0.95,0))  # A310 Bolt: card values
         self.assertEqual(q.body_for('x',{},'qwen3.8-27b')['temperature'],1.0)   # stock 27B: the card's thinking values
         self.assertEqual(q.body_for('x',{},'qwen3.8-27b-long')['temperature'],1.0)
         self.assertEqual(q.body_for('x',{},'qwen3.8-27b-uncensored')['temperature'],0.6)   # Cold Fusion: measured 7 Nov
