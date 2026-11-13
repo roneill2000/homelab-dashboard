@@ -279,3 +279,34 @@ class CertTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NightlyActTests(unittest.TestCase):
+    def report(self):
+        return {'status': 'complete', 'local_date': '2026-11-14',
+                'evidence': {'groups': [{'id': 'a1', 'host': 'unraid'}, {'id': 'b2', 'host': 'proxmox'}]},
+                'findings': [{'group_id': 'a1', 'verdict': 'act', 'interpretation': 'Disk sdc pending sectors rising.', 'next': 'Back up and replace sdc.'},
+                             {'group_id': 'b2', 'verdict': 'watch', 'interpretation': 'x', 'next': 'y'},
+                             {'group_id': 'b2', 'verdict': 'act', 'repeated': True, 'interpretation': 'old', 'next': ''}]}
+
+    def test_message_lists_only_new_act(self):
+        title, body = a.nightly_act_message(self.report())
+        self.assertEqual(title, 'Nightly review: 1 to act on')
+        self.assertIn('unraid: Disk sdc pending sectors rising.', body)
+        self.assertIn('Fix prompt (paste into pi)', body)
+        self.assertNotIn('old', body.split('Fix prompt')[0])
+
+    def test_none_without_act_or_incomplete(self):
+        r = self.report(); r['findings'] = r['findings'][1:2]
+        self.assertIsNone(a.nightly_act_message(r))
+        self.assertIsNone(a.nightly_act_message({'status': 'failed'}))
+
+    def test_sent_once_per_date(self):
+        import tempfile, pathlib
+        calls = []
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / 'sent.json'
+            self.assertTrue(a.nightly_act_notify(self.report(), path=p, sender=lambda *a, **k: calls.append(a)))
+            self.assertFalse(a.nightly_act_notify(self.report(), path=p, sender=lambda *a, **k: calls.append(a)))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][3], 4)

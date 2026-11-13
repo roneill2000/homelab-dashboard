@@ -109,6 +109,12 @@ class RunnerTests(unittest.TestCase):
   self.assertTrue(r.match_known_causes({'host':'proxmox','message':'agy-audit-dflash2b.service: Failed with result exit-code.'}))
   self.assertTrue(r.match_known_causes({'host':'proxmox','message':'pi-queue.service: Failed'}))
   self.assertEqual(r.match_known_causes({'host':'proxmox','message':'benchmark.service failed'}),[])
+  self.assertIn('not a Stop', r.match_known_causes({'host':'proxmox','message':'dl-x.service: Main process exited, code=exited, status=3/NOTIMPLEMENTED'})[0])
+  self.assertNotIn('not a Stop', ' '.join(r.match_known_causes({'host':'proxmox','message':'dl-x.service: Main process exited, code=exited, status=143/n/a'})))
+  self.assertTrue(r.boot_notes({'context':['GL kernel: [   47.882101] port 5 link down']}))
+  self.assertTrue(r.boot_notes({'context':['GL kernel: [    0.000000] Booting Linux on physical CPU 0']}))
+  self.assertFalse(r.boot_notes({'context':['GL kernel: [ 1232.842060] wlan: stop']}))
+  self.assertEqual(r.request_body({'host':'h','message':'m','context':[]})['top_k'],0)
   self.assertEqual(r.match_known_causes({'host':'utilities','message':'unrelated warning'}),[])
  def test_parse_finding_valid_fenced_and_malformed(self):
   ok=r.parse_finding('{"what":"Likely stopped by user.","verdict":"ignore","next":"check"}')
@@ -124,13 +130,17 @@ class RunnerTests(unittest.TestCase):
   values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot]
   with tempfile.TemporaryDirectory() as d:
    reports=Path(d)/'reports';reports.mkdir()
-   (reports/'latest.json').write_text(json.dumps({'status':'complete','findings':[{'group_id':'g1','interpretation':'Old','verdict':'watch','next':'Monitor'}]}))
+   key=r.review_key(gs[0])
+   (reports/'latest.json').write_text(json.dumps({'status':'complete','local_date':'2000-01-01','findings':[{'group_id':'g1','interpretation':'Old','verdict':'watch','next':'Monitor','review_key':key},{'group_id':'g2','interpretation':'Stale','verdict':'act','next':'','review_key':'other-model'}]}))
    with patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(r,'start_model',return_value=10.0) as st,patch.object(r,'review_group',return_value=({'group_id':'g2','interpretation':'New','verdict':'act','next':'Fix'},{},None)) as rv,patch.object(r,'stop_model'):
     r.main()
    saved=json.loads((reports/'latest.json').read_text())
    self.assertEqual(st.call_count,1);self.assertEqual(rv.call_count,1)
    f1=next(f for f in saved['findings'] if f['group_id']=='g1')
    self.assertEqual(f1['repeat_nights'],2);self.assertTrue(f1['repeated'])
+   f2=next(f for f in saved['findings'] if f['group_id']=='g2')
+   self.assertEqual(f2['interpretation'],'New')  # a verdict from another model/prompt is reviewed again
+   self.assertEqual(f2['review_key'],r.review_key(gs[1]))
  def test_explanation_cannot_omit_explicit_exit_status(self):
   group={'id':'x','message':'filebrowser.service: Main process exited, code=exited, status=1/FAILURE'}
   withheld=r.checked_finding(group,'The log does not reveal the specific error code.')
@@ -181,7 +191,7 @@ class RunnerTests(unittest.TestCase):
   gs=[dict(id=f'g{i}',host='h',level='WARNING',count=1,first_at=1,last_at=2,message='x') for i in (1,2)]
   saved,st,rv,stop=self._run(gs,review=[(None,None,'TimeoutError'),({'group_id':'g2','interpretation':'ok'},{},None)])
   self.assertEqual(saved['status'],'complete');self.assertEqual(saved['skipped_groups'],[{'group_id':'g1','reason':'TimeoutError'}])
-  self.assertEqual(saved['model_label'],'Gemma 4 E4B · A310')
+  self.assertEqual(saved['model_label'],'Nemotron Bolt E4B · A310')
   all_bad,*_=self._run(gs,review=[(None,None,'empty'),(None,None,'empty')])
   self.assertEqual(all_bad['status'],'failed')
  def test_run_time_limit_skips_remaining_groups(self):

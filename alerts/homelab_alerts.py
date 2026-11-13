@@ -32,7 +32,8 @@ DETAILS = Path('/var/lib/homelab-alerts/details.json')  # last title/detail per 
 CONFIG_BACKUP = Path('/var/backups/homelab-configs/last_success')
 EVENTS = Path('/var/lib/homelab-alerts/events.jsonl')  # sent alerts, read by the runner's "what changed" timeline
 RESTORE_TEST = Path('/var/lib/homelab-cloud-backup/restore-test.json')
-NIGHTLY_HISTORY = Path('/var/lib/homelab-alerts/nightly-history.json')  # local_date -> final status of the 03:00 review
+NIGHTLY_HISTORY = Path('/var/lib/homelab-alerts/nightly-history.json')
+NIGHTLY_ACT_SENT = Path('/var/lib/homelab-alerts/nightly-act-sent.json')  # local_dates whose 'act' findings were pushed  # local_date -> final status of the 03:00 review
 WHY_URL = 'http://192.168.0.3:8997/why'
 QWEN_URL = HOME + '/api/qwen'
 PC = '192.168.0.12'
@@ -236,6 +237,49 @@ def nightly_check(nightly, path=NIGHTLY_HISTORY):
     bad = consecutive and all(v == 'failed' for _, v in last)
     return {'nightly-failing': (bad, 'Nightly log review failed two nights running',
                                 f"Last error: {nightly.get('error') or 'unknown'}. See Infrastructure > Nightly log review.", 3)}
+
+
+def nightly_act_message(nightly):
+    """Title and body for the 03:00 review's 'act' findings (Ryan, 13 Nov 2026: send them to me so I can spawn a fix),
+    or None when there is nothing new to act on. Repeated findings (seen on earlier nights) are left out."""
+    if not isinstance(nightly, dict) or nightly.get('status') != 'complete':
+        return None
+    hosts = {g.get('id'): g.get('host') for g in ((nightly.get('evidence') or {}).get('groups') or []) if isinstance(g, dict)}
+    acts = [f for f in (nightly.get('findings') or []) if isinstance(f, dict) and f.get('verdict') == 'act'
+            and not f.get('repeated')]
+    if not acts:
+        return None
+    lines, prompt = [], []
+    for n, f in enumerate(acts, 1):
+        host = hosts.get(f.get('group_id')) or 'unknown host'
+        what = ' '.join(str(f.get('interpretation') or '').split())[:400]
+        nxt = ' '.join(str(f.get('next') or '').split())[:240]
+        lines.append(f"{n}. {host}: {what}" + (f"\n   Next: {nxt}" if nxt else ''))
+        prompt.append(f"{n}) {host}: {what}" + (f" Suggested next step: {nxt}" if nxt else ''))
+    title = f"Nightly review: {len(acts)} to act on" if len(acts) > 1 else 'Nightly review: 1 to act on'
+    body = ('\n'.join(lines) + '\n\nFix prompt (paste into pi):\n'
+            f"The 03:00 log review of {nightly.get('local_date')} flagged these for action. For each one: confirm it "
+            "from the live logs first, then fix it if the cause is clear and safe, otherwise report what you found. "
+            + ' '.join(prompt))
+    return title, body[:3900]
+
+
+def nightly_act_notify(nightly, path=NIGHTLY_ACT_SENT, sender=None):
+    """Push the review's new 'act' findings once per review date."""
+    msg = nightly_act_message(nightly)
+    if not msg:
+        return False
+    try:
+        sent = json.loads(path.read_text())
+    except (OSError, ValueError):
+        sent = []
+    date = nightly.get('local_date')
+    if date in sent:
+        return False
+    (sender or send)('info', msg[0], msg[1], 4, key='nightly-act', tags='mag')
+    sent = (sent + [date])[-30:]
+    path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(sent))
+    return True
 
 
 def restore_test_check(now, path=RESTORE_TEST):
@@ -642,7 +686,7 @@ def header_text(text):
 # Dashboard page an alert opens in the Android app (tapping the ntfy notification follows homelab://view/<page>).
 PAGES = (('cloud-', 'infra'), ('config-backup', 'infra'), ('restore-', 'infra'), ('smart-', 'storage'),
          ('lan-', 'network'), ('speedtest-', 'network'), ('llama-', 'ai'), ('strata-', 'ai'), ('broker-', 'ai'), ('updates-', 'updates'),
-         ('docker:', 'hosts'), ('app:', 'media'), ('units:', 'hosts'), ('mount:', 'hosts'), ('pi-', 'hosts'))
+         ('docker:', 'hosts'), ('app:', 'media'), ('units:', 'hosts'), ('mount:', 'hosts'), ('pi-', 'hosts'), ('nightly-', 'infra'))
 SNOOZE = ('http, Snooze 2 h, http://192.168.0.2/api/action/maintenance, method=POST, headers.X-Dashboard-Action=1, '
           'headers.Content-Type=application/json, body=\'{"minutes":120}\', clear=true')
 
@@ -750,6 +794,10 @@ def main(argv):
     current.update(config_backup_check(now))
     current.update(restore_test_check(now))
     current.update(nightly_check(((s or {}).get('activity') or {}).get('nightly')))
+    try:
+        nightly_act_notify(((s or {}).get('activity') or {}).get('nightly'))
+    except Exception:
+        pass  # retried on the next 5-minute run
     try:
         current.update(ai_engine_checks())
     except Exception:

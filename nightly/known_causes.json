@@ -1,7 +1,11 @@
 [
   {
-    "pattern": "dl-.*\\.service",
+    "pattern": "dl-.*\\.service.*status=143",
     "note": "homelab-download job (wget/aria2c in a systemd unit); exit 143 = stopped by SIGTERM (Ryan or the panel's Stop), usually not a fault."
+  },
+  {
+    "pattern": "dl-.*\\.service.*status=(?!143\\b)\\d+",
+    "note": "homelab-download job that failed on its own (an exit status other than 143, so not a Stop): the context usually says why. A 404 / resource-not-found means the link is dead or expired and needs re-linking; a retry will not help."
   },
   {
     "pattern": "gl-be9300.*wlan\\d+.*(down|disconnected)",
