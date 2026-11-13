@@ -18,5 +18,9 @@
   {
     "pattern": "dns-health.*pihole-replica|192\\.168\\.0\\.10",
     "note": "DNS probe of the Orange Pi Pi-hole replica (.10). It has gone off the network before (7 Nov); net-watchdog bounces/reboots it."
+  },
+  {
+    "pattern": "\\b(bench-[\\w.-]+|agy-[\\w.-]+|pi-queue)\\.service",
+    "note": "Agent or benchmark job that Ryan or an agent started on purpose with systemd-run (bench-* = GPU benchmarks, agy-* = Antigravity runs, pi-queue = pi's job queue). Each writes its own report or log, so a failure here is already reported there: verdict ignore, unless the same unit fails on several nights."
   }
 ]

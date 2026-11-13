@@ -105,6 +105,10 @@ class RunnerTests(unittest.TestCase):
   self.assertTrue(r.match_known_causes({'host':'proxmox','message':'scrutiny-collector.service failed'}))
   self.assertTrue(r.match_known_causes({'host':'proxmox','message':'Memory cgroup out of memory: Killed process'}))
   self.assertTrue(r.match_known_causes({'host':'proxmox','message':'dns-health: 192.168.0.10 timed out'}))
+  self.assertTrue(r.match_known_causes({'host':'proxmox','message':'bench-dflash2.service: Main process exited, code=exited, status=1/FAILURE'}))
+  self.assertTrue(r.match_known_causes({'host':'proxmox','message':'agy-audit-dflash2b.service: Failed with result exit-code.'}))
+  self.assertTrue(r.match_known_causes({'host':'proxmox','message':'pi-queue.service: Failed'}))
+  self.assertEqual(r.match_known_causes({'host':'proxmox','message':'benchmark.service failed'}),[])
   self.assertEqual(r.match_known_causes({'host':'utilities','message':'unrelated warning'}),[])
  def test_parse_finding_valid_fenced_and_malformed(self):
   ok=r.parse_finding('{"what":"Likely stopped by user.","verdict":"ignore","next":"check"}')
