@@ -581,6 +581,27 @@ class TestPiWebui(unittest.TestCase):
             patch_pi_webui("def poll_network_and_matrix():\n    checks = {}\n")
 
 
+class TestNexterm(unittest.TestCase):
+    NEXTTERM_FIXTURE = (
+        "def poll_network_and_matrix():\n"
+        "    port_targets = {'guacamole': ('192.168.0.6', 8080), 'router': ('192.168.0.1', 80)}\n"
+        "    checks = {}\n"
+        "    return checks\n"
+    )
+
+    def test_probe_added_once(self):
+        from backend_patch import patch_nexterm
+        out = patch_nexterm(self.NEXTTERM_FIXTURE)
+        self.assertIn("'nexterm': ('192.168.0.6', 6989)", out)
+        self.assertIn("'guacamole': ('192.168.0.6', 8080)", out)
+        self.assertEqual(out, patch_nexterm(out))  # idempotent
+
+    def test_unknown_shape_raises(self):
+        from backend_patch import patch_nexterm
+        with self.assertRaises(ValueError):
+            patch_nexterm("checks = {}\n")
+
+
 class TestWireGuardLxc117(unittest.TestCase):
     def test_probe_follows_lxc_117(self):
         from backend_patch import patch_wireguard_lxc117

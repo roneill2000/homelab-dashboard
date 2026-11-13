@@ -519,6 +519,31 @@ def patch_pi_webui(source):
     return ''.join(lines)
 
 
+def patch_nexterm(source):
+    """Add Nexterm (LXC 111, .6:6989, https://nexterm.lan, deployed 13 Nov 2026) to the TCP monitor so its
+    tile shows Online/Unreachable. .6 already has the Guacamole host row, so no new matrix row is needed.
+    Idempotent."""
+    tree = ast.parse(source)
+    fn = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'poll_network_and_matrix'), None)
+    if fn is None:
+        raise ValueError('poll_network_and_matrix not found')
+    target = None
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if node.targets[0].id == 'port_targets':
+                target = node
+                break
+    if target is None:
+        raise ValueError('port_targets not found')
+    keys = [getattr(k, 'value', None) for k in target.value.keys]
+    if 'nexterm' not in keys:
+        target.value.keys.append(ast.Constant('nexterm'))
+        target.value.values.append(expression("('192.168.0.6', 6989)"))
+    lines = source.splitlines(keepends=True)
+    lines[fn.lineno-1:fn.end_lineno] = [ast.unparse(ast.fix_missing_locations(fn))+'\n']
+    return ''.join(lines)
+
+
 def patch_speedtest_latest_completed(source):
     """Show the newest *completed* Speedtest Tracker result; one failed run (e.g. Ookla NoServersException) used to blank the card."""
     import re
