@@ -4,6 +4,7 @@ import hashlib,json,re,tempfile,unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 from nightly import log_snapshot as s,runner as r
+from nightly.regression import run_regression as g
 
 class SnapshotTests(unittest.TestCase):
  def scan(self,lines,now=200000,baseline=None):
@@ -318,5 +319,63 @@ class RunnerTests(unittest.TestCase):
    for i in range(31):(folder/f'report-20000101T{i:06}.json').write_text('{}')
    r.save({'status':'complete'},final=True)
    self.assertEqual(len(list(folder.glob('report-*.json'))),30);self.assertEqual((folder/'latest.json').stat().st_mode&0o777,0o600)
+
+class RegressionTests(unittest.TestCase):
+ def test_fixtures_match_and_fit_request_body(self):
+  events=g.load_events();expected=g.load_expected()
+  self.assertEqual(len(events),15)
+  self.assertEqual({e['id'] for e in events},set(expected))
+  for e in events:
+   grp=e['group']
+   self.assertEqual(grp['id'],e['id'])
+   self.assertIn(grp['level'],('CRITICAL','WARNING'))
+   self.assertEqual(len(grp['hours']),24)
+   self.assertLessEqual(grp['first_at'],grp['last_at'])
+   self.assertIsInstance(grp['context'],list);self.assertIsInstance(grp['current_service_state'],dict)
+   entry=expected[e['id']]
+   self.assertTrue(entry['acceptable_verdicts'] and entry['key_phrases'])
+   for rx in [*entry['key_phrases'],*entry.get('forbidden_phrases',[]),*entry.get('cap1_phrases',[])]:re.compile(rx)
+   body=r.request_body(grp)  # goes through as live
+   payload=json.loads(body['messages'][-1]['content'])
+   for key in ('host','message','count','hours','context','current_service_state'):self.assertIn(key,payload)
+   self.assertIsInstance(payload['first_at'],str);self.assertEqual(body['seed'],42)
+ def test_rubric_scoring_rule(self):
+  f=lambda verdict,what,next='':dict(verdict=verdict,interpretation=what,next=next)
+  e=g.load_expected()
+  # 2: acceptable verdict + key fact, nothing invented
+  self.assertEqual(g.score(e['h5_smart_pending'],f('act','disk2 (sdc) SMART attribute 197 Current_Pending_Sector raw value rising 0 to 2 to 5 to 8 with I/O read errors','back up the array and plan to replace the disk')),2)
+  self.assertEqual(g.score(e['h8_ssh_flood'],f('act','412 failed password attempts for root from 192.168.0.157 in one hour','identify what device .157 is')),2)
+  self.assertEqual(g.score(e['h13_watchdog_ok'],f('ignore','the watchdog killed homelab-dashboard and systemd restarted it; it recovered with 200 OK 30 s later')),2)
+  # 1: verdict acceptable but key missing
+  self.assertEqual(g.score(e['h5_smart_pending'],f('act','a SMART attribute changed on disk2','check it')),1)
+  # 1: key right but verdict off by one step
+  self.assertEqual(g.score(e['h5_smart_pending'],f('watch','pending sectors on sdc are rising 0 to 2 to 5 to 8, a failing-disk signal','plan a replacement')),1)
+  # 0: verdict two steps off
+  self.assertEqual(g.score(e['h5_smart_pending'],f('ignore','a SMART attribute changed once, probably harmless')),0)
+  self.assertEqual(g.score(e['h13_watchdog_ok'],f('act','the dashboard keeps crashing, investigate it now')),0)
+  # 0: forbidden phrase (trap/invented fact), even with verdict and key present
+  self.assertEqual(g.score(e['h4_oom_lxc'],f('act','the host ran out of memory and the kernel killed a process','add RAM')),0)
+  self.assertEqual(g.score(e['h6_jellyfin_cancel'],f('ignore','files were corrupt so the scan failed')),0)
+  # 0: trap verdict the rubric calls out explicitly
+  self.assertEqual(g.score(e['h1_dl_404'],f('ignore','status=3 means the download was stopped like a 143 Stop')),0)
+  self.assertEqual(g.score(e['h12_wifi_flap'],f('ignore','brief radio flaps happen on channel changes, harmless')),0)
+  # 1: wrong framing the rubric caps at 1 (hardware call, key still there)
+  self.assertEqual(g.score(e['h7_ext4'],f('act','ext4 errors on dm-7: the disk is failing, replace it')),1)
+  self.assertEqual(g.score(e['h7_ext4'],f('act','ext4 corruption on dm-7 (LXC 113 memos disk); run fsck and restore from backup')),2)
+  # 0: h15 - mentioning only the harmless download stop misses the NVMe (key_required)
+  self.assertEqual(g.score(e['h15_dl_stop_plus'],f('watch','exit 143 is a user Stop of the download, harmless')),0)
+  self.assertEqual(g.score(e['h15_dl_stop_plus'],f('watch','the Stop is harmless but nvme0 I/O timeouts and a controller reset right after need checking','run an NVMe health/SMART check')),2)
+  # h11: watch with the key = one step off = 1 ("watch without urgency")
+  self.assertEqual(g.score(e['h11_cert'],f('watch','the cert expires in about 47 hours and renewal is rate-limited (429)','retry the renewal tomorrow')),1)
+  # a failed run (no finding) still scores through verdict=''
+  self.assertEqual(g.score(e['h5_smart_pending'],f('','')),0)
+ def test_blocked_windows(self):
+  self.assertTrue(g.blocked_now(datetime(2026,11,13,2,45)))
+  self.assertFalse(g.blocked_now(datetime(2026,11,13,2,44)))
+  self.assertFalse(g.blocked_now(datetime(2026,11,13,4,0)))
+  self.assertTrue(g.blocked_now(datetime(2026,11,13,6,45)))
+  self.assertTrue(g.blocked_now(datetime(2026,11,13,7,14)))
+  self.assertFalse(g.blocked_now(datetime(2026,11,13,7,15)))
+  self.assertFalse(g.blocked_now(datetime(2026,11,13,13,28)))
 
 if __name__=='__main__':unittest.main()

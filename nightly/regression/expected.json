@@ -1,0 +1,100 @@
+{
+  "_rule": "From /mnt/share/ai/a310-review-models-20261113/round4/rubric.md (written before any answer was seen): 2 = acceptable verdict AND key fact AND nothing invented; 1 = verdict acceptable but key missing/vague, OR key right but verdict off by one step; 0 = wrong verdict by two steps, missed the trap, or an invented fact / wrong causality. key_phrases: regex list, at least ONE must match what+next. forbidden_phrases: any match = 0. forbidden_verdicts: verdict that misses the trap = 0 regardless of steps (only where the rubric calls it out explicitly). cap1_phrases: a wrong-but-not-fatal framing that caps the score at 1. key_required: a missing key fact forces 0 instead of 1 (rubric words it as 0).",
+  "h1_dl_404": {
+    "acceptable_verdicts": ["watch", "act"],
+    "forbidden_verdicts": ["ignore"],
+    "key_phrases": ["\\b404\\b|not[ _]?found|not.found|dead link|dead|expired|broken link", "\\bstatus[= ]3\\b|exit (?:status|code) 3\\b|code=exited, status=3"],
+    "forbidden_phrases": ["\\bstopped by (ryan|user)\\b|user stop(ped)? it|a (manual|user) stop\\b|\\bsigterm\\b|143"],
+    "_why": "Rubric: key = download failed, HTTP 404/dead link, 0 B; trap: the exit-143 note is for a Stop but this is status 3, so 'ignore' = 0."
+  },
+  "h2_router_boot": {
+    "acceptable_verdicts": ["watch", "ignore"],
+    "forbidden_verdicts": ["act"],
+    "key_phrases": ["reboot|boot(ed|ing)?|power[- ]?cycl|uptime|came (back|up)|back (up|online)", "\\b48 ?s\\b|seconds?|brief|short|quick|fast|minute"],
+    "forbidden_phrases": ["cable (is|was|may be|looks|seems|fault|problem)|faulty cable|loose cable|damaged cable|replace (the )?cable"],
+    "_why": "Key = router had just rebooted (Booting Linux / uptime ~48 s), WAN back in seconds; a WAN-outage/cable act is the trap (act is also two steps off = 0)."
+  },
+  "h3_scrutiny_array": {
+    "acceptable_verdicts": ["ignore", "watch"],
+    "key_phrases": ["array|emhttpd|md i?o? (is )?stopp|stopping services|unraid[^.]{0,45}(stop|down|maintenance|reboot|restar)|services (were |are )?stopped|shutting (down|services)", "scrutiny[^.]{0,70}(down|unreachable|not reach|stopped|offline|not running|missing|refused|fail)"],
+    "forbidden_phrases": [],
+    "_why": "Key = Unraid's array/services were stopped, so Scrutiny was unreachable. Blaming Proxmox/CIFS config without the array stop is 1 at most: the key phrase then cannot match."
+  },
+  "h4_oom_lxc": {
+    "acceptable_verdicts": ["watch", "act"],
+    "key_phrases": ["cgroup|memory limit|\\blimit(ed)?\\b|6 ?gi ?b|capped|contain(?:er|ed)", "pi-pocket|116|lxc|unit", "restart|auto(matically)?|recovered|came back|respawn|bounced"],
+    "forbidden_phrases": ["\\bhost\\b[^.]{0,30}(out of memory|ran out|exhaust|drained)|(out of memory|oom|memory (?:exhaustion|depletion|pressure))[^.]{0,30}\\bon (the |this |whole |entire )?host\\b|physical (memory|ram)", "hardware (?:fault|failure|fail|problem|issue)"],
+    "_why": "Key = pi-pocket.service (LXC 116) hit its 6 GiB cgroup limit and restarted itself; 'host out of memory' is wrong causality = 0."
+  },
+  "h5_smart_pending": {
+    "acceptable_verdicts": ["act"],
+    "key_phrases": ["pending[ _]?sector|\\b197\\b", "0.{0,8}2.{0,8}5.{0,8}8|2.{0,8}5.{0,8}8|rising|increas|climb|worsen|grew|trend|going up|more each", "back ?up|replac|fail(ing|ure)?|dying|rma|swap(ped)? (in|out|out the disk)|new (disk|drive)"],
+    "forbidden_phrases": [],
+    "_why": "Key = disk2/sdc pending sectors rising 0-2-5-8 with a read error = failing disk; back up / plan replacement; ignore = 0 (two steps from act)."
+  },
+  "h6_jellyfin_cancel": {
+    "acceptable_verdicts": ["ignore"],
+    "key_phrases": ["cancel|abort|interrupt|manual|stopped by|user|ryan|stopped (mid|the scan|it)|scan[^.]{0,40}(stopped|cancell|interrupt)"],
+    "forbidden_phrases": ["corrupt"],
+    "_why": "Key = Ryan cancelled the library scan; the probe errors come from the cancellation. act = 0 (two steps); claiming file corruption invents a fact."
+  },
+  "h7_ext4": {
+    "acceptable_verdicts": ["act"],
+    "key_phrases": ["ext4|filesystem|fs error|inode", "dm-7|\\b113\\b|memos", "fsck|scrub|chkdsk|restor|repair|replay|offline"],
+    "forbidden_phrases": [],
+    "cap1_phrases": ["hardware (?:fault|failure|fail|problem|issue)\\b|\\b(disk|drive|nvme|ssd|device)\\b[^.]{0,25}\\b(fail|fails|failed|failing|fault|faulty|dying|degraded)\\b"],
+    "_why": "Key = ext4 corruption on dm-7 = LXC 113's disk (memos); fsck/restore needed. Calling it a hardware failure = 1 at most, so cap1 fires but verdict stays valid."
+  },
+  "h8_ssh_flood": {
+    "acceptable_verdicts": ["act"],
+    "key_phrases": ["192\\.168\\.0\\.157|\\.157\\b", "\\b412\\b|4[01][0-9] ?(failed|attempts|logins)|over [34]00|\\b\\d{3,}\\b.{0,40}(fail|attempt)|in (an|one|the last|the past) hour|attempts? (per|a) hour", "find|identif|which (device|machine|host)|locate|source (device|machine)|the (lan )?device|157"],
+    "forbidden_phrases": [],
+    "_why": "Key = ~412 failed root/admin logins in an hour from LAN device 192.168.0.157: find that device. ignore = 0, vague (no device/no count) = 1."
+  },
+  "h9_gravity_lock": {
+    "acceptable_verdicts": ["ignore"],
+    "key_phrases": ["lock", "second|retry|retri|resolv|recover|self[- ]?heal|momentar|brief|usual|routine|normal|ok|fine|settled"],
+    "forbidden_phrases": [],
+    "_why": "Key = lock during the weekly gravity update, resolved seconds later. act = 0 (two steps)."
+  },
+  "h10_clock": {
+    "acceptable_verdicts": ["act", "watch"],
+    "forbidden_verdicts": ["ignore"],
+    "key_phrases": ["\\b3601\\b|1 hour|about an hour|\\b3600\\b", "step(ped|s)?|correct|adjust|sync|jump|disciplined|slewing", "wireguard|\\bwg\\b|handshak|ntp|rtc|chrony|timezone|time zone|drift"],
+    "forbidden_phrases": [],
+    "_why": "Key = clock off by ~3601 s (~1 h), stepped; WireGuard handshakes affected; check RTC/NTP/timezone. ignore = 0 (two steps)."
+  },
+  "h11_cert": {
+    "acceptable_verdicts": ["act"],
+    "key_phrases": ["expir|lapse", "429|rate.?limit|limit", "\\b47\\b|1[-– ]2 days|two days|\\b48 hours?|soon|before (it )?(expires|lapses)|days? left|may lapse"],
+    "forbidden_phrases": [],
+    "_why": "Key = cert expires in ~47 h and renewal is rate-limited (429, 5 certs/168 h), so it may lapse; watch without urgency = 1, which the generic one-step rule already gives (watch = verdict off by one)."
+  },
+  "h12_wifi_flap": {
+    "acceptable_verdicts": ["watch", "act"],
+    "forbidden_verdicts": ["ignore"],
+    "key_phrases": ["\\b183\\b|\\d+ ?(times?|drops?|flaps?) (a|per) day|\\b18[0-9] ?(per |a )?day", "dfs|radar|regulat", "move (off|from|to)\\b|off dfs|non-dfs|change (the )?channel|different channel|static|fixed|set (a|the) channel"],
+    "forbidden_phrases": [],
+    "_why": "Key = 183 drops/day, DFS radar on channel 52 forcing switches: move off DFS. The trap is following the 'brief flaps' known-cause note to ignore = 0 (explicit)."
+  },
+  "h13_watchdog_ok": {
+    "acceptable_verdicts": ["ignore", "watch"],
+    "forbidden_verdicts": ["act"],
+    "key_phrases": ["watchdog", "restart|respawn|killed|bounced", "recover|200|\\bok\\b|back (up|online)|up again|serving|healthy|running again|running_again|fine"],
+    "forbidden_phrases": [],
+    "_why": "Key = watchdog restarted homelab-dashboard and it recovered (200 OK 30 s later). act = 0 (two steps)."
+  },
+  "h14_mc_oom": {
+    "acceptable_verdicts": ["watch", "act"],
+    "key_phrases": ["docker|cgroup|memory limit|\\blimit(ed)?\\b|limit|contain(?:er|ed)", "java|minecraft|\\b137\\b", "7 ?gi ?b|9871244|rss"],
+    "forbidden_phrases": ["\\bhost\\b[^.]{0,30}(out of memory|ran out|exhaust|drained)|(out of memory|oom|memory (?:exhaustion|depletion|pressure))[^.]{0,30}\\bon (the |this |whole |entire )?host\\b|physical (memory|ram)", "hardware (?:fault|failure|fail|problem|issue)"],
+    "_why": "Key = the Minecraft container's java hit its docker memory limit (~7 GB RSS), exit 137, restarting; 'host out of memory / hardware' = 0."
+  },
+  "h15_dl_stop_plus": {
+    "acceptable_verdicts": ["watch", "act"],
+    "key_required": true,
+    "key_phrases": ["nvme", "controller reset", "blocked for more than"],
+    "forbidden_phrases": [],
+    "_why": "Key = the download stop is harmless (exit 143 = user stop) BUT nvme0 I/O timeouts / controller reset right after: check the NVMe. Rubric: ignore (missing the NVMe) = 0 and mentioning only the download = 0, so the NVMe key is required (key_required)."
+  }
+}
