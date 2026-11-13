@@ -1,0 +1,22 @@
+[
+  {
+    "pattern": "dl-.*\\.service",
+    "note": "homelab-download job (wget/aria2c in a systemd unit); exit 143 = stopped by SIGTERM (Ryan or the panel's Stop), usually not a fault."
+  },
+  {
+    "pattern": "gl-be9300.*wlan\\d+.*(down|disconnected)",
+    "note": "Flint 3 Wi-Fi radio interface; brief down/up happens on channel or config changes and radio restarts. It only matters if it repeats many times a day."
+  },
+  {
+    "pattern": "scrutiny-collector",
+    "note": "Proxmox timer that sends SMART data to Scrutiny on Unraid. It fails when Scrutiny is unreachable."
+  },
+  {
+    "pattern": "oom|Memory cgroup out of memory",
+    "note": "Kernel OOM kill. The cgroup or unit named in the context is the one that hit its limit."
+  },
+  {
+    "pattern": "dns-health.*pihole-replica|192\\.168\\.0\\.10",
+    "note": "DNS probe of the Orange Pi Pi-hole replica (.10). It has gone off the network before (7 Nov); net-watchdog bounces/reboots it."
+  }
+]

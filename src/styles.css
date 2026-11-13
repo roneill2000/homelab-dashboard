@@ -632,8 +632,10 @@ h1{font-size:36px}
 .nightly-pattern{font-size:15px;overflow-wrap:anywhere}
 .nightly-verified{margin-top:10px;font-size:14px;color:var(--md-sys-color-on-surface-variant)}
 .nightly-model-note{border-left:2px solid var(--md-sys-color-outline-variant);padding-left:16px;margin-top:18px}
-.nightly-model-note small{display:block;font-size:14px;color:var(--md-sys-color-on-surface-variant);margin-bottom:6px}
+.nightly-note-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.nightly-model-note small{display:block;font-size:14px;color:var(--md-sys-color-on-surface-variant)}
 .nightly-model-note p{font-size:16px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.nightly-next{margin-top:8px;font-size:14px;color:var(--md-sys-color-on-surface-variant)}
 @media(max-width:760px){
   .nightly-panel .panel-header{flex-wrap:wrap}
   .nightly-facts{flex-direction:column;gap:8px}

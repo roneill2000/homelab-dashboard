@@ -9,7 +9,12 @@ backup=root/'backups'/datetime.datetime.now(datetime.timezone.utc).strftime('%Y%
 runner=root/'runner.py'
 if runner.exists():shutil.copy2(runner,backup/runner.name)
 compile(p['runner'],str(runner),'exec');stage=root/'runner.py.new';stage.write_text(p['runner']);stage.chmod(0o700);os.replace(stage,runner)
-(root/'log_monitor.py').write_text(p['log_monitor'])
+lm=root/'log_monitor.py'
+if lm.exists():shutil.copy2(lm,backup/lm.name)
+lm.write_text(p['log_monitor'])
+kc=root/'known_causes.json'
+if kc.exists():shutil.copy2(kc,backup/kc.name)
+json.loads(p['known_causes']);kc.write_text(p['known_causes'])
 (root/'reports').mkdir(mode=0o700,exist_ok=True)
 manifest=dict(p['manifest'],device='/dev/dri/renderD129',schedule='03:00 America/New_York')
 (root/'manifest.json').write_text(json.dumps(manifest,indent=2))
@@ -25,7 +30,7 @@ if p['schedule']:
 else: print(json.dumps({'backup':str(backup),'runner_installed':True,'schedule_enabled':False}))
 '''
 if __name__=='__main__':
- payload=dict(runner=(Path(__file__).parent/'runner.py').read_text(),schedule='--schedule' in sys.argv,log_monitor=(Path(__file__).parent.parent/'backend'/'log_monitor.py').read_text())
+ payload=dict(runner=(Path(__file__).parent/'runner.py').read_text(),schedule='--schedule' in sys.argv,log_monitor=(Path(__file__).parent.parent/'backend'/'log_monitor.py').read_text(),known_causes=(Path(__file__).parent/'known_causes.json').read_text())
  tree=ast.parse(payload['runner'])
  values={n.targets[0].id:ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id in ('MODEL','MODEL_REVISION','MODEL_REPO','MODEL_FILE','MODEL_SHA256','IMAGE')}
  payload['manifest']={k:values[v] for k,v in [('model','MODEL'),('revision','MODEL_REVISION'),('repository','MODEL_REPO'),('file','MODEL_FILE'),('sha256','MODEL_SHA256'),('image','IMAGE')]}

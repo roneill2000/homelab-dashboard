@@ -25,10 +25,24 @@ def scrub(text):
     return text
 
 
+def _read_stream(p, rot_start, prev_len, start, raw_len):
+    rotated=p.with_name(p.name+'.1');prev=b'';raw=b''
+    if prev_len and rotated.is_file() and not rotated.is_symlink():
+        with rotated.open('rb') as f:
+            f.seek(rot_start)
+            if rot_start:f.readline()
+            prev=f.read(prev_len)
+    with p.open('rb') as f:
+        f.seek(start)
+        if start:f.readline()
+        raw=f.read(raw_len)
+    return (prev+(b'\n' if prev and not prev.endswith(b'\n') else b'')+raw).decode('utf-8','replace').splitlines()
+
+
 def snapshot(directory, critical, warning, now=None):
     now=now or time.time();cutoff=now-86400
     files=sorted(p for p in directory.glob('*.log') if not p.is_symlink())
-    groups={};coverage=[];matched=0
+    groups={};coverage=[];matched=0;file_spans={}
     for p in files[:MAX_FILES]:
         size=p.stat().st_size;start=max(0,size-MAX_BYTES);parsed=[];unknown=0;lines=0;error=False
         # Weekly rotation leaves the start of the window in <name>.log.1 (uncompressed: delaycompress), so read it
@@ -47,7 +61,8 @@ def snapshot(directory, critical, warning, now=None):
                 f.seek(start)
                 if start:f.readline()
                 raw=f.read(MAX_BYTES)
-            for line in (prev+(b'\n' if prev and not prev.endswith(b'\n') else b'')+raw).decode('utf-8','replace').splitlines():
+            file_spans[p]=(rot_start,len(prev),start,len(raw))
+            for idx,line in enumerate((prev+(b'\n' if prev and not prev.endswith(b'\n') else b'')+raw).decode('utf-8','replace').splitlines()):
                 lines+=1
                 try:ts=datetime.fromisoformat(line.split()[0].replace('Z','+00:00')).timestamp()
                 except (ValueError,IndexError):unknown+=1;continue
@@ -65,8 +80,10 @@ def snapshot(directory, critical, warning, now=None):
                     # Bound distinct group storage; coverage records overflow below.
                     if len(groups)>=2000:continue
                     groups[key]=dict(id=hashlib.sha256(repr(key).encode()).hexdigest()[:12],host=p.stem,level=level,
-                                     message=message[:1200],count=0,first_at=ts,last_at=ts)
-                g=groups[key];g['count']+=1;g['first_at']=min(g['first_at'],ts);g['last_at']=max(g['last_at'],ts)
+                                     message=message[:1200],count=0,first_at=ts,last_at=ts,hours=[0]*24,_ctx=(p,idx))
+                g=groups[key];g['count']+=1;g['first_at']=min(g['first_at'],ts)
+                if ts>=g['last_at']:g['last_at']=ts;g['_ctx']=(p,idx)
+                g['hours'][datetime.fromtimestamp(ts).hour]+=1
         except OSError:error=True
         # A file with no lines at all is a quiet source (nothing logged), not a gap in coverage.
         quiet=not error and lines==0
@@ -75,10 +92,20 @@ def snapshot(directory, critical, warning, now=None):
                              window_may_be_incomplete=not quiet and (error or unknown>0 or not parsed or min(parsed)>cutoff),
                              oldest_read_at=min(parsed,default=None),newest_read_at=max(parsed,default=None),read_error=error))
     ordered=sorted(groups.values(),key=lambda g:(g['level']=='CRITICAL',g['last_at']),reverse=True)
+    top=ordered[:MAX_GROUPS]
+    by_file={}
+    for g in top:
+        src,idx=g.pop('_ctx');by_file.setdefault(src,[]).append((g,idx))
+    for g in ordered[MAX_GROUPS:]:g.pop('_ctx',None)
+    for src,items in by_file.items():
+        try:flines=_read_stream(src,*file_spans[src])
+        except OSError:flines=[]
+        for g,idx in items:
+            g['context']=[scrub(l)[:300] for l in flines[max(0,idx-8):idx+5]] if flines else []
     represented=sum(g['count'] for g in ordered)
     return dict(generated_at=int(now),window_start=int(cutoff),window_end=int(now),hosts=coverage,
                 coverage_limited=len(files)>MAX_FILES or not files or any(h['window_may_be_incomplete'] for h in coverage) or matched>represented,
                 files_available=len(files),files_scanned=len(coverage),matched_entries=matched,distinct_groups=len(groups),
-                groups=ordered[:MAX_GROUPS],groups_omitted=max(0,len(groups)-MAX_GROUPS),
+                groups=top,groups_omitted=max(0,len(groups)-MAX_GROUPS),
                 source='Retained syslog files; existing monitor warning/critical patterns',
                 limits=dict(bytes_per_file=MAX_BYTES,files=MAX_FILES,groups=MAX_GROUPS))

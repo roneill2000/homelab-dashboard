@@ -47,6 +47,25 @@ class SnapshotTests(unittest.TestCase):
    (p/'copy.log').symlink_to(p/'real.log')
    data=s.snapshot(p,[re.compile('CRITICAL')],[re.compile('FAILURE')],200000)
   self.assertEqual(data['files_scanned'],1);self.assertEqual(data['groups'][0]['level'],'CRITICAL')
+ def test_context_extraction_before_after_latest_bounds_and_scrubbing(self):
+  lines=[self.line(199000+i,f'pre1-{i}') for i in range(10)]
+  lines.append(self.line(199020,'svc[1]: FAILURE boom'))
+  lines.extend(self.line(199021+i,f'post1-{i}') for i in range(10))
+  lines.extend(self.line(199100+i,f'pre2-{i}') for i in range(10))
+  lines[-2]=self.line(199108,'ctx token=SECRET_CTX_TOKEN https://u:SECRET_PASS@example.invalid/p '+('z'*350))
+  lines.append(self.line(199120,'svc[2]: FAILURE boom'))
+  lines.extend(self.line(199121+i,f'post2-{i}') for i in range(6))
+  data=self.scan(lines,now=200000)
+  g=data['groups'][0];ctx=g['context']
+  self.assertEqual(len(ctx),13)
+  self.assertTrue(any('pre2-2' in l for l in ctx))
+  self.assertFalse(any('pre2-1' in l for l in ctx))
+  self.assertTrue(any('post2-3' in l for l in ctx))
+  self.assertFalse(any('post2-4' in l for l in ctx))
+  self.assertTrue(all(len(l)<=300 for l in ctx))
+  self.assertNotIn('SECRET_CTX_TOKEN',json.dumps(ctx))
+  self.assertNotIn('SECRET_PASS',json.dumps(ctx))
+  self.assertEqual(len(g['hours']),24);self.assertEqual(sum(g['hours']),2)
 
 class RunnerTests(unittest.TestCase):
  def test_backup_requires_fresh_explicit_idle(self):
@@ -65,14 +84,49 @@ class RunnerTests(unittest.TestCase):
   self.assertIn('/dev/dri/renderD129',command);self.assertIn('127.0.0.1:11437:8000',command)
   self.assertTrue(command[command.index('-v')+1].endswith(':ro'))
   self.assertIn('127.0.0.1:8000/health',command[command.index('--health-cmd')+1])
- def test_prompt_keeps_recovery_and_counts_out_of_model_input(self):
-  group=dict(host='utilities',message='filebrowser.service: FAILURE',count=9000,
-             first_at=1,last_at=900,current_service_state={'state':'running_again'},secret='private')
-  body=r.request_body(group);text=body['messages'][-1]['content']
-  self.assertEqual(json.loads(text),{'host':'utilities','message':'filebrowser.service: FAILURE'})
+ def test_prompt_includes_context_hours_local_times_and_notes(self):
+  group=dict(host='gl-be9300',message='wlan0: link down',count=3,
+             first_at=1000,last_at=2000,hours=[0]*24,context=['line1','line2'],
+             current_service_state={'state':'unverified'},secret='private')
+  body=r.request_body(group);payload=json.loads(body['messages'][-1]['content'])
+  self.assertEqual(payload['host'],'gl-be9300')
+  self.assertEqual(payload['count'],3)
+  self.assertEqual(payload['context'],['line1','line2'])
+  self.assertEqual(len(payload['hours']),24)
+  self.assertIsInstance(payload['first_at'],str)
+  self.assertIn('notes',payload)
+  self.assertNotIn('secret',payload)
   self.assertTrue(body['chat_template_kwargs']['enable_thinking'])
   self.assertLessEqual(body['max_tokens'],1152)
   self.assertIn('--reasoning-budget',r.container_command())
+ def test_known_causes_matching(self):
+  self.assertTrue(r.match_known_causes({'host':'utilities','message':'dl-123.service: exited status=143'}))
+  self.assertTrue(r.match_known_causes({'host':'gl-be9300','message':'hostapd: wlan1: disconnected'}))
+  self.assertTrue(r.match_known_causes({'host':'proxmox','message':'scrutiny-collector.service failed'}))
+  self.assertTrue(r.match_known_causes({'host':'proxmox','message':'Memory cgroup out of memory: Killed process'}))
+  self.assertTrue(r.match_known_causes({'host':'proxmox','message':'dns-health: 192.168.0.10 timed out'}))
+  self.assertEqual(r.match_known_causes({'host':'utilities','message':'unrelated warning'}),[])
+ def test_parse_finding_valid_fenced_and_malformed(self):
+  ok=r.parse_finding('{"what":"Likely stopped by user.","verdict":"ignore","next":"check"}')
+  self.assertEqual(ok,{'what':'Likely stopped by user.','verdict':'ignore','next':''})
+  fenced=r.parse_finding('```json\n{"what":"Disk full.","verdict":"act","next":"Free space"}\n```')
+  self.assertEqual(fenced,{'what':'Disk full.','verdict':'act','next':'Free space'})
+  malformed=r.parse_finding('Not JSON at all, just plain text')
+  self.assertEqual(malformed,{'what':'Not JSON at all, just plain text','verdict':'watch','next':''})
+ def test_repeat_skipping(self):
+  gs=[dict(id='g1',host='h',level='WARNING',count=1,first_at=1,last_at=2,message='x'),
+      dict(id='g2',host='h',level='WARNING',count=1,first_at=1,last_at=2,message='y')]
+  snapshot=dict(groups=gs,window_start=1,window_end=1000,coverage_limited=False,files_scanned=1,matched_entries=2,distinct_groups=2,source='patterns',hosts=[])
+  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot]
+  with tempfile.TemporaryDirectory() as d:
+   reports=Path(d)/'reports';reports.mkdir()
+   (reports/'latest.json').write_text(json.dumps({'status':'complete','findings':[{'group_id':'g1','interpretation':'Old','verdict':'watch','next':'Monitor'}]}))
+   with patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(r,'start_model',return_value=10.0) as st,patch.object(r,'review_group',return_value=({'group_id':'g2','interpretation':'New','verdict':'act','next':'Fix'},{},None)) as rv,patch.object(r,'stop_model'):
+    r.main()
+   saved=json.loads((reports/'latest.json').read_text())
+   self.assertEqual(st.call_count,1);self.assertEqual(rv.call_count,1)
+   f1=next(f for f in saved['findings'] if f['group_id']=='g1')
+   self.assertEqual(f1['repeat_nights'],2);self.assertTrue(f1['repeated'])
  def test_explanation_cannot_omit_explicit_exit_status(self):
   group={'id':'x','message':'filebrowser.service: Main process exited, code=exited, status=1/FAILURE'}
   withheld=r.checked_finding(group,'The log does not reveal the specific error code.')
