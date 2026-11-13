@@ -1,15 +1,15 @@
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
-import json,re,tempfile,unittest
+import hashlib,json,re,tempfile,unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 from nightly import log_snapshot as s,runner as r
 
 class SnapshotTests(unittest.TestCase):
- def scan(self,lines,now=200000):
+ def scan(self,lines,now=200000,baseline=None):
   with tempfile.TemporaryDirectory() as d:
    (Path(d)/'utilities.log').write_text('\n'.join(lines)+'\n')
-   return s.snapshot(Path(d),[re.compile('CRITICAL')],[re.compile('FAILURE')],now)
+   return s.snapshot(Path(d),[re.compile('CRITICAL')],[re.compile('FAILURE')],now,baseline)
  def line(self,ts,msg):
   return datetime.fromtimestamp(ts,timezone.utc).isoformat()+' utilities '+msg
  def test_window_grouping_and_redaction(self):
@@ -66,6 +66,83 @@ class SnapshotTests(unittest.TestCase):
   self.assertNotIn('SECRET_CTX_TOKEN',json.dumps(ctx))
   self.assertNotIn('SECRET_PASS',json.dumps(ctx))
   self.assertEqual(len(g['hours']),24);self.assertEqual(sum(g['hours']),2)
+ def test_normalize_folds_identifiers_keeps_known_cause_tokens(self):
+  self.assertEqual(s.normalize('Failed password for root from 10.9.8.7 port 51544 ssh2'),'Failed password for root from <ip> port <n> ssh2')
+  self.assertEqual(s.normalize('Failed password for root from 192.168.0.157 port 51544 ssh2'),'Failed password for root from <lan:.157> port <n> ssh2')
+  self.assertEqual(s.normalize('Main process exited, code=exited, status=143/n/a'),'Main process exited, code=exited, status=143/n/a')  # small causes and =-attached statuses stay
+  self.assertEqual(s.normalize('wlan0 sdc1 dm-7 status=3 rebooted in 45s'),'wlan0 sdc1 dm-7 status=3 rebooted in <n>s')
+  self.assertEqual(s.normalize('ll ac:de:48:00:11:22 brd ff:ff:ff:ff:ff:ff'),'ll <mac> brd <mac>')
+  self.assertEqual(s.normalize('job id 3f9a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8 done'),'job id <uuid> done')
+  self.assertEqual(s.normalize('job gid 7f2e status deadbeef12'),'job gid 7f2e status <hex>')
+  self.assertEqual(s.normalize('ran at 2026-11-12T03:04:05-05:00 after Nov 12 03:04:06'),'ran at <ts> after <ts>')
+  self.assertEqual(s.normalize('took 12.3s copied 512MB used 45% of 4096 blocks'),'took <n>s copied <n>MB used <n>% of <n> blocks')
+  self.assertEqual(s.normalize('fe80::1 via dev eth0 link up'),'<ip> via dev eth0 link up')
+ def test_near_duplicate_lines_fold_into_one_group_with_variants(self):
+  data=self.scan([self.line(199990,'sshd: FAILURE Failed password for root from 10.9.8.7 port 51544 ssh2'),
+                  self.line(199994,'sshd: FAILURE Failed password for root from 10.9.8.9 port 51561 ssh2'),
+                  self.line(199997,'sshd: FAILURE Failed password for root from 10.40.1.2 port 40022 ssh2')])
+  self.assertEqual(data['distinct_groups'],1);self.assertEqual(data['matched_entries'],3)
+  g=data['groups'][0]
+  self.assertEqual(g['variants']['count'],3)
+  self.assertEqual(len(g['variants']['examples']),3)
+  self.assertIn('10.9.8.7',g['variants']['examples'][0])  # raw scrubbed examples are kept
+  self.assertEqual(g['message'],'sshd: FAILURE Failed password for root from 10.40.1.2 port 40022 ssh2')  # latest raw example
+  self.assertEqual(g['normalized'],'sshd: FAILURE Failed password for root from <ip> port <n> ssh2')
+  self.assertEqual(g['id'],hashlib.sha256(repr(('utilities','WARNING',g['normalized'])).encode()).hexdigest()[:12])
+ def test_variant_example_list_is_bounded(self):
+  data=self.scan([self.line(199990+i,'sshd: from 10.9.8.{} port 515{}4 FAILURE'.format(i,i)) for i in range(1,5)])
+  self.assertEqual(data['groups'][0]['variants']['count'],4);self.assertEqual(len(data['groups'][0]['variants']['examples']),3)
+ def test_exit_status_differences_stay_separate_groups(self):
+  data=self.scan([self.line(199990,'dl-A.service: FAILURE Main process exited, code=exited, status=143/n/a'),
+                  self.line(199995,'dl-A.service: FAILURE Main process exited, code=exited, status=3/NOTIMPLEMENTED')])
+  self.assertEqual(data['distinct_groups'],2)
+  self.assertTrue(any('143' in g['normalized'] for g in data['groups']))
+  self.assertTrue(any('3/NOTIMPLEMENTED' in g['normalized'] for g in data['groups']))
+ def test_novelty_ranks_a_first_seen_line_above_a_nightly_one(self):
+  with tempfile.TemporaryDirectory() as d:
+   base=str(Path(d)/'baseline.json')
+   first=self.scan([self.line(1794499990,'nightly.service: FAILURE heartbeat')],now=1794500000,baseline=base)
+   self.assertEqual(first['groups'][0]['nights_seen_30'],0);self.assertEqual(first['groups'][0]['novelty'],5)
+   today1=datetime.fromtimestamp(1794500000).strftime('%Y-%m-%d')
+   saved=json.loads(Path(base).read_text())
+   key=json.dumps(['utilities','WARNING','nightly.service: FAILURE heartbeat'])
+   self.assertEqual(saved['keys'][key]['counts'],[1]);self.assertEqual(saved['keys'][key]['first_seen'],today1)
+   data=self.scan([self.line(1794586390,'nightly.service: FAILURE heartbeat'),
+                   self.line(1794586395,'brandnew FAILURE first time ever')],now=1794586400,baseline=base)
+   top=data['groups'][0]
+   self.assertEqual(top['normalized'],'brandnew FAILURE first time ever');self.assertEqual(top['nights_seen_30'],0)
+   nightly=next(g for g in data['groups'] if 'heartbeat' in g['message'])
+   self.assertEqual((nightly['nights_seen_30'],nightly['baseline_count'],nightly['novelty']),(1,1,0))
+   self.assertEqual(nightly['first_seen'],today1)
+ def test_group_id_is_stable_while_raw_examples_change(self):
+  with tempfile.TemporaryDirectory() as d:
+   base=str(Path(d)/'baseline.json')
+   d1=self.scan([self.line(1794499990,'sshd: from 10.9.8.7 port 51544 FAILURE')],now=1794500000,baseline=base)
+   d2=self.scan([self.line(1794586390,'sshd: from 10.9.8.9 port 51561 FAILURE')],now=1794586400,baseline=base)
+   self.assertEqual(d1['groups'][0]['id'],d2['groups'][0]['id'])
+   self.assertEqual((d2['groups'][0]['nights_seen_30'],d2['groups'][0]['baseline_count']),(1,1))
+   entry=json.loads(Path(base).read_text())['keys'][json.dumps(['utilities','WARNING','sshd: from <ip> port <n> FAILURE'])]
+   self.assertEqual(entry['counts'],[1,1])
+ def test_baseline_keeps_30_nights_and_records_repeat_counts(self):
+  groups={'g':dict(host='h',level='WARNING',normalized='m',count=1)}
+  base={};day=datetime(2026,10,1)
+  for i in range(32):s.update_baseline(base,groups,(day+timedelta(days=i)).strftime('%Y-%m-%d'))
+  entry=base[json.dumps(['h','WARNING','m'])]
+  self.assertEqual(len(entry['dates']),30);self.assertEqual(entry['dates'][0],'2026-10-03')
+  self.assertEqual(entry['first_seen'],'2026-10-01');self.assertEqual(entry['last_seen'],'2026-11-01')
+  s.update_baseline(base,{'g':dict(host='h',level='WARNING',normalized='m',count=7)},'2026-11-01')
+  self.assertEqual(base[json.dumps(['h','WARNING','m'])]['counts'][-1],7)  # a repeat run the same night takes the larger count
+ def test_baseline_key_cap_and_size_bound_evict_oldest_first(self):
+  groups=lambda n:{n:dict(host='h',level='WARNING',normalized=n,count=1)}
+  with patch.object(s,'BASELINE_MAX_KEYS',2):
+   base={}
+   for i,n in enumerate(('a','b','c')):s.update_baseline(base,groups(n),(datetime(2026,11,1)+timedelta(days=i)).strftime('%Y-%m-%d'))
+   self.assertEqual(len(base),2);self.assertNotIn(json.dumps(['h','WARNING','a']),base)
+  with patch.object(s,'BASELINE_MAX_BYTES',600):
+   base={}
+   for i in range(6):s.update_baseline(base,groups('key%02d-%s'%(i,'x'*40)),(datetime(2026,11,1)+timedelta(days=i)).strftime('%Y-%m-%d'))
+   self.assertLess(len(base),6)
+   self.assertLessEqual(len(json.dumps(dict(updated_at=1,keys=base))),600)
 
 class RunnerTests(unittest.TestCase):
  def test_backup_requires_fresh_explicit_idle(self):

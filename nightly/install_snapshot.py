@@ -32,6 +32,7 @@ shutil.copy2(path,backup/path.name)
 existed=module.exists()
 if existed:shutil.copy2(module,backup/module.name)
 try:
+ pathlib.Path('/var/lib/syslog-monitor').mkdir(mode=0o700,exist_ok=True)  # home of the novelty baseline written by homelab_log_snapshot
  module.write_text(p['module']);path.write_text(source)
  subprocess.run(['systemctl','restart','syslog-monitor'],check=True)
  for attempt in range(15):
