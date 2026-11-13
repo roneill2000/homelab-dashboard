@@ -346,8 +346,9 @@ def digest_text(now, t, f, latest, active, nightly=None, energy=None):
 
 
 def ask_qwen(prompt, wait=420):
-    """Ask Homepage's Ask Qwen (27B on the PC when on, else the A310). Returns (answer, model) or (None, reason)."""
-    body = json.dumps({'prompt': prompt[:3000], 'target': 'auto'}).encode()  # digest and why: 27B when the PC is on
+    """Ask Homepage's Ask Qwen on the Unraid A310 (Gemma 4 E4B). Returns (answer, model) or (None, reason).
+    Never the PC: a scheduled digest or an alert's Ask AI must not evict the model Ryan is using (12 Nov 2026)."""
+    body = json.dumps({'prompt': prompt[:3000], 'target': 'a310'}).encode()
     headers = {'Content-Type': 'application/json', 'X-Qwen-Request': '1'}
     deadline = time.time() + wait
     while True:
