@@ -28,6 +28,12 @@ once evict each other on every turn: each turn re-reads the whole conversation (
   - *done*: the holder's response ended with no tool calls (`finish_reason` stop/length): the turn is over.
   - *waiting*: the holder's response called a tool that waits for a person (Pocket `ask`; add others found in the
     tool lists). Pocket approval cards for ordinary tools are invisible to the broker → covered by B1 or by idle.
+  - **Grace for Ryan (14 Nov, Ryan):** *waiting* and *done* do not release at once. The holder keeps the lease for
+    `ASK_GRACE_S` (default 600 s) after a question and `DONE_GRACE_S` (default 600 s) after a finished turn, so a quick
+    answer while Ryan is watching continues on a warm cache. If Ryan answers inside the grace the session simply goes
+    on working; if not, the lease passes to the next waiter. The grace only matters when someone is queued: with an
+    empty queue the lease stays put and costs nothing. When the session's next request arrives after losing the
+    lease, it queues normally.
   - *idle*: no request from the holder for `LEASE_IDLE_S`. **Pick N from data**: from broker history (`ai_requests`)
     and Pocket session logs, measure the gap between consecutive requests *inside one turn* (tool execution time:
     tests, builds, benchmarks); choose N above ~p99 of in-turn gaps (guess: 180–600 s); report the distribution.
