@@ -1003,6 +1003,32 @@ def patch_ai_live(source):
     return source
 
 
+def patch_ai_queue(source):
+    """GET /api/ai/queue: the GPU session-lease state (who holds the GPU, who waits in line). The lease lives inside
+    the gpu_broker process on :8000, so this proxies its small /queue/status JSON for the Local AI page row."""
+    marker = '# HOMELAB_AI_QUEUE_V1'
+    if marker in source:
+        return source
+    route = ('        if self.path == "/api/ai/queue":\n'
+             '            import urllib.request\n'
+             '            try:\n'
+             '                body = urllib.request.urlopen("http://127.0.0.1:8000/queue/status", timeout=2).read()\n'
+             '            except Exception:\n'
+             '                body = b\'{"enabled": false, "holder": null, "queue": []}\'\n'
+             '            self.send_response(200)\n'
+             '            self.send_header("Content-Type", "application/json")\n'
+             '            self.send_header("Cache-Control", "no-store")\n'
+             '            self.end_headers()\n'
+             '            self.wfile.write(body)\n'
+             '            return\n')
+    route_at = '        if self.path.startswith("/api/telemetry"):\n'
+    if source.count(route_at) != 1:
+        raise ValueError('dashboard handler shape changed; ai-queue patch not applied')
+    source = source.replace(route_at, route + marker + route_at)
+    compile(source, '<dashboard>', 'exec')
+    return source
+
+
 def patch_storage_fast(source):
     """/api/storage from the collector's in-memory snapshot (rebuilt every 10 s), gzipped: about 0.4 s became a few ms,
     so the Overview's activity and backup rows are there as soon as the app or site opens."""

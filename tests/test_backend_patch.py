@@ -3,7 +3,9 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend_patch import patch_widget_more, patch_widget_strata, patch_widget_dns, patch_widget_cloud, patch_backend, patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time
+from backend_patch import (patch_widget_more, patch_widget_strata, patch_widget_dns, patch_widget_cloud, patch_backend,
+                           patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_ai_queue,
+                           patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time)
 
 FIXTURE = '''
 import time
@@ -509,6 +511,24 @@ class AiLiveTests(unittest.TestCase):
         self.assertEqual(patch_ai_live(out), out)
         with self.assertRaises(ValueError):
             patch_ai_live('class H: pass\n')
+
+
+class AiQueueTests(unittest.TestCase):
+    def test_route_added_once_idempotent_and_refuses_drift(self):
+        src = 'class H:\n    def do_GET(self):\n        if self.path.startswith("/api/telemetry"):\n            pass\n'
+        out = patch_ai_queue(src)
+        self.assertIn('"/api/ai/queue"', out)
+        self.assertIn('127.0.0.1:8000/queue/status', out)
+        self.assertEqual(patch_ai_queue(out), out)
+        with self.assertRaises(ValueError):
+            patch_ai_queue('class H: pass\n')
+
+    def test_coexists_with_ai_live(self):
+        src = 'class H:\n    def do_GET(self):\n        if self.path.startswith("/api/telemetry"):\n            pass\n'
+        out = patch_ai_queue(patch_ai_live(src))
+        self.assertIn('"/api/ai/live"', out)
+        self.assertIn('"/api/ai/queue"', out)
+        self.assertEqual(patch_ai_queue(patch_ai_live(out)), out)
 
 
 if __name__ == '__main__':

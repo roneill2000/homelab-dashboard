@@ -254,7 +254,7 @@ function PcPowerControl({pc,ask,notify,compact=false}){
   <span className={'pc-dot '+(online?'on':known?'off':'unknown')}/><span className="pc-label"><strong>Gaming PC</strong><small>{online?'Online':known?'Offline or asleep':'Checking…'}</small></span>
   {online?<button className="m3-btn m3-btn--tonal m3-state secondary-button" onClick={askSleep}><Icon name="moon" size={16}/>Sleep PC</button>
    :<button className="m3-btn m3-btn--tonal m3-state secondary-button" disabled={sending||!known} onClick={wake}><Icon name="power_settings_new" size={16}/>{sending?'Sending…':'Wake PC'}</button>}</div>}
-function LocalAI({ai,gpu,live:liveFeed,compact=false,onOpen,power,onNavigate}){
+function LocalAI({ai,gpu,live:liveFeed,queue,compact=false,onOpen,power,onNavigate}){
  // Strata is a second engine on the same GPU; the GPU broker loads whichever engine a chat asks for, so it is listed as one more model.
  const strata=ai?.strata||{},strataLive=sourceFresh(strata);
  const web=ai?.webui||{},pc=ai?.desktop||{},live=sourceFresh(pc),webLive=sourceFresh(web);
@@ -287,6 +287,7 @@ function LocalAI({ai,gpu,live:liveFeed,compact=false,onOpen,power,onNavigate}){
   </div>
   {!live&&items.length>0&&<details className="ai-history"><summary><Icon name="schedule" size={20}/>Recorded benchmarks · {items.length} {items.length===1?'model':'models'} <span className="ai-history__hint">from the last time the PC was online</span><Icon name="down" size={20} className="ai-history__chevron"/></summary><div className="ai-model-list">{items.map(modelRow)}</div></details>}
   {!items.length&&<div className="m3-card panel ai-empty">{live?'No models reported.':'Waiting for model status.'}</div>}
+  {queue&&<div className="ai-queue" role="status"><h3 className="energy-sub">GPU session queue</h3><p className="ai-queue__line">{queue.enabled?(queue.holder?<><span className="ai-queue__chip">Now holding: {queue.holder.client||'a session'}{queue.holder.state==='working'?' · working':queue.holder.state==='waiting'?' · waiting on you':` · idle ${secs(queue.holder.idle_s)}`}</span></>:<span>No session holds the GPU right now.</span>):<span>Queue off: requests run as they arrive.</span>}</p>{queue.enabled&&queue.queue?.length?<ol className="ai-queue__line" aria-label="Waiting sessions">{queue.queue.map(q=><li key={q.position}>{q.client||'a session'} · in line {secs(q.age_s)}</li>)}</ol>:(queue.enabled?<p className="source-note">No one waiting in line.</p>:null)}</div>}
   <div className="m3-card panel ai-local-model"><div><h3>Nightly log review</h3><p>Unraid · 3 AM review on Nemotron Bolt E4B (A310) · scans host warning logs after backups finish</p></div><button className="m3-btn m3-btn--tonal m3-state secondary-button" onClick={()=>onNavigate?.('infra')}>Latest review <Icon name="arrow" size={16}/></button></div>
   <details className="storage-explainer"><summary>Connection details</summary><p>Model status: 192.168.0.12:8080 · llama.cpp · {live?'Online':'Unavailable'}; Strata 192.168.0.12:8088 · {strataLive?'Online':'Unavailable'}. Chats go through the GPU broker (192.168.0.2), which gives the GPU to whichever engine is asked for. {pc.last_success_at?`Last read ${new Date(pc.last_success_at*1000).toLocaleTimeString()}.`:''} Context values show server settings. Live speeds are a rolling 5-second average during generation; recorded speeds are earlier benchmarks. Ask about the homelab runs Nemotron Bolt E4B on the Unraid A310 (loads in ~10 s), separately from the gaming PC.</p><SourceNote source={pc}/></details>
  </section>
@@ -831,11 +832,11 @@ function App(){
    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',status);try{window.AndroidBridge?.setSystemBars?.(status,nav,theme==='light')}catch{}});return()=>cancelAnimationFrame(id)},[theme,win,seedPref,wallSeed]);
  // While the Local AI page is open, ask the server to poll the gaming PC fast (live tokens/s). Otherwise it stays quiet
  // so the model can reach llama.cpp's idle sleep (fast /slots polling kept it loaded for hours).
- useEffect(()=>{if(view!=='ai')return;let alive=true;const ping=()=>{if(!document.hidden)fetch('/api/ai/live',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(alive&&d)setAiLive(d)}).catch(()=>{})};ping();const iv=setInterval(ping,2000);
-  document.addEventListener('visibilitychange',ping);return()=>{alive=false;clearInterval(iv);document.removeEventListener('visibilitychange',ping)}},[view]);
+ useEffect(()=>{if(view!=='ai')return;let alive=true;const ping=()=>{if(!document.hidden)fetch('/api/ai/live',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(alive&&d)setAiLive(d)}).catch(()=>{})};qp=()=>{if(!document.hidden)fetch('/api/ai/queue',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(alive&&d)setAiQueue(d)}).catch(()=>{})};ping();qp();const iv=setInterval(ping,2000),qiv=setInterval(qp,5000);
+  document.addEventListener('visibilitychange',ping);return()=>{alive=false;clearInterval(iv);clearInterval(qiv);document.removeEventListener('visibilitychange',ping)}},[view]);
  // Tells the Android splash screen the dashboard has painted.
  useEffect(()=>{requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.AndroidBridge?.ready?.()}catch{}}))},[]);
- const [aiLive,setAiLive]=useState(null),[upd,setUpd]=useState(null),[fleet,setFleet]=useState(()=>{try{return JSON.parse(localStorage.getItem('homelab.fleet.v1'))}catch{return null}}),[fleetError,setFleetError]=useState(false);
+ const [aiLive,setAiLive]=useState(null),[aiQueue,setAiQueue]=useState(null),[upd,setUpd]=useState(null),[fleet,setFleet]=useState(()=>{try{return JSON.parse(localStorage.getItem('homelab.fleet.v1'))}catch{return null}}),[fleetError,setFleetError]=useState(false);
  // Fleet and backup state: the last copy shows at once (this browser's, then the server's cache), so the Overview
  // never reads green just because the ~8 s Proxmox probe hasn't answered. An old server copy triggers a quick re-ask.
  useEffect(()=>{let alive=true,again;async function get(){try{const r=await fetch('/api/fleet',{cache:'no-store',signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error();const d=await r.json();if(alive){setFleet(d);setFleetError(false);try{localStorage.setItem('homelab.fleet.v1',JSON.stringify(d))}catch{}
@@ -980,7 +981,7 @@ function App(){
  {/* 5. Ask AI: optional entry point, last so a long answer never pushes the controls and activity down. */}
  <AskQwen gpu={storage?.gpu} ai={storage?.ai} slim/>
  </>}
-{view==='ai'&&<><LocalAI ai={storage?.ai} gpu={storage?.gpu} live={aiLive} onOpen={()=>navigate('overview')} power={power} onNavigate={navigate}/><PcGpuPanel live={aiLive} history={storage?.pc_gpu} ranges={ranges}/><AiHistoryPanel history={storage?.ai_history}/><GpuPanel gpu={storage?.gpu} ranges={ranges}/></>}
+{view==='ai'&&<><LocalAI ai={storage?.ai} gpu={storage?.gpu} live={aiLive} queue={aiQueue} onOpen={()=>navigate('overview')} power={power} onNavigate={navigate}/><PcGpuPanel live={aiLive} history={storage?.pc_gpu} ranges={ranges}/><AiHistoryPanel history={storage?.ai_history}/><GpuPanel gpu={storage?.gpu} ranges={ranges}/></>}
   {view==='updates'&&<UpdatesPanel notify={notify}/>}
  {storageError&&['storage','media','ai','network','overview'].includes(view)&&view!=='overview'&&<div className="notice warning" role="alert">Disk and network readings are unavailable right now. Retrying every 10 seconds.</div>}
  {fleetError&&!fleet&&['fleet','infra'].includes(view)&&<div className="notice warning" role="alert">Host and backup status is unavailable right now. Retrying every minute.</div>}

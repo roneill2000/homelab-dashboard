@@ -11,8 +11,11 @@ generation request goes to the engine its `model` names, with the same switching
 there, so clients configure one connection with no key.
 """
 import http.client
+import hashlib
 import http.server
 import json
+import os
+import re
 import socket
 import socketserver
 import sys
@@ -60,6 +63,188 @@ CLIENTS = {'127.0.0.1', '192.168.0.2', '192.168.0.3', '192.168.0.4', '192.168.0.
 
 def client_allowed(address):
     return (address or '').removeprefix('::ffff:') in CLIENTS
+
+
+# ---- GPU session queue (SPEC-session-queue, 14 Nov 2026; Phase 1 report session-queue-phase1-20261114) ----
+# One lease for the whole GPU: the holder session's requests (same session key) go straight through and keep
+# their prompt cache; a request from another session waits its turn instead of swapping the engine away. Off
+# until Ryan sets Environment=QUEUE_ENABLED=1 on homelab-gpu-broker.service (systemctl edit) and restarts it;
+# with the flag off nothing below changes behaviour (the new history columns stay None).
+QUEUE_ENABLED = os.environ.get('QUEUE_ENABLED', '0').strip().lower() in ('1', 'true', 'on', 'yes')
+LEASE_IDLE_S = 600       # no request from the holder for this long: idle, lease may pass (Phase 1 p99.9 was 316 s)
+ASK_GRACE_S = 600        # holder keeps the lease this long after an ask card, then the queue may take it
+DONE_GRACE_S = 600       # holder keeps the lease this long after a finished reply (71% of Ryan's replies came within)
+FAIR_HOLD_S = 1800       # Ryan's fairness: >30 min held with someone waiting -> handover (the holder re-queues)
+LEASE_MAX_S = 4 * 3600   # a lease with no progress (session died mid-turn) is cut after 4 h, queue or not
+QUEUE_HOLD_S = 120       # a non-streaming request waits at most this long, then 503 + Retry-After
+QUEUE_KEEPALIVE_S = 15   # SSE comment every 15 s while queued: undici (pi family) kills a silent stream at 300 s
+# Pass-through clients (Ryan): never queue, never take or move the lease. They are served at once (evicting the
+# holder's cache as today); the holder keeps its lease and its queue place. Decided per client in ONE constant.
+PASS_THROUGH = {'192.168.0.16',   # Open WebUI: short interactive chats (a queued wait would die at its 600 s aiohttp
+                '192.168.0.4',    #   total cap anyway; Ryan won't use it while things are queued)
+                '192.168.0.3'}    #   Proxmox (homelab-why, alerts, benchmarks): same rule, nothing found against it
+# Queued sessions wait FIFO by first request. Status reads, /queue/* and Strata's /load never queue. No phone ping
+# for long waits (Ryan).
+
+
+def client_ip(address):
+    return (address or '').removeprefix('::ffff:')
+
+
+def is_pass_through(address):
+    return client_ip(address) in PASS_THROUGH
+
+
+def model_family(model):
+    """Model id without the quant tag: the cache is per conversation, not per quant, and switching between two quants
+    of the same model must not look like a new session ('qwen3.8-flash-next-iq3_xxs' -> 'qwen3.8-flash-next')."""
+    m = (model or '').strip().lower()
+    return re.sub(r'-(i?[qa]\d+[a-z_]*|a\d+b)$', '', m) or m
+
+
+def msg_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return ''.join(p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text')
+    return ''
+
+
+def session_key(headers, body, ip):
+    """Stable id for the lease. First choice: the pi-family header x-session-affinity (Pi sends it once models.json
+    sets compat.sendSessionAffinityHeaders; survives compaction). Fallback: hash of client IP + model family +
+    system message + first user message. Phase 1 measured that fallback: stable across turns, NOT stable across
+    compaction (the summary becomes the new first message, so the session re-queues - its cache is gone then
+    anyway), and only the first user message separates two Pocket sessions - prefer the header whenever present."""
+    aff = (headers.get('x-session-affinity') or '').strip()
+    if aff and len(aff) <= 200:
+        return aff
+    try:
+        data = json.loads(body) if body else {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    system = first_user = ''
+    msgs = data.get('messages')
+    if isinstance(msgs, list):
+        for m in msgs:
+            if isinstance(m, dict) and m.get('role') == 'system' and not system:
+                system = msg_text(m.get('content'))[:4000]
+            elif isinstance(m, dict) and m.get('role') == 'user' and not first_user:
+                first_user = msg_text(m.get('content'))[:4000]
+    raw = '\x1f'.join((ip, model_family(data.get('model')), system, first_user))
+    return 'fb:' + hashlib.sha256(raw.encode('utf-8', 'replace')).hexdigest()[:20]
+
+
+# Lease state: the holder session plus its queue of waiters, one lock for both. A holder's state is kept from what
+# its last response was: working (tool calls came back = the turn continues), waiting (an ask card opened for
+# a person), done (the reply ended with no tool calls). Pass-through requests never read or write this.
+_lease = {'key': None, 'client': None, 'since': 0.0, 'last_req': 0.0, 'release_at': float('inf'), 'state': None}
+_queue = []  # FIFO sessions: [{'key': str, 'client': str, 'first': float}]
+_lease_cv = threading.Condition()
+
+
+def lease_release(now):
+    """Why the holder may lose the lease now, or None. idle: no request for LEASE_IDLE_S. grace: a done/ask
+    signal older than DONE/ASK_GRACE_S (release_at). max: LEASE_MAX_S of continuous holding. fairness: Ryan's
+    hand-over - held past FAIR_HOLD_S while someone waits. idle/grace only matter with a waiting queue: with no
+    waiters the lease simply stays and costs nothing (the next request takes it either way)."""
+    if not _lease['key']:
+        return None
+    if now - _lease['since'] >= LEASE_MAX_S:
+        return 'max'
+    if now >= _lease['release_at'] and _queue:
+        return 'grace'
+    if now - _lease['last_req'] >= LEASE_IDLE_S and _queue:
+        return 'idle'
+    if now - _lease['since'] >= FAIR_HOLD_S and _queue:
+        return 'fairness'
+    return None
+
+
+def lease_update(now):
+    """Under the lock: recheck the lease and hand it to the queue head when it expired; a fairness hand-over also
+    puts the demoted holder at the back of the queue (it pays one re-read later). Wakes every parked waiter.
+    Callable with or without the lock held (lease_wait holds it; the replay and tests call it bare)."""
+    if not _lease_cv._is_owned():
+        with _lease_cv:
+            return _lease_update(now)
+    return _lease_update(now)
+
+
+def _lease_update(now):
+    reason = lease_release(now)
+    if reason is None:
+        if not _lease['key'] and _queue:  # free lease + waiters (release endpoint, or released earlier): hand over
+            reason = 'free'
+        else:
+            return
+    old, old_client = _lease['key'], _lease['client']
+    if reason == 'fairness':
+        _queue.append({'key': old, 'client': old_client, 'first': now})
+    _lease.update(key=None, client=None, since=0.0, last_req=0.0, release_at=float('inf'), state=None)
+    if _queue:
+        head = _queue.pop(0)
+        _lease.update(key=head['key'], client=head['client'], since=now, last_req=now, release_at=float('inf'),
+                      state='working')
+    log(f"queue: lease {(old or 'none')[:24]} ({old_client}) -> {_lease['key'][:24] if _lease['key'] else 'free'} "
+        f"({reason})")
+    _lease_cv.notify_all()
+
+
+def lease_grant(key, client, now):
+    """A session with no holder running takes the lease and goes straight through. Lock-safe from anywhere."""
+    with _lease_cv:
+        if _lease['key']:  # raced: someone else took it a moment earlier
+            return
+        _lease.update(key=key, client=client, since=now, last_req=now, release_at=float('inf'), state='working')
+        log(f'queue: lease to {client} ({key[:24]})')
+        _lease_cv.notify_all()
+
+
+def lease_end(now, state, key):
+    """What a holder's finished response was: update release_at for done/ask (only while someone waits), else keep
+    working. key must still be the holder - a pass-through or a hand-over may have changed that during the stream."""
+    with _lease_cv:
+        if _lease['key'] != key:
+            return  # no longer the holder (hand-over or pass-through evicted it during the stream): nothing to note
+        if state == 'waiting':
+            _lease['state'] = 'waiting'
+            _lease['release_at'] = now + ASK_GRACE_S
+        elif state == 'done':
+            _lease['state'] = 'done'
+            _lease['release_at'] = now + DONE_GRACE_S
+        else:
+            _lease['state'] = 'working'
+            _lease['release_at'] = float('inf')
+        _lease_cv.notify_all()
+
+
+def lease_snapshot():
+    """GET /queue/status (never queued): who holds the GPU, who waits. Same small JSON the dashboard row shows."""
+    with _lease_cv:
+        now = time.time()
+        holder = None
+        if _lease['key']:
+            holder = dict(session=_lease['key'], client=_lease['client'], state=_lease['state'],
+                          hold_s=round(now - _lease['since'], 1), idle_s=round(now - _lease['last_req'], 1))
+        return dict(enabled=bool(QUEUE_ENABLED), holder=holder,
+                    queue=[dict(position=n + 1, session=q['key'], client=q['client'], age_s=round(now - q['first'], 1))
+                           for n, q in enumerate(_queue)])
+
+
+def finish_state(tail):
+    """From the last 256 KB of a streamed reply: 'waiting' if an ask tool call is visible, 'done' if it ended with
+    no tool calls (finish_reason stop/length), else working. A heuristic by design: the broker cannot see the client
+    side (approval cards, ask answers), those show up later as idle or the ask-card release endpoint."""
+    text = (tail or b'').decode('utf-8', 'replace')
+    tool = '"tool_calls"' in text
+    if tool and re.search(r'"(?:name|function)"\s*:\s*"(?:streamable-http__)?ask"', text):
+        return 'waiting'
+    if not tool and re.search(r'"finish_reason"\s*:\s*"(?:stop|length)"', text):
+        return 'done'
+    return 'working'
 
 
 class GamePaused(RuntimeError):
@@ -468,10 +653,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def fail(self, code, message):
+    def fail(self, code, message, retry_after=None):
         raw = json.dumps({'error': {'message': message, 'type': 'gpu_broker'}}).encode()
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
+        if retry_after is not None:
+            self.send_header('Retry-After', str(retry_after))
         self.send_header('Content-Length', str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
@@ -496,6 +683,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.fail(413, 'Request too large')
         body = self.rfile.read(length) if length else None
         generate = needs_gpu(self.command, self.path)
+        # Queue status and lease release (never GPU work, never queued themselves). Same host/origin rules as
+        # everything else here (refuse()); release additionally needs the dashboard action header.
+        qpath = self.path.split('?', 1)[0].rstrip('/')
+        if self.command == 'GET' and qpath == '/queue/status':
+            return self.reply_json(lease_snapshot())
+        if self.command == 'POST' and qpath == '/queue/release':
+            return self.queue_release(body)
         extra = {}
         if engine == 'auto':
             path = self.path.split('?', 1)[0].rstrip('/')
@@ -531,10 +725,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 log(f'loop guard: {ai_history.model_of(body)} repeated one tool step {run} times; note added')
         if generate and engine == 'llama':
             body = llama_body(body)
+        # Session queue: park behind the lease holder instead of swapping the engine away. Pass-through clients
+        # (PASS_THROUGH) and status reads take no part; the holder's own requests ride straight through (this
+        # covers side requests too: compaction summaries and retries carry the same session key).
+        lease_key = None
+        waited = None
+        if generate and QUEUE_ENABLED and not is_pass_through(self.client_address[0]):
+            lease_key = session_key(self.headers, body, client_ip(self.client_address[0]))
+            try:
+                streaming = bool(json.loads(body or b'{}').get('stream'))
+            except Exception:
+                streaming = False
+            granted, waited = self.lease_wait(lease_key, streaming)
+            if not granted:
+                if getattr(self, '_sse_committed', False):
+                    log(f'queue: {lease_key[:24]} ({client_ip(self.client_address[0])}) queued stream went away')
+                    return
+                return self.fail(503, f'The GPU is held by another session; this non-streaming request waited its '
+                                      f'{QUEUE_HOLD_S} s queue hold and may try again', max(10, int(QUEUE_HOLD_S)))
         # Strata's chat page has its own Load button; it must free the GPU of llama models first, like a request.
         load = engine in STRATA and self.command == 'POST' and self.path.split('?', 1)[0].rstrip('/') == '/load'
         t0, held = time.time(), False
-        row = dict(ts=t0, engine=engine, model=ai_history.model_of(body) if generate and body else None, ok=0, status=None)
+        row = dict(ts=t0, engine=engine, model=ai_history.model_of(body) if generate and body else None, ok=0,
+                   status=None, client=client_ip(self.client_address[0]),
+                   queued_s=waited if generate and lease_key else None)
         if generate or load:
             try:
                 woke = ensure_awake(engine)
@@ -575,11 +789,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             upstream = conn.getresponse()
             started = True
             confirm_awake()  # any upstream answer (any engine, any status) proves the PC is up for the next 15 s
-            self.send_response(upstream.status, upstream.reason)
-            for k, v in upstream.getheaders():
-                if k.lower() not in HOP or (k.lower() == 'content-length' and not upstream.chunked):
-                    self.send_header(k, v)
-            self.end_headers()
+            if not getattr(self, '_sse_committed', False):
+                self.send_response(upstream.status, upstream.reason)
+                for k, v in upstream.getheaders():
+                    if k.lower() not in HOP or (k.lower() == 'content-length' and not upstream.chunked):
+                        self.send_header(k, v)
+                self.end_headers()
             row['status'] = upstream.status
             while True:
                 chunk = upstream.read1(65536)
@@ -604,9 +819,80 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if held:
                 release(engine)
             if generate:
+                if lease_key and row.get('ok'):
+                    # done/waiting signal for the lease from the reply's own tail (finish_reason / ask tool call);
+                    # lease_end ignores it unless this session is still the holder.
+                    lease_end(time.time(), finish_state(tail), lease_key)
                 remember(dict(row, ttfb_s=first - t1 if first else None, wall_s=time.time() - t0, **(ai_history.timings(tail) if row['ok'] else {})))
 
     do_GET = do_POST = do_PUT = do_DELETE = do_OPTIONS = forward
+
+    def queue_release(self, body):
+        """POST /queue/release: drop the current lease. Needs X-Dashboard-Action: 1 plus the host/origin rules
+        refuse() already enforces (same guard as the dashboard's other actions). With {"session": key} it releases
+        only that holder; with an empty body it releases a holder already waiting (ask open) or done (turn ended),
+        never one mid-turn: the rh-queue drop-in calls it at run.ended, when the broker has already marked the
+        holder done from its reply tail."""
+        if self.headers.get('X-Dashboard-Action', '') != '1':
+            return self.fail(401, 'X-Dashboard-Action: 1 required')
+        try:
+            want = (json.loads(body) if body else {}).get('session')
+        except (ValueError, AttributeError):
+            return self.fail(400, 'body must be JSON ({"session": key}) or empty')
+        if not QUEUE_ENABLED:
+            return self.reply_json(dict(released=False, reason='queue disabled'))
+        with _lease_cv:
+            if not _lease['key']:
+                return self.reply_json(dict(released=False, reason='no holder'))
+            if want is not None and want != _lease['key']:
+                return self.reply_json(dict(released=False, reason='not the holder'))
+            if want is None and _lease['state'] == 'working':
+                return self.fail(409, 'holder is mid-turn (working): send its session id to force, or let the '
+                                      'done/idle rules release it')
+            old = _lease['key']
+            _lease.update(key=None, client=None, since=0.0, last_req=0.0, release_at=float('inf'), state=None)
+            lease_update(time.time())  # hand the freed lease to the queue head at once
+            _lease_cv.notify_all()
+            new = _lease['key']
+        log(f'queue: lease released by action: {old[:24]} -> {new[:24] if new else "free"}')
+        return self.reply_json(dict(released=True, was=old, now_holder=new))
+
+    def lease_wait(self, key, streaming):
+        """Park until this session may run: (True, waited_s) or (False, None) for a non-streaming caller past
+        QUEUE_HOLD_S (its queue entry stays, so a retry keeps its place in line). A queued streaming caller commits
+        200 + SSE headers at once, then sends `: queued, position N` comments every QUEUE_KEEPALIVE_S until
+        granted (measured: undici drops a stream silent for 300 s; 15 s comments keep pi-family clients alive).
+        The holder (and its side requests: same session key) returns immediately. The waiter's own 15 s tick
+        rechecks time-based lease expiry, so a clock-only release needs no push from the holder."""
+        t0 = time.time()
+        with _lease_cv:
+            while True:
+                lease_update(time.time())
+                if _lease['key'] == key:
+                    _lease['last_req'] = time.time()
+                    return True, max(0.0, time.time() - t0)
+                if not _lease['key']:
+                    lease_grant(key, client_ip(self.client_address[0]), time.time())
+                    _lease_cv.notify_all()
+                    return True, max(0.0, time.time() - t0)
+                if next((q for q in _queue if q['key'] == key), None) is None:
+                    _queue.append({'key': key, 'client': client_ip(self.client_address[0]), 'first': time.time()})
+                if streaming and not getattr(self, '_sse_committed', False):
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/event-stream')
+                    self.send_header('Cache-Control', 'no-store')
+                    self.end_headers()
+                    self._sse_committed = True
+                if not streaming and time.time() - t0 >= QUEUE_HOLD_S:
+                    return False, None
+                _lease_cv.wait(QUEUE_KEEPALIVE_S)
+                if streaming:
+                    pos = 1 + next((i for i, q in enumerate(_queue) if q['key'] == key), 0)
+                    try:
+                        self.wfile.write((': queued, position %d\n\n' % pos).encode())
+                        self.wfile.flush()
+                    except OSError:
+                        return False, None  # client hung up on its queued stream
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):

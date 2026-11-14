@@ -11,7 +11,8 @@ DB = os.environ.get('HOMELAB_METRICS_DB', '/var/lib/homelab-dashboard/metrics.sq
 RETENTION = 90 * 86400
 TAIL = 256 * 1024  # bytes of each response kept to find the final timings
 COLS = ('ts', 'engine', 'model', 'ok', 'status', 'swap', 'swap_s', 'ttfb_s', 'wall_s',
-        'prompt_n', 'cache_n', 'prompt_tps', 'gen_n', 'gen_tps', 'draft_n', 'draft_ok')
+        'prompt_n', 'cache_n', 'prompt_tps', 'gen_n', 'gen_tps', 'draft_n', 'draft_ok',
+        'client', 'queued_s')  # client IP + s spent queued behind the GPU lease (14 Nov 2026 session queue)
 MIN_PROMPT = 500  # prompt speed is only meaningful for prompts at least this long
 
 
@@ -25,7 +26,11 @@ def initialize(connect=connect):
     with connect() as db:
         db.execute('CREATE TABLE IF NOT EXISTS ai_requests (ts REAL, engine TEXT, model TEXT, ok INTEGER, status INTEGER, '
                    'swap TEXT, swap_s REAL, ttfb_s REAL, wall_s REAL, prompt_n INTEGER, cache_n INTEGER, prompt_tps REAL, '
-                   'gen_n INTEGER, gen_tps REAL, draft_n INTEGER, draft_ok INTEGER)')
+                   'gen_n INTEGER, gen_tps REAL, draft_n INTEGER, draft_ok INTEGER, client TEXT, queued_s REAL)')
+        have = {r[1] for r in db.execute('PRAGMA table_info(ai_requests)')}  # old databases (written before the
+        for col, typ in (('client', 'TEXT'), ('queued_s', 'REAL')):          # session queue) gain both columns in place
+            if col not in have:
+                db.execute(f'ALTER TABLE ai_requests ADD COLUMN {col} {typ}')
         db.execute('CREATE INDEX IF NOT EXISTS ai_requests_ts ON ai_requests(ts)')
 
 
