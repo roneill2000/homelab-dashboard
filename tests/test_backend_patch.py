@@ -526,6 +526,17 @@ class AiQueueTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             patch_ai_queue('class H: pass\n')
 
+    def test_repairs_the_joined_marker_comment(self):
+        # The 14 Nov deploy commented out the live telemetry route (marker joined that line). The patcher must
+        # split it back on the next deploy instead of skipping (the marker guard would otherwise hide the damage).
+        broken = ('class H:\n    def do_GET(self):\n'
+                  '        if self.path == "/api/ai/queue":\n            pass\n'
+                  '# HOMELAB_AI_QUEUE_V1        if self.path.startswith("/api/telemetry"):\n            pass\n')
+        out = patch_ai_queue(broken)
+        self.assertIn('\n        if self.path.startswith("/api/telemetry"):', out)
+        self.assertIn('# HOMELAB_AI_QUEUE_V1\n', out)
+        self.assertEqual(patch_ai_queue(out), out)
+
     def test_coexists_with_ai_live(self):
         src = 'class H:\n    def do_GET(self):\n        if self.path.startswith("/api/telemetry"):\n            pass\n'
         out = patch_ai_queue(patch_ai_live(src))

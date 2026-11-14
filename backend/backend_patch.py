@@ -1007,6 +1007,15 @@ def patch_ai_queue(source):
     """GET /api/ai/queue: the GPU session-lease state (who holds the GPU, who waits in line). The lease lives inside
     the gpu_broker process on :8000, so this proxies its small /queue/status JSON for the Local AI page row."""
     marker = '# HOMELAB_AI_QUEUE_V1'
+    route_at_marker = '        if self.path.startswith("/api/telemetry"):'
+    # Self-heal (14 Nov deploy): an earlier run of this patch had no newline after the marker, so on the live
+    # file the marker joined the telemetry route line and commented it out. The marker guard would then skip
+    # the patch forever; split the line back first (the queue route is already in the live file, so do not re-add).
+    joined = marker + route_at_marker
+    if joined in source:
+        source = source.replace(joined, marker + chr(10) + route_at_marker + chr(10), 1)
+        compile(source, '<dashboard>', 'exec')
+        return source
     if marker in source:
         return source
     route = ('        if self.path == "/api/ai/queue":\n'
@@ -1021,7 +1030,7 @@ def patch_ai_queue(source):
              '            self.end_headers()\n'
              '            self.wfile.write(body)\n'
              '            return\n')
-    route_at = '        if self.path.startswith("/api/telemetry"):\n'
+    route_at = route_at_marker + chr(10)
     if source.count(route_at) != 1:
         raise ValueError('dashboard handler shape changed; ai-queue patch not applied')
     source = source.replace(route_at, route + marker + '\n' + route_at)
