@@ -64,12 +64,15 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', help='results directory (default: <runner root>/regression-results)')
     parser.add_argument('--wait', action='store_true', help='wait (max 60 min) for a blocked window or a busy GPU')
+    parser.add_argument('--image', help='override runner.IMAGE for this run (image comparison runs)')
     args = parser.parse_args(argv)
     parent = str(HERE.parent)
     if parent not in sys.path:
         sys.path.insert(0, parent)  # installed layout: regression/ sits next to runner.py
     import runner
 
+    if args.image:
+        runner.IMAGE = args.image
     runner.NAME = 'homelab-nightly-regression'
     runner.API = 'http://127.0.0.1:11438'
     base_command = runner.container_command
@@ -153,11 +156,27 @@ def main(argv=None):
             results.append(record)
             print(f"{record['id']:<18} {record.get('verdict',''):<7} {record['score']}/2  "
                   f"{record.get('failure') or record['what'][:90]}", flush=True)
-        print(f'TOTAL {total}/30  (model {runner.MODEL}, prompt {runner.PROMPT_VERSION})')
+        print(f'TOTAL {total}/30  (model {runner.MODEL}, prompt {runner.PROMPT_VERSION}, image {runner.IMAGE})')
+        try:  # llama-server's own lines: buffer sizes (VRAM), load time, generation speed
+            import subprocess
+            logs = subprocess.run(['docker', 'logs', runner.NAME], capture_output=True, text=True, timeout=30).stderr
+            for line in logs.splitlines():
+                low = line.lower()
+                if any(k in low for k in ('offloaded to', 'max VRAM', 'model buffer size',
+                                          'compute buffer size', 'eval time for', 'sample time for',
+                                          'total time for', 'loaded in')):
+                    print(f'server> {line.strip()}')
+        except Exception as exc:
+            print(f'server log stats: {type(exc).__name__}')
+        pt = sum(r.get('usage', {}).get('prompt_tokens', 0) for r in results)
+        ct = sum(r.get('usage', {}).get('completion_tokens', 0) for r in results)
+        secs = sum(r.get('seconds', 0) for r in results)
+        print(f'usage: {pt} prompt + {ct} completion tokens in {secs:.0f} s '
+              f'(~{ct / max(secs, 1):.1f} tok/s client-side)')
         out_dir = Path(args.out) if args.out else runner.ROOT / 'regression-results'
         out_dir.mkdir(parents=True, exist_ok=True)
         name = f"results-{datetime.now().strftime('%Y%m%d')}-{runner.PROMPT_VERSION}.jsonl"
-        body = [json.dumps(dict(r, model=runner.MODEL, prompt_version=runner.PROMPT_VERSION,
+        body = [json.dumps(dict(r, model=runner.MODEL, prompt_version=runner.PROMPT_VERSION, image=runner.IMAGE,
                                 seed=42, ts=int(time.time()), load_seconds=load_seconds)) for r in results]
         (out_dir / name).write_text('\n'.join(body) + '\n')
         print(f'wrote {out_dir / name}')
