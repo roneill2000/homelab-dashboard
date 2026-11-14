@@ -28,6 +28,17 @@ class StubEngine(http.server.BaseHTTPRequestHandler):
         self.rfile.read(int(self.headers.get('Content-Length') or 0))
         sess = self.headers.get('x-session-affinity')
         StubEngine.seen.append(sess)
+        if sess == 'S':  # ~400 KB chunked stream: back-pressure must stay possible (blocking socket)
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.end_headers()
+            for _ in range(40):
+                self.wfile.write(('data: {"id":"stub","object":"chat.completion.chunk",'
+                                  '"choices":[{"index":0,"delta":{"content":"%s"}}]}\n\n' % ('x' * 9000)).encode())
+                self.wfile.flush()
+            self.wfile.write(b'data: [DONE]\n\n')
+            self.wfile.flush()
+            return
         delta = {'content': 'hi ' + (sess or '-')}
         finish = 'stop'
         if sess in ('T', 'K'):
@@ -54,6 +65,15 @@ def chat(sess, stream=True, marker='go'):
     if sess:
         headers['x-session-affinity'] = sess
     return body, headers
+
+
+def post(conn, obj, path, extra=None):
+    body = json.dumps(obj)
+    headers = {'Content-Type': 'application/json'}
+    headers.update(extra or {})
+    conn.request('POST', path, body=body, headers=headers)
+    r = conn.getresponse()
+    return r.status, r.read()
 
 
 def send_recv(conn, sess, stream=True, marker='go'):
@@ -273,7 +293,7 @@ class QueueIT(unittest.TestCase):
         with closing(self.conn()) as c:
             self.assertEqual(send_recv(c, 'T')[0], 200)  # working holder: idle is far away
         body, headers = chat('B')
-        raw = bytearray(b'POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n')
+        raw = bytearray(b'POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1:' + str(self.broker.server_address[1]).encode() + b'\r\nContent-Type: application/json\r\n')
         raw += b'x-session-affinity: B\r\nContent-Length: %d\r\n\r\n' % len(body)
         raw += body.encode()
         cb = socket.socket()
@@ -356,6 +376,184 @@ class QueueIT(unittest.TestCase):
         self.assertEqual(StubEngine.seen[-1], 'C')
         self.assertFalse(boxH.get('done', False))  # H is still stuck in its socket write
         th.join(6)
+
+    def test_a_waiter_that_closes_cleanly_drops_its_entry(self):
+        # A tidy waiter: shutdown(SHUT_WR) then close. The kernel delivers a real FIN: the zero-wait probe's
+        # recv() answers b'' (EOF). That ends the request just like live bytes do -- an EOF must read as GONE,
+        # not as "still here" (the inverted `gone = probe != b\'\'` mistake this test pins).
+        patch.object(g, 'LEASE_IDLE_S', 5.0).start()
+        self.addCleanup(setattr, g, 'LEASE_IDLE_S', 600)
+        patch.object(g, 'GRANTED_UNUSED_S', 5.0).start()
+        self.addCleanup(setattr, g, 'GRANTED_UNUSED_S', 30)
+        with closing(self.conn()) as c:
+            self.assertEqual(send_recv(c, 'T')[0], 200)  # holder: bash tool, working
+        body = chat('CLN')[0]
+        port = self.broker.server_address[1]
+        raw = bytearray(b'POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1:' + str(port).encode() +
+                        b'\r\nContent-Type: application/json\r\nx-session-affinity: CLN\r\nContent-Length: %d\r\n\r\n' % len(body))
+        raw += body.encode()
+        cb = socket.socket()
+        cb.connect(('127.0.0.1', port))
+        cb.sendall(bytes(raw))
+        time.sleep(0.15)  # CLN parked; a keep-alive tick has run on the open socket
+        cb.shutdown(socket.SHUT_WR)  # a clean FIN, no unread-data RST: recv() will answer b''
+        time.sleep(0.3)  # several 0.05 s ticks: the probe sees the EOF, the entry goes with the handler
+        self.assertNotIn('CLN', [q['session'] for q in g.lease_snapshot()['queue']])
+        cb.close()
+        tc, boxC = self.thread_send('C')  # the live line continues as if CLN never joined
+        tc.join(8)
+        self.assertEqual(boxC['result'][0], 200)
+        self.assertEqual(StubEngine.seen[-1], 'C')
+        self.assertNotIn('CLN', StubEngine.seen)  # the dead request never reached the GPU
+
+    def test_a_granted_stream_to_a_slow_reader_arrives_complete(self):
+        # The hung-up probe flips the client socket to non-blocking; it MUST be restored (finally). A granted
+        # queued reply streams over that socket: on this machine the kernel buffers loopback without limit, so
+        # back-pressure cannot be provoked directly; instead every commit/payload write of the granted reply
+        # records the connection's blocking mode: it must be the original blocking mode (None), never 0.
+        state = {}
+
+        class ModePeek(g.Handler):
+            def setup(self):
+                super().setup()
+                real, owner = self.wfile, self
+
+                class W:
+                    def __getattr__(self, name):
+                        return getattr(real, name)
+
+                    def write(self, b):
+                        if not b.startswith(b': queued'):
+                            modes.append(owner.connection.gettimeout())
+                        real.write(b)
+
+                    def flush(self):
+                        real.flush()
+
+                self.wfile = W()
+
+        modes = []
+        patcher = patch.object(g, 'Handler', ModePeek)
+        patcher.start()
+        broker = _serve(g.Server(('127.0.0.1', 0), 'llama', ('127.0.0.1', self.engine.server_address[1])))
+        self.addCleanup(patcher.stop)  # LIFO: the broker closes before the real Handler comes back
+        self.addCleanup(lambda: [broker.shutdown(), broker.server_close()])
+        port = broker.server_address[1]
+        with closing(http.client.HTTPConnection('127.0.0.1', port, timeout=10)) as c:
+            self.assertEqual(send_recv(c, 'T')[0], 200)  # holder: bash tool, working
+        raw = bytearray(b'POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1:' + str(port).encode() +
+                        b'\r\nContent-Type: application/json\r\n')
+        raw += b'x-session-affinity: S\r\nContent-Length: %d\r\n\r\n' % len(chat('S')[0])
+        raw += chat('S')[0].encode()
+        got = []
+
+        def slow_read():
+            cb = socket.socket()
+            cb.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8192)  # a deliberate slow, small reader
+            cb.connect(('127.0.0.1', port))
+            cb.sendall(bytes(raw))
+            cb.settimeout(15)
+            data = b''
+            try:
+                while True:
+                    chunk = cb.recv(2048)
+                    if not chunk:
+                        break  # EOF: the reply ended
+                    data += chunk
+                    time.sleep(0.01)
+            except (socket.timeout, TimeoutError, OSError):
+                pass
+            finally:
+                got.append(data)
+                cb.close()
+
+        t = threading.Thread(target=slow_read, daemon=True)
+        t.start()
+        time.sleep(0.15)  # S is parked behind the holder
+        with closing(http.client.HTTPConnection('127.0.0.1', port, timeout=10)) as c:
+            rel = post(c, {'session': 'T'}, '/queue/release', extra={'X-Dashboard-Action': '1'})
+            self.assertEqual(rel[0], 200)
+            self.assertIn(b'"released": true', rel[1])
+        t.join(20)
+        body = got[0]
+        self.assertEqual(body.count(b'"chat.completion.chunk"'), 40)  # every chunk landed: 40 x 9 KB content
+        self.assertIn(b'data: [DONE]', body)
+        self.assertGreater(len(body), 350000)  # 40 x ~9 KB + headers: nothing truncated
+        self.assertEqual(StubEngine.seen[-1], 'S')
+        self.assertTrue(modes)
+        self.assertNotIn(0, modes)  # no leaked non-blocking probe mode on any payload write
+        self.assertEqual(len(set(modes)), 1)  # one stable mode all the way through the reply
+
+    def test_a_handover_to_a_parked_waiter_is_woken_not_slept_through(self):
+        # The lease lock is released while a tick does its socket I/O; a grant that lands inside that window
+        # (notify_all with the waiter NOT inside wait()) must be seen before parking again, not slept through
+        # for a whole keep-alive tick. The queued comment write here sleeps 0.4 s and the release lands inside
+        # it: with the re-check the waiter serves ~0.5 s after the release; without it, ~2 s after (a full tick).
+        patch.object(g, 'LEASE_IDLE_S', 30.0).start()
+        self.addCleanup(setattr, g, 'LEASE_IDLE_S', 600)
+        patch.object(g, 'FAIR_HOLD_S', 30.0).start()
+        self.addCleanup(setattr, g, 'FAIR_HOLD_S', 1800)
+        patch.object(g, 'GRANTED_UNUSED_S', 30.0).start()
+        self.addCleanup(setattr, g, 'GRANTED_UNUSED_S', 30)
+        patch.object(g, 'LEASE_MAX_S', 60.0).start()
+        self.addCleanup(setattr, g, 'LEASE_MAX_S', 4 * 3600)
+        patch.object(g, 'DONE_GRACE_S', 30.0).start()
+        self.addCleanup(setattr, g, 'DONE_GRACE_S', 600)
+        patch.object(g, 'QUEUE_KEEPALIVE_S', 2.0).start()
+        self.addCleanup(setattr, g, 'QUEUE_KEEPALIVE_S', 15)
+
+        class SleepyWrite(g.Handler):
+            def setup(self):
+                super().setup()
+                real = self.wfile
+
+                class W:
+                    def __getattr__(self, name):
+                        return getattr(real, name)
+
+                    def write(self, b):
+                        if b.startswith(b': queued'):  # only the parked comment write is slow
+                            time.sleep(0.4)
+                        real.write(b)
+
+                    def flush(self):
+                        real.flush()
+
+                self.wfile = W()
+
+        patcher = patch.object(g, 'Handler', SleepyWrite)
+        patcher.start()
+        broker = _serve(g.Server(('127.0.0.1', 0), 'llama', ('127.0.0.1', self.engine.server_address[1])))
+        self.addCleanup(patcher.stop)  # LIFO: the broker closes before the real Handler comes back
+        self.addCleanup(lambda: [broker.shutdown(), broker.server_close()])
+        with closing(http.client.HTTPConnection('127.0.0.1', broker.server_address[1], timeout=10)) as c:
+            self.assertEqual(send_recv(c, 'T')[0], 200)  # holder: bash tool, working
+        boxB = {}
+
+        def run_b():
+            cb = http.client.HTTPConnection('127.0.0.1', broker.server_address[1], timeout=10)
+            try:
+                body, headers = chat('B')
+                cb.request('POST', '/v1/chat/completions', body=body, headers=headers)
+                r = cb.getresponse()
+                boxB['result'] = (r.status, r.read())
+            except Exception:
+                boxB['result'] = None
+            finally:
+                cb.close()
+
+        tc = threading.Thread(target=run_b, daemon=True)
+        tc.start()
+        time.sleep(2.1)  # tick 2 (at 2.0 s) is inside its slow comment write
+        t0 = time.time()
+        with closing(http.client.HTTPConnection('127.0.0.1', broker.server_address[1], timeout=10)) as c:
+            rel = post(c, {'session': 'T'}, '/queue/release', extra={'X-Dashboard-Action': '1'})
+            self.assertEqual(rel[0], 200)
+            self.assertIn(b'"released": true', rel[1])  # the handover is THIS release, not a clock tick
+        tc.join(4)
+        self.assertFalse(tc.is_alive())
+        self.assertEqual(boxB['result'][0], 200)
+        self.assertLess(time.time() - t0, 1.2)  # woken right after the write, not slept through the 2 s tick
 
     def test_status_endpoint_never_queues(self):
         with closing(self.conn()) as c:
@@ -480,6 +678,12 @@ class GhostRules(unittest.TestCase):
         class StillOpen:  # the zero-wait probe sees an open connection with no data
             def settimeout(self, t):
                 pass
+            def gettimeout(self):
+                return None
+
+            def settimeout(self, t):
+                pass
+
             def recv(self, n):
                 raise BlockingIOError
         h.wfile = Dead()

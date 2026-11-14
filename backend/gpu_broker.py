@@ -949,17 +949,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # (b'') or the reset. The request body is already consumed, so live bytes mean a misbehaving client;
             # either way the waiter left the line, and its entry goes with it (a non-streaming abandonment would
             # otherwise sit in the queue for a full QUEUE_HOLD_S).
+            prev_timeout = self.connection.gettimeout()
+            self.connection.settimeout(0)
             try:
-                self.connection.settimeout(0)
                 probe = self.connection.recv(1)
-                if probe == b'':
-                    raise OSError('peer closed')
-                if probe:
-                    raise OSError('peer sent live bytes while queued')
+                gone = True  # a successful zero-wait read is either b'' (EOF from a clean shutdown)
+                # or live bytes (a misbehaving client): either way the waiter left the line; only the
+                # EAGAIN-style excepts below mean the connection is still open and quiet.
             except (BlockingIOError, socket.timeout):
-                pass  # open connection, no data: the normal parked case
+                gone = False  # open connection, no data: the normal parked case
             except OSError:
-                with _lease_cv:  # hung up: leave the line instead of becoming a ghost
+                gone = True  # reset/broken pipe: the peer is gone
+            finally:
+                # The socket MUST be blocking again: a granted queued request streams its whole reply over it,
+                # and on a non-blocking socket sendall raises BlockingIOError as soon as the client's receive
+                # buffer fills - a slow reader would kill the reply mid-stream.
+                self.connection.settimeout(prev_timeout)
+            if gone:
+                with _lease_cv:
                     dead = next((q for q in _queue if q['key'] == key), None)
                     if dead is not None:
                         _queue.remove(dead)
@@ -987,6 +994,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     return False, None
             first_tick = False
             with _lease_cv:
+                if _lease['key'] == key or not _lease['key']:
+                    continue  # the grant landed while this tick was doing socket I/O: do not sleep through it
                 _lease_cv.wait(QUEUE_KEEPALIVE_S)
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):

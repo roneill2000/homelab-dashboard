@@ -520,6 +520,9 @@ class AiQueueTests(unittest.TestCase):
         self.assertIn('"/api/ai/queue"', out)
         self.assertIn('127.0.0.1:8000/queue/status', out)
         self.assertEqual(patch_ai_queue(out), out)
+        # the regression this pins (14 Nov deploy): the marker comment joined the next line and commented out
+        # the /api/telemetry route (the live API silently served the HTML shell). The route line must stay whole.
+        self.assertIn('\n        if self.path.startswith("/api/telemetry"):\n', out)
         with self.assertRaises(ValueError):
             patch_ai_queue('class H: pass\n')
 

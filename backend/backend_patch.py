@@ -1024,8 +1024,12 @@ def patch_ai_queue(source):
     route_at = '        if self.path.startswith("/api/telemetry"):\n'
     if source.count(route_at) != 1:
         raise ValueError('dashboard handler shape changed; ai-queue patch not applied')
-    source = source.replace(route_at, route + marker + route_at)
+    source = source.replace(route_at, route + marker + '\n' + route_at)
     compile(source, '<dashboard>', 'exec')
+    # the marker MUST keep the telemetry route live on its own line: a joined comment silently turns
+    # /api/telemetry into the HTML fallback (the deploy 2026-11-14 caused on LXC 104; caught by the UI checks).
+    if marker + '\n' + route_at not in source:
+        raise ValueError('ai-queue patch must leave the telemetry route uncommented')
     return source
 
 
