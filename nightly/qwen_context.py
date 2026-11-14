@@ -22,7 +22,7 @@ RECORDED = {
               'Orange Pi (.10) runs Ubuntu 26.04 with schedutil governor (480-1512 MHz), mq-deadline on mmcblk1, hardware watchdog (15s) + panic auto-reboot (10s), and official Ubuntu ports APT sources only.',
               'GL-BE9300 router (.1) CPU governor is locked to performance (1.5 GHz across all 4 cores). Proxmox (.3) and Unraid (.4) have Intel HWP dynamic boost enabled.',
               'Desktop .12 is a gaming PC and is intentionally off sometimes; A310 is always available on Unraid.',
-              'Ask Qwen answers with Qwen3.8-27B on the gaming PC when it is on, otherwise with NVIDIA Nemotron 3.5 Bolt E4B (Unsloth UD-Q3_K_XL) on the A310 (llama.cpp SYCL built for the A310, 6K window, loads in about 10 s from the cache SSD).',
+              'Ask Qwen answers with Qwen3.8-27B on the gaming PC when it is on, otherwise with NVIDIA Nemotron 3.5 Bolt E4B (mradermacher i1-Q4_K_S) on the A310 (llama.cpp SYCL built for the A310, 6K window, loads in about 10 s from the cache SSD).',
               'The 03:00 nightly log review runs Nemotron Bolt E4B exclusively on the A310. Each log group gets one retry, the run stops reviewing after 2 hours and is killed after 3.',
               'Cache guard checks every 5 minutes and starts mover at 70% used; stock daily mover is 03:40.',
               'Cache pool minimum-free reserve is 100 GiB, applied and checked on 2026-10-20.',

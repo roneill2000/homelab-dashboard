@@ -19,12 +19,15 @@ ROOT=Path('/mnt/disk1/.homelab-nightly')
 MODEL_ROOT=Path('/mnt/cache/appdata/homelab-models')  # cache SSD (appdata is cache-only): 14 s cold load vs 41 s from the array HDD
 # NVIDIA Nemotron 3.5 Bolt E4B (Gemma 4 E4B post-train) replaced Gemma 4 E4B on 13 Nov 2026 (Ryan): blind A310 tests
 # over 25 events, Bolt 39/50 with no invented facts vs Gemma 35/50 (/mnt/share/ai/a310-review-models-20261113/).
-# Unsloth UD-Q3_K_XL: 2.86 GB VRAM at 8k (the UD-Q4_K_XL needed 4,044 MiB and does not fit the A310).
-MODEL='NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q3_K_XL'
-MODEL_FILE='NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q3_K_XL.gguf'
-MODEL_REPO='unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF'
-MODEL_REVISION='b738967d6da3441a7d1c71fcec15e49e32e16ecd'
-MODEL_SHA256='3f8032b9d2c18536c4ac51b97959a563cc27434de99823640c98147edc62ce9b'
+# mradermacher i1-Q4_K_S since 14 Nov 2026 (Ryan; agy/Hydrogen /mnt/share/ai/a310-prefill-20261114/REPORT.md): its GPU weights
+# are Q4_K/Q5_K/Q6_K, which b11804's SYCL backend reorders (ESIMD); the Unsloth UD-Q3_K_XL was 75% IQ4_XS on the GPU, which it
+# does not. Regression 27/30 vs 26/30, 755 s vs 1,003 s, decode 13.1 vs 10.6 tok/s, prefill 309 vs 228; 556 MiB VRAM free at 8k.
+# Previous: unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF UD-Q3_K_XL @ b738967d (sha 3f8032b9...), file kept on the cache SSD.
+MODEL='NVIDIA-Nemotron-3.5-Bolt-E4B-i1-Q4_K_S'
+MODEL_FILE='Bolt-E4B-mradermacher-i1/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16.i1-Q4_K_S.gguf'
+MODEL_REPO='mradermacher/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16-i1-GGUF'
+MODEL_REVISION='f0ac632e5b554924bc8a6df61d37d46dafd9dcea'
+MODEL_SHA256='79aa6bc1de8a9ba4b58fb8aeae399e8762d8674995cdd2eaa85e19f68c5ab4f8'
 # llama.cpp b11804 SYCL with libggml-sycl.so built ahead of time for the A310 (acm-g11); local to Unraid,
 # rebuilt by evals/a310-backends-2026-10-22/build_aot.sh. 18 tok/s vs 12.6 on Vulkan, 4-21 s load.
 IMAGE='homelab/llama-sycl-a310:b11804'
