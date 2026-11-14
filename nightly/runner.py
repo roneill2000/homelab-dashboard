@@ -245,7 +245,7 @@ def container_command(context_size=8192, reasoning_budget=768, profile='quick'):
             '-p','127.0.0.1:11437:8000','-v',str(MODEL_ROOT)+':/models:ro',IMAGE,
             '--model','/models/'+pr['file'],'--alias',pr['model'],'--host','0.0.0.0','--port','8000',
             '--gpu-layers','all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
-            '--batch-size','256','--ubatch-size','128','--threads','2','--threads-batch','2',
+            '--batch-size','256','--ubatch-size','256','--threads','2','--threads-batch','2',
             '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift']
     # Gemma E4B's per-layer embedding tables (~1.8 GB) stay in system RAM so the rest fits the 4 GB A310 (3.2 GB used)
     command+=['--override-tensor','per_layer_token_embd=CPU']
