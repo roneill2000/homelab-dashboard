@@ -4,6 +4,7 @@ with an explicit fake `now`, so grace/idle/fairness/max boundaries are tested to
 import http.client
 import http.server
 import json
+import socket
 import threading
 import time
 from contextlib import closing
@@ -71,11 +72,12 @@ class QueueIT(unittest.TestCase):
     def setUp(self):
         StubEngine.seen = []
         for k, v in (('key', None), ('client', None), ('since', 0.0), ('last_req', 0.0),
-                     ('release_at', float('inf')), ('state', None)):
+                     ('release_at', float('inf')), ('state', None), ('entered', False)):
             g._lease[k] = v
         del g._queue[:]
         self.rows = []
         self.patches = [patch.object(g, 'QUEUE_ENABLED', True), patch.object(g, 'QUEUE_KEEPALIVE_S', 0.05),
+                        patch.object(g, 'GRANTED_UNUSED_S', 0.2),
                         patch.object(g, 'DONE_GRACE_S', 0.3), patch.object(g, 'ASK_GRACE_S', 0.3),
                         patch.object(g, 'LEASE_IDLE_S', 0.3), patch.object(g, 'FAIR_HOLD_S', 0.5),
                         patch.object(g, 'LEASE_MAX_S', 1.0), patch.object(g, 'QUEUE_HOLD_S', 0.3),
@@ -263,6 +265,98 @@ class QueueIT(unittest.TestCase):
         self.assertEqual(snap['holder']['session'], 'K')
         self.assertEqual(snap['holder']['state'], 'waiting')
 
+    def test_a_waiter_that_hangs_up_drops_its_entry(self):
+        # A parked stream whose client RSTs (undici destroy / session abort) must leave the line: the next
+        # keep-alive tick's write or zero-wait probe sees the reset, and the entry goes with the handler.
+        patch.object(g, 'LEASE_IDLE_S', 5.0).start()
+        self.addCleanup(setattr, g, 'LEASE_IDLE_S', 600)
+        with closing(self.conn()) as c:
+            self.assertEqual(send_recv(c, 'T')[0], 200)  # working holder: idle is far away
+        body, headers = chat('B')
+        raw = bytearray(b'POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n')
+        raw += b'x-session-affinity: B\r\nContent-Length: %d\r\n\r\n' % len(body)
+        raw += body.encode()
+        cb = socket.socket()
+        cb.connect(('127.0.0.1', self.broker.server_address[1]))
+        cb.sendall(bytes(raw))
+        time.sleep(0.15)  # B parked; queued comments are arriving but never read
+        cb.close()  # unread data + close -> kernel RSTs the broker side
+        time.sleep(0.4)  # a parked tick hits the reset (write or probe): the entry is dropped
+        self.assertNotIn('B', [q['session'] for q in g.lease_snapshot()['queue']])
+        tc, boxC = self.thread_send('C')  # the live line continues as if B never joined
+        tc.join(8)
+        self.assertEqual(boxC['result'][0], 200)
+        self.assertEqual(StubEngine.seen[-1], 'C')
+        self.assertEqual(StubEngine.seen.count('B'), 0)  # the dead stream never reached the GPU
+
+    def test_a_503_never_retried_does_not_block_the_line(self):
+        # The holder stays working (idle far away): B2 must reach the 503, and its never-retried entry must not
+        # hold up C. C's path: fairness demotes T, the ghost B2 gets head, the unused rule cuts it at once.
+        patch.object(g, 'LEASE_IDLE_S', 5.0).start()
+        self.addCleanup(setattr, g, 'LEASE_IDLE_S', 600)
+        with closing(self.conn()) as c:
+            self.assertEqual(send_recv(c, 'T')[0], 200)  # working holder (bash tool reply)
+        with closing(self.conn()) as c:
+            self.assertEqual(send_recv(c, 'B2', stream=False)[0], 503)  # queued; it will never be retried
+        tc, boxC = self.thread_send('C')  # the live line must get its turn soon, not behind a ghost
+        tc.join(8)
+        self.assertEqual(boxC['result'][0], 200)  # served well inside 30 s of the ghost's grant
+        self.assertEqual(StubEngine.seen[-1], 'C')
+        snap = g.lease_snapshot()
+        self.assertNotIn('B2', [q['session'] for q in snap['queue']])  # ghost entry gone (consumed or pruned)
+        self.assertNotEqual(snap['holder']['session'], 'B2')
+
+    def test_a_blocked_queued_write_does_not_stall_other_grants(self):
+        # SPEC audit (14 Nov 2026): socket I/O must not happen while _lease_cv is held. A client with a full
+        # receive buffer blocks wfile.write for minutes; parked behind such a client, another session must still
+        # be granted (this hangs a queued comment write for 2 s and checks the line moves in well under that).
+        state = {'hung': False}
+        class Hang(g.Handler):
+            def setup(self):
+                super().setup()
+                real, cnt = self.wfile, [0]
+                class W:
+                    def __getattr__(self, name):
+                        return getattr(real, name)
+                    def write(self, b):
+                        if b.startswith(b': queued'):
+                            cnt[0] += 1
+                            if cnt[0] >= 2 and not state['hung']:
+                                state['hung'] = True
+                                time.sleep(2.0)  # blocked OUTSIDE the lease lock: the line must keep moving
+                        real.write(b)
+                    def flush(self):
+                        real.flush()
+                self.wfile = W()
+        patcher = patch.object(g, 'Handler', Hang)
+        patcher.start()
+        broker = _serve(g.Server(('127.0.0.1', 0), 'llama', ('127.0.0.1', self.engine.server_address[1])))
+        self.addCleanup(patcher.stop)  # LIFO: the broker closes before the real Handler comes back
+        self.addCleanup(lambda: [broker.shutdown(), broker.server_close()])
+        def send_thread(sess):
+            box = {}
+            def run():
+                c = http.client.HTTPConnection('127.0.0.1', broker.server_address[1], timeout=10)
+                try:
+                    box['result'] = send_recv(c, sess)
+                except Exception as e:
+                    box['error'] = repr(e)
+                finally:
+                    box['done'] = True
+            t = threading.Thread(target=run)
+            t.start()
+            return t, box
+        with closing(http.client.HTTPConnection('127.0.0.1', broker.server_address[1], timeout=10)) as c:
+            self.assertEqual(send_recv(c, 'T')[0], 200)  # working holder on the hanging server
+        th, boxH = send_thread('H')  # parks; its 2nd queued comment write blocks for 2 s
+        time.sleep(0.12)
+        tc, boxC = send_thread('C')  # queued behind the blocked waiter
+        tc.join(6)
+        self.assertEqual(boxC['result'][0], 200)  # granted in ~0.5 s: the blocked write held no lease lock
+        self.assertEqual(StubEngine.seen[-1], 'C')
+        self.assertFalse(boxH.get('done', False))  # H is still stuck in its socket write
+        th.join(6)
+
     def test_status_endpoint_never_queues(self):
         with closing(self.conn()) as c:
             self.assertEqual(send_recv(c, 'A')[0], 200)
@@ -295,7 +389,7 @@ class LeaseClock(unittest.TestCase):
     """The real 600/600/600/1800/4h rules at their exact boundaries, driven by an explicit now."""
     def setUp(self):
         for k, v in (('key', None), ('client', None), ('since', 0.0), ('last_req', 0.0),
-                     ('release_at', float('inf')), ('state', None)):
+                     ('release_at', float('inf')), ('state', None), ('entered', False)):
             g._lease[k] = v
         del g._queue[:]
 
@@ -355,6 +449,71 @@ class LeaseClock(unittest.TestCase):
         g._queue.append({'key': 'A', 'client': 'x', 'first': 20})
         g.lease_update(21)
         self.assertEqual(g._lease['key'], 'A')
+
+class GhostRules(unittest.TestCase):
+    """Audit rules (14 Nov 2026): dead waiters leave the line. Fake clock + a fake Handler whose socket writes
+    fail; none of these may cost the next waiter more than ~GRANTED_UNUSED_S."""
+    def setUp(self):
+        for k, v in (('key', None), ('client', None), ('since', 0.0), ('last_req', 0.0),
+                     ('release_at', float('inf')), ('state', None), ('entered', False)):
+            g._lease[k] = v
+        del g._queue[:]
+        self.patches = [patch.object(g, 'QUEUE_ENABLED', True), patch.object(g, 'QUEUE_KEEPALIVE_S', 0.05),
+                        patch.object(g, 'GRANTED_UNUSED_S', 0.3), patch.object(g, 'LEASE_IDLE_S', 5.0),
+                        patch.object(g, 'FAIR_HOLD_S', 100.0), patch.object(g, 'LEASE_MAX_S', 100.0)]
+        for p in self.patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in reversed(self.patches)])
+
+    def fake_handler(self):
+        """A Handler whose every socket write raises: the client is gone (parked stream hung up)."""
+        h = g.Handler.__new__(g.Handler)
+        h.client_address = ('127.0.0.1', 1)
+        h.request_version = 'HTTP/1.0'
+        h.requestline = 'POST /v1/chat/completions HTTP/1.0'
+        h._headers_buffer = []
+        class Dead:
+            def write(self, b):
+                raise OSError('client gone')
+            def flush(self):
+                raise OSError('client gone')
+        class StillOpen:  # the zero-wait probe sees an open connection with no data
+            def settimeout(self, t):
+                pass
+            def recv(self, n):
+                raise BlockingIOError
+        h.wfile = Dead()
+        h.connection = StillOpen()
+        return h
+
+    def test_hung_up_waiter_leaves_no_entry(self):
+        now = time.time()
+        g._lease.update(key='A', client='x', since=now, last_req=now, release_at=float('inf'), state='working',
+                        entered=False)
+        h = self.fake_handler()
+        self.assertEqual(h.lease_wait('B', True), (False, None))
+        self.assertEqual([q['key'] for q in g._queue], [])  # dropped, not a ghost
+
+    def test_granted_lease_nobody_used_passes_on(self):
+        now = time.time()
+        g._queue.append({'key': 'dead', 'client': 'd', 'first': now})
+        g.lease_update(now)  # free lease + queue: the head takes it, but no request ever lands for 'dead'
+        self.assertEqual((g._lease['key'], g._lease['entered']), ('dead', True))
+        h = self.fake_handler()
+        granted, waited = h.lease_wait('C', False)  # the live line: must not wait on the dead grant
+        self.assertTrue(granted)
+        self.assertLess(waited, 5.0)  # ~GRANTED_UNUSED_S + one tick, not 30 s and not forever
+        self.assertEqual(g._lease['key'], 'C')
+
+    def test_503_entry_expires_after_its_retry_window(self):
+        t = time.time()
+        g._lease.update(key='A', client='x', since=t, last_req=t, release_at=float('inf'), state='working',
+                        entered=False)
+        g._queue.append({'key': 'B2', 'client': 'x', 'first': t, 'expire': t + 0.3})
+        g.lease_update(t + 0.2)
+        self.assertEqual([q['key'] for q in g._queue], ['B2'])  # place kept while a retry is still plausible
+        g.lease_update(t + 0.31)
+        self.assertEqual(g._queue, [])  # never came back inside QUEUE_HOLD_S: ghost dropped
 
 
 class Identity(unittest.TestCase):

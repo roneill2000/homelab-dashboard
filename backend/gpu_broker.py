@@ -78,6 +78,8 @@ FAIR_HOLD_S = 1800       # Ryan's fairness: >30 min held with someone waiting ->
 LEASE_MAX_S = 4 * 3600   # a lease with no progress (session died mid-turn) is cut after 4 h, queue or not
 QUEUE_HOLD_S = 120       # a non-streaming request waits at most this long, then 503 + Retry-After
 QUEUE_KEEPALIVE_S = 15   # SSE comment every 15 s while queued: undici (pi family) kills a silent stream at 300 s
+GRANTED_UNUSED_S = 30   # a lease granted to a queue head whose request never lands (dead client) is passed on
+# within this long: one ghost entry can block the live line at most this much.
 # Pass-through clients (Ryan): never queue, never take or move the lease. They are served at once (evicting the
 # holder's cache as today); the holder keeps its lease and its queue place. Decided per client in ONE constant.
 PASS_THROUGH = {'192.168.0.16',   # Open WebUI: short interactive chats (a queued wait would die at its 600 s aiohttp
@@ -135,13 +137,22 @@ def session_key(headers, body, ip):
                 first_user = msg_text(m.get('content'))[:4000]
     raw = '\x1f'.join((ip, model_family(data.get('model')), system, first_user))
     return 'fb:' + hashlib.sha256(raw.encode('utf-8', 'replace')).hexdigest()[:20]
+# NOTE (spec gap, deliberate): the spec's same-IP side-request fallback - treat a bare request from the holder's
+# IP while the holder is working as the holder's own side request - is NOT implemented. Every pi-family client
+# (Pocket, terminal pi, Paseo) now sends x-session-affinity, so side requests already carry the holder's key;
+# header-less callers (Open WebUI title/tag runs) are pass-through and never touch the lease anyway.
 
 
 # Lease state: the holder session plus its queue of waiters, one lock for both. A holder's state is kept from what
 # its last response was: working (tool calls came back = the turn continues), waiting (an ask card opened for
 # a person), done (the reply ended with no tool calls). Pass-through requests never read or write this.
-_lease = {'key': None, 'client': None, 'since': 0.0, 'last_req': 0.0, 'release_at': float('inf'), 'state': None}
-_queue = []  # FIFO sessions: [{'key': str, 'client': str, 'first': float}]
+_lease = {'key': None, 'client': None, 'since': 0.0, 'last_req': 0.0, 'release_at': float('inf'), 'state': None,
+          'entered': False}  # entered=True: lease was granted from the queue head; no request has landed for it yet
+_queue = []  # FIFO sessions: [{'key': str, 'client': str, 'first': float, 'expire': float?}]
+# 'expire' is set only by a non-streaming 503: the entry keeps its place only while that session could still
+# return inside QUEUE_HOLD_S; past that it is a ghost and the next lease_update drops it. A waiter whose socket
+# write fails (client hung up mid-park) removes its own entry the same tick; a lease granted to a dead head is
+# passed on by the unused rule, so no ghost can block the live line for more than ~GRANTED_UNUSED_S.
 _lease_cv = threading.Condition()
 
 
@@ -154,6 +165,8 @@ def lease_release(now):
         return None
     if now - _lease['since'] >= LEASE_MAX_S:
         return 'max'
+    if _lease['entered'] and now - _lease['since'] >= GRANTED_UNUSED_S and _queue:
+        return 'unused'  # granted head never sent a request: dead lease, pass it to the live line
     if now >= _lease['release_at'] and _queue:
         return 'grace'
     if now - _lease['last_req'] >= LEASE_IDLE_S and _queue:
@@ -175,6 +188,10 @@ def lease_update(now, locked=False):
 
 
 def _lease_update(now):
+    gone = [q for q in _queue if q.get('expire') is not None and now >= q['expire']]
+    for q in gone:  # identity check: two ghost entries could carry equal fields
+        _queue.remove(q)
+        log(f"queue: ghost entry {q['key'][:24]} ({q['client']}) expired: no retry inside QUEUE_HOLD_S")
     reason = lease_release(now)
     if reason is None:
         if not _lease['key'] and _queue:  # free lease + waiters (release endpoint, or released earlier): hand over
@@ -184,11 +201,11 @@ def _lease_update(now):
     old, old_client = _lease['key'], _lease['client']
     if reason == 'fairness':
         _queue.append({'key': old, 'client': old_client, 'first': now})
-    _lease.update(key=None, client=None, since=0.0, last_req=0.0, release_at=float('inf'), state=None)
+    _lease.update(key=None, client=None, since=0.0, last_req=0.0, release_at=float('inf'), state=None, entered=False)
     if _queue:
         head = _queue.pop(0)
         _lease.update(key=head['key'], client=head['client'], since=now, last_req=now, release_at=float('inf'),
-                      state='working')
+                      state='working', entered=True)
     log(f"queue: lease {(old or 'none')[:24]} ({old_client}) -> {_lease['key'][:24] if _lease['key'] else 'free'} "
         f"({reason})")
     _lease_cv.notify_all()
@@ -199,7 +216,8 @@ def lease_grant(key, client, now):
     with _lease_cv:
         if _lease['key']:  # raced: someone else took it a moment earlier
             return
-        _lease.update(key=key, client=client, since=now, last_req=now, release_at=float('inf'), state='working')
+        _lease.update(key=key, client=client, since=now, last_req=now, release_at=float('inf'), state='working',
+                      entered=False)  # a live request took the lease itself
         log(f'queue: lease to {client} ({key[:24]})')
         _lease_cv.notify_all()
 
@@ -739,8 +757,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 streaming = False
             granted, waited = self.lease_wait(lease_key, streaming)
             if not granted:
-                if getattr(self, '_sse_committed', False):
-                    log(f'queue: {lease_key[:24]} ({client_ip(self.client_address[0])}) queued stream went away')
+                if waited is None:  # ghost: the waiter left the line itself (hung up); nothing reached the GPU
+                    log(f'queue: {lease_key[:24]} ({client_ip(self.client_address[0])}) queued request abandoned')
                     return
                 remember(dict(ts=time.time(), engine=engine, model=ai_history.model_of(body) if generate and body else None,
                             ok=0, status=503, swap='queued', queued_s=waited, wall_s=waited,
@@ -811,6 +829,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if k.lower() not in HOP or (k.lower() == 'content-length' and not upstream.chunked):
                         self.send_header(k, v)
                 self.end_headers()
+            elif not 200 <= upstream.status < 300:
+                # 200 + SSE headers went out while parked (queue), but the upstream refused after the grant:
+                # status can no longer be sent, so tell the client in-body - one data: error event plus [DONE].
+                detail = upstream.read()[:200].decode('utf-8', 'replace').strip()
+                try:
+                    msg = json.loads(detail).get('error', {}).get('message') or detail
+                except (ValueError, AttributeError):
+                    msg = detail or upstream.reason or 'engine refused'
+                try:
+                    self.wfile.write(('data: %s\n\ndata: [DONE]\n\n' % json.dumps(
+                        {'error': {'message': 'the GPU refused this queued request after its turn: %s' % msg}})).encode())
+                    self.wfile.flush()
+                except OSError:
+                    pass  # client already gone
             row['status'] = upstream.status
             while True:
                 chunk = upstream.read1(65536)
@@ -870,7 +902,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.fail(409, 'holder is mid-turn (working): send its session id to force, or let the '
                                       'done/idle rules release it')
             old = _lease['key']
-            _lease.update(key=None, client=None, since=0.0, last_req=0.0, release_at=float('inf'), state=None)
+            _lease.update(key=None, client=None, since=0.0, last_req=0.0, release_at=float('inf'), state=None,
+                          entered=False)
             lease_update(time.time(), locked=True)  # hand the freed lease to the queue head at once
             _lease_cv.notify_all()
             new = _lease['key']
@@ -878,42 +911,83 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self.reply_json(dict(released=True, was=old, now_holder=new))
 
     def lease_wait(self, key, streaming):
-        """Park until this session may run: (True, waited_s) or (False, None) for a non-streaming caller past
-        QUEUE_HOLD_S (its queue entry stays, so a retry keeps its place in line). A queued streaming caller commits
-        200 + SSE headers at once, then sends `: queued, position N` comments every QUEUE_KEEPALIVE_S until
-        granted (measured: undici drops a stream silent for 300 s; 15 s comments keep pi-family clients alive).
-        The holder (and its side requests: same session key) returns immediately. The waiter's own 15 s tick
-        rechecks time-based lease expiry, so a clock-only release needs no push from the holder."""
+        """Park until this session may run: (True, waited_s), or (False, waited_s) for a non-streaming caller past
+        QUEUE_HOLD_S (its entry keeps its place only until that session could plausibly return: expire=now+QUEUE_HOLD_S,
+        past that the next tick drops it as a ghost), or (False, None) when the client hung up (its entry is removed
+        the same tick - dead waiters must not block the line). A queued streaming caller commits 200 + SSE headers
+        at once, then sends `: queued, position N` comments every QUEUE_KEEPALIVE_S until granted (measured: undici
+        drops a stream silent for 300 s; 15 s comments keep pi-family clients alive). The holder (and its side
+        requests: same session key) returns immediately; a lease granted to this very request clears entered.
+        All socket writes happen OUTSIDE _lease_cv (decide under the lock, write after releasing it): a client
+        whose receive buffer is full can block wfile.write for minutes, and that must never stall other sessions'
+        grants - a blocked waiter costs the line at most GRANTED_UNUSED_S (the unused rule), not the block."""
         t0 = time.time()
-        with _lease_cv:
-            while True:
+        first_tick = True
+        while True:
+            with _lease_cv:
                 lease_update(time.time(), locked=True)
                 if _lease['key'] == key:
                     _lease['last_req'] = time.time()
+                    _lease['entered'] = False  # the request for a queue-head grant actually landed
                     return True, max(0.0, time.time() - t0)
                 if not _lease['key']:
                     lease_grant(key, client_ip(self.client_address[0]), time.time())
                     _lease_cv.notify_all()
                     return True, max(0.0, time.time() - t0)
-                if next((q for q in _queue if q['key'] == key), None) is None:
-                    _queue.append({'key': key, 'client': client_ip(self.client_address[0]), 'first': time.time()})
-                if streaming and not getattr(self, '_sse_committed', False):
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'text/event-stream')
-                    self.send_header('Cache-Control', 'no-store')
-                    self.end_headers()
-                    self._sse_committed = True
+                entry = next((q for q in _queue if q['key'] == key), None)
+                if entry is None:
+                    entry = {'key': key, 'client': client_ip(self.client_address[0]), 'first': time.time()}
+                    _queue.append(entry)
+                entry.pop('expire', None)  # a retry inside QUEUE_HOLD_S: the place is kept, the ghost clock stops
                 if not streaming and time.time() - t0 >= QUEUE_HOLD_S:
-                    return False, time.time() - t0  # the caller records the wait; the queue entry stays
-                _lease_cv.wait(QUEUE_KEEPALIVE_S)
-                if streaming:
-                    pos = 1 + next((i for i, q in enumerate(_queue) if q['key'] == key), 0)
-                    try:
+                    entry['expire'] = time.time() + QUEUE_HOLD_S
+                    return False, time.time() - t0  # the caller records the wait; the place is kept for QUEUE_HOLD_S
+                pos = 1 + next((i for i, q in enumerate(_queue) if q['key'] == key), 0)
+            # lock released: any socket I/O for this tick happens here (a blocked client never holds the lease lock)
+            # Probe the connection first (both modes): a closed client does not always show up in a write -
+            # the kernel keeps accepting data over a half-closed connection - but a zero-wait read sees the EOF
+            # (b'') or the reset. The request body is already consumed, so live bytes mean a misbehaving client;
+            # either way the waiter left the line, and its entry goes with it (a non-streaming abandonment would
+            # otherwise sit in the queue for a full QUEUE_HOLD_S).
+            try:
+                self.connection.settimeout(0)
+                probe = self.connection.recv(1)
+                if probe == b'':
+                    raise OSError('peer closed')
+                if probe:
+                    raise OSError('peer sent live bytes while queued')
+            except (BlockingIOError, socket.timeout):
+                pass  # open connection, no data: the normal parked case
+            except OSError:
+                with _lease_cv:  # hung up: leave the line instead of becoming a ghost
+                    dead = next((q for q in _queue if q['key'] == key), None)
+                    if dead is not None:
+                        _queue.remove(dead)
+                    _lease_cv.notify_all()
+                log(f'queue: {key[:24]} ({client_ip(self.client_address[0])}) left the line while queued; entry dropped')
+                return False, None
+            if streaming:
+                try:
+                    if first_tick and not getattr(self, '_sse_committed', False):
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'text/event-stream')
+                        self.send_header('Cache-Control', 'no-store')
+                        self.end_headers()
+                        self._sse_committed = True
+                    elif not first_tick:
                         self.wfile.write((': queued, position %d\n\n' % pos).encode())
                         self.wfile.flush()
-                    except OSError:
-                        return False, None  # client hung up on its queued stream
-
+                except OSError:
+                    with _lease_cv:  # the write itself failed: the same drop-and-leave-the-line handling
+                        dead = next((q for q in _queue if q['key'] == key), None)
+                        if dead is not None:
+                            _queue.remove(dead)
+                        _lease_cv.notify_all()
+                    log(f'queue: {key[:24]} ({client_ip(self.client_address[0])}) left the line while queued; entry dropped')
+                    return False, None
+            first_tick = False
+            with _lease_cv:
+                _lease_cv.wait(QUEUE_KEEPALIVE_S)
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
