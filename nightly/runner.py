@@ -28,6 +28,17 @@ MODEL_FILE='Bolt-E4B-mradermacher-i1/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16.i1-Q4_K_S
 MODEL_REPO='mradermacher/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16-i1-GGUF'
 MODEL_REVISION='f0ac632e5b554924bc8a6df61d37d46dafd9dcea'
 MODEL_SHA256='79aa6bc1de8a9ba4b58fb8aeae399e8762d8674995cdd2eaa85e19f68c5ab4f8'
+# DFlash drafter (14 Nov 2026, Ryan; agy/Hydrogen Round 3, /mnt/share/ai/a310-prefill-20261114/REPORT.md section 6): with
+# --flash-attn off the batched verify runs on oneDNN gemm instead of sycl_fattn, so the drafter pays: regression 27/30 with
+# 0 verdict/score diffs, 755 -> 517 s, decode 13.2 -> 21.5 tok/s (19.5 at ~6k), 3,638 / 4,048 MiB VRAM.
+# --ctx-checkpoints 0: SWA checkpoints cost 2.7-5.9 s each with FA off; --cache-ram 0: the prompt cache's D2H copy cost
+# 5-8 s per request with FA off. --spec-draft-n-ubatch 32 keeps the draft compute buffer at ~66 MiB (default 256 does
+# not fit 8k). The draft KV must be f16 with FA off (llama-context.cpp). Fallback without the drafter: drop the -md..-ctvd
+# flags (27/30, ~712 s).
+DRAFT_FILE='Bolt-E4B-dflash/dflash-NVIDIA-Nemotron-3.5-Bolt-E4B-Q8_0.gguf'
+DRAFT_REPO='unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF'
+DRAFT_REVISION='b738967d6da3441a7d1c71fcec15e49e32e16ecd'
+DRAFT_SHA256='9a63662ae8395b8bfc1a1b00d7a9ef354120f172704bd6ba88d3870cf22d4d03'
 # llama.cpp b11804 SYCL with libggml-sycl.so built ahead of time for the A310 (acm-g11); local to Unraid,
 # rebuilt by evals/a310-backends-2026-10-22/build_aot.sh. 18 tok/s vs 12.6 on Vulkan, 4-21 s load.
 IMAGE='homelab/llama-sycl-a310:b11804'
@@ -271,7 +282,10 @@ def container_command(context_size=8192, reasoning_budget=768, profile='quick'):
             '--model','/models/'+pr['file'],'--alias',pr['model'],'--host','0.0.0.0','--port','8000',
             '--gpu-layers','all','--fit','off','--ctx-size',str(context_size),'--parallel','1',
             '--batch-size','256','--ubatch-size','256','--threads','2','--threads-batch','2',
-            '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift']
+            '--jinja','--reasoning','on','--reasoning-budget',str(reasoning_budget),'--no-context-shift',
+            '--flash-attn','off','--ctx-checkpoints','0','--cache-ram','0',
+            '-md','/models/'+DRAFT_FILE,'--spec-type','draft-dflash',
+            '--spec-draft-n-max','4','--spec-draft-n-ubatch','32','-ctkd','f16','-ctvd','f16']
     # Gemma E4B's per-layer embedding tables (~1.8 GB) stay in system RAM so the rest fits the 4 GB A310 (3.2 GB used)
     command+=['--override-tensor','per_layer_token_embd=CPU']
     return command
