@@ -104,6 +104,7 @@ class SnapshotTests(unittest.TestCase):
    base=str(Path(d)/'baseline.json')
    first=self.scan([self.line(1794499990,'nightly.service: FAILURE heartbeat')],now=1794500000,baseline=base)
    self.assertEqual(first['groups'][0]['nights_seen_30'],0);self.assertEqual(first['groups'][0]['novelty'],5)
+   self.assertEqual(first['groups'][0]['first_seen'],datetime.fromtimestamp(1794500000).strftime('%Y-%m-%d'))  # first seen tonight
    today1=datetime.fromtimestamp(1794500000).strftime('%Y-%m-%d')
    saved=json.loads(Path(base).read_text())
    key=json.dumps(['utilities','WARNING','nightly.service: FAILURE heartbeat'])
@@ -403,6 +404,15 @@ class RegressionTests(unittest.TestCase):
    payload=json.loads(body['messages'][-1]['content'])
    for key in ('host','message','count','hours','context','current_service_state'):self.assertIn(key,payload)
    self.assertIsInstance(payload['first_at'],str);self.assertEqual(body['seed'],42)
+   self.assertIsInstance(payload['nights_seen_30'],int)  # live groups all carry history now
+   if e['id'] in ('h5_smart_pending','h8_ssh_flood','h12_wifi_flap','h6_jellyfin_cancel'):
+    self.assertTrue(payload['history'].startswith('seen on 30 of the last 30 nights'))
+    self.assertIn('keep their rating however often they recur',body['messages'][0]['content'])
+   if e['id'] in ('h2_router_boot','h3_scrutiny_array'):
+    self.assertTrue(payload['nearby'])
+    self.assertTrue(all(len(l)<=300 for l in payload['nearby']))
+   if e['id'] in ('h7_ext4','h15_dl_stop_plus'):
+    self.assertTrue(payload['history'].startswith('seen on 0 of the last 30 nights'))
  def test_rubric_scoring_rule(self):
   f=lambda verdict,what,next='':dict(verdict=verdict,interpretation=what,next=next)
   e=g.load_expected()

@@ -207,7 +207,7 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
         dates,counts=_baseline_stats(entry)
         g['nights_seen_30']=sum(1 for d in dates if d>=oldest_night)
         g['baseline_count']=statistics.median(counts) if counts else 0
-        g['first_seen']=entry.get('first_seen')
+        g['first_seen']=entry.get('first_seen') or (today if g['nights_seen_30']==0 else None)
         g['novelty']=(3 if g['nights_seen_30']==0 else 0)+(2 if g['count']>3*g['baseline_count'] else 0)+sum(1 for h in g['hours'] if h>=6)
     update_baseline(baseline,groups,today)
     write_baseline(baseline,baseline_path,now)
