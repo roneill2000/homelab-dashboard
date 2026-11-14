@@ -832,7 +832,7 @@ function App(){
    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',status);try{window.AndroidBridge?.setSystemBars?.(status,nav,theme==='light')}catch{}});return()=>cancelAnimationFrame(id)},[theme,win,seedPref,wallSeed]);
  // While the Local AI page is open, ask the server to poll the gaming PC fast (live tokens/s). Otherwise it stays quiet
  // so the model can reach llama.cpp's idle sleep (fast /slots polling kept it loaded for hours).
- useEffect(()=>{if(view!=='ai')return;let alive=true;const ping=()=>{if(!document.hidden)fetch('/api/ai/live',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(alive&&d)setAiLive(d)}).catch(()=>{})};qp=()=>{if(!document.hidden)fetch('/api/ai/queue',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(alive&&d)setAiQueue(d)}).catch(()=>{})};ping();qp();const iv=setInterval(ping,2000),qiv=setInterval(qp,5000);
+ useEffect(()=>{if(view!=='ai')return;let alive=true;const ping=()=>{if(!document.hidden)fetch('/api/ai/live',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(alive&&d)setAiLive(d)}).catch(()=>{})};const qp=()=>{if(!document.hidden)fetch('/api/ai/queue',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if(alive&&d)setAiQueue(d)}).catch(()=>{})};ping();qp();const iv=setInterval(ping,2000),qiv=setInterval(qp,5000);
   document.addEventListener('visibilitychange',ping);return()=>{alive=false;clearInterval(iv);clearInterval(qiv);document.removeEventListener('visibilitychange',ping)}},[view]);
  // Tells the Android splash screen the dashboard has painted.
  useEffect(()=>{requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.AndroidBridge?.ready?.()}catch{}}))},[]);

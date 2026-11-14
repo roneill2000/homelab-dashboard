@@ -163,14 +163,15 @@ def lease_release(now):
     return None
 
 
-def lease_update(now):
+def lease_update(now, locked=False):
     """Under the lock: recheck the lease and hand it to the queue head when it expired; a fairness hand-over also
     puts the demoted holder at the back of the queue (it pays one re-read later). Wakes every parked waiter.
-    Callable with or without the lock held (lease_wait holds it; the replay and tests call it bare)."""
-    if not _lease_cv._is_owned():
-        with _lease_cv:
-            return _lease_update(now)
-    return _lease_update(now)
+    locked=True: the caller already holds _lease_cv (lease_wait, queue_release); bare callers (replay, tests) take
+    the lock themselves. No private Condition API: the caller states its ownership instead."""
+    if locked:
+        return _lease_update(now)
+    with _lease_cv:
+        return _lease_update(now)
 
 
 def _lease_update(now):
@@ -741,8 +742,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if getattr(self, '_sse_committed', False):
                     log(f'queue: {lease_key[:24]} ({client_ip(self.client_address[0])}) queued stream went away')
                     return
+                remember(dict(ts=time.time(), engine=engine, model=ai_history.model_of(body) if generate and body else None,
+                            ok=0, status=503, swap='queued', queued_s=waited, wall_s=waited,
+                            client=client_ip(self.client_address[0])))
                 return self.fail(503, f'The GPU is held by another session; this non-streaming request waited its '
                                       f'{QUEUE_HOLD_S} s queue hold and may try again', max(10, int(QUEUE_HOLD_S)))
+        # A granted but already-committed stream must stay non-silent: undici drops a stream quiet for 300 s, and
+        # waking the PC plus the engine swap can exceed that. Comments keep flowing until the first real chunk goes.
+        sse_hold = threading.Event() if getattr(self, '_sse_committed', False) else None
+        if sse_hold:
+            def sse_keep():
+                while not sse_hold.wait(QUEUE_KEEPALIVE_S):
+                    try:
+                        self.wfile.write(b': waiting, engine starting\n\n')
+                        self.wfile.flush()
+                    except OSError:
+                        return  # client hung up; the drain loop's own write will end the request
+            threading.Thread(target=sse_keep, daemon=True).start()
         # Strata's chat page has its own Load button; it must free the GPU of llama models first, like a request.
         load = engine in STRATA and self.command == 'POST' and self.path.split('?', 1)[0].rstrip('/') == '/load'
         t0, held = time.time(), False
@@ -803,6 +819,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if generate:
                     first = first or time.time()
                     tail = (tail + chunk)[-ai_history.TAIL:]
+                if sse_hold:
+                    sse_hold.set()  # real output started: stop the comments
                 self.wfile.write(chunk)
                 self.wfile.flush()
             row['ok'] = int(200 <= upstream.status < 300)
@@ -816,6 +834,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             log(f'{self.command} {self.path} ({engine}): {exc.__class__.__name__}')
         finally:
             conn.close()
+            if sse_hold:
+                sse_hold.set()  # no chunk ever came (or the stream ended): the comment thread must not outlive it
             if held:
                 release(engine)
             if generate:
@@ -851,7 +871,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                       'done/idle rules release it')
             old = _lease['key']
             _lease.update(key=None, client=None, since=0.0, last_req=0.0, release_at=float('inf'), state=None)
-            lease_update(time.time())  # hand the freed lease to the queue head at once
+            lease_update(time.time(), locked=True)  # hand the freed lease to the queue head at once
             _lease_cv.notify_all()
             new = _lease['key']
         log(f'queue: lease released by action: {old[:24]} -> {new[:24] if new else "free"}')
@@ -867,7 +887,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         t0 = time.time()
         with _lease_cv:
             while True:
-                lease_update(time.time())
+                lease_update(time.time(), locked=True)
                 if _lease['key'] == key:
                     _lease['last_req'] = time.time()
                     return True, max(0.0, time.time() - t0)
@@ -884,7 +904,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.end_headers()
                     self._sse_committed = True
                 if not streaming and time.time() - t0 >= QUEUE_HOLD_S:
-                    return False, None
+                    return False, time.time() - t0  # the caller records the wait; the queue entry stays
                 _lease_cv.wait(QUEUE_KEEPALIVE_S)
                 if streaming:
                     pos = 1 + next((i for i, q in enumerate(_queue) if q['key'] == key), 0)
