@@ -119,7 +119,7 @@ def prepare_evidence(snapshot,services,storage):
     # Only whitelisted operational fields reach the model or saved report.
     groups=[]
     for g in snapshot['groups'][:12]:
-        item={k:g[k] for k in ('id','host','level','count','first_at','last_at','message') if k in g}
+        item={k:g[k] for k in ('id','host','level','count','first_at','last_at','message','nights_seen_30','first_seen','nearby') if k in g}
         if 'hours' in g:item['hours']=list(g['hours'])
         if 'context' in g:item['context']=list(g['context'])
         item['message']=item['message'][:600]
@@ -155,9 +155,27 @@ def boot_notes(group):
     return []
 
 
+def _fit_evidence(evidence):
+    """Keep the request inside the 8k context: drop nearby first, then cut context to 6 + 3 lines.
+    20,000 chars is the conservative stand-in for the token budget (measured prompt runs stayed near 1,200 tokens)."""
+    if len(json.dumps(evidence,ensure_ascii=False))<=MAX_REQUEST_CHARS:return evidence
+    trimmed={k:v for k,v in evidence.items() if k!='nearby'}
+    if len(json.dumps(trimmed,ensure_ascii=False))<=MAX_REQUEST_CHARS:return trimmed
+    ctx=trimmed.get('context') or []
+    if len(ctx)>9:trimmed['context']=ctx[:6]+ctx[-3:]  # 6 before + 3 after the reported line's neighbourhood
+    return trimmed
+
+
+MAX_REQUEST_CHARS=20000
+
+
 def request_body(group, profile='quick', use_schema=True):
     instructions=("Using the context lines and notes, say in at most three short sentences what most likely "
-                  "happened, and why. Then give `verdict`: `act` (Ryan should do something), `watch` (worth "
+                  "happened, and why. The history line, when present, says how often this pattern was seen in the last 30 "
+                  "nights: a line seen on most nights is the usual pattern, say so, and only rate it above ignore if the count "
+                  "or the lines changed. nearby lines, when present, are lines other hosts logged within a minute of this one; "
+                  "use them to explain a cause (for example a reboot explains link blips), but never treat them as this group's lines. "
+                  "Then give `verdict`: `act` (Ryan should do something), `watch` (worth "
                   "noticing if it repeats) or `ignore` (expected or harmless), and `next`: one concrete next "
                   "step, or empty for ignore. Say 'likely' when you infer. Never claim a hardware fault unless "
                   "a line says so. Never claim it is still happening: current state is measured separately. "
@@ -166,12 +184,16 @@ def request_body(group, profile='quick', use_schema=True):
                   "failures piling up), say it and let it set the urgency. A note describes a usual cause: check "
                   "that the lines match it (the same exit status, the same unit) before relying on it. "
                   "Reply with JSON only: {\"what\": string, \"verdict\": \"act\"|\"watch\"|\"ignore\", \"next\": string}.")
-    evidence={key:group[key] for key in ('host','message','count','hours','context','current_service_state') if key in group}
+    evidence={key:group[key] for key in ('host','message','count','hours','context','current_service_state','nearby') if key in group}
+    if 'nights_seen_30' in group:
+        seen=int(group['nights_seen_30']);first=str(group.get('first_seen') or '')
+        evidence['history']=f"seen on {seen} of the last 30 nights"+(f" (first seen {first})" if first else '')
     for k in ('first_at','last_at'):
         formatted=_local_time(group.get(k))
         if formatted is not None:evidence[k]=formatted
     notes=match_known_causes(group)+boot_notes(group)
     if notes:evidence['notes']=notes
+    evidence=_fit_evidence(evidence)
     body=dict(model=PROFILES[profile]['model'],temperature=1.0,top_p=0.95,top_k=0,seed=42,  # Bolt's card: 1.0 / 0.95, no top-k
               max_tokens=PROFILES[profile]['max_tokens'],stream=False,
               chat_template_kwargs={'enable_thinking':True},
@@ -283,7 +305,9 @@ def review_group(group, profile):
                 continue
             return checked_finding(group,content),response.get('usage',{}),None
         except urllib.error.HTTPError as exc:
-            if exc.code==400 and use_schema:use_schema=False
+            if exc.code==400:
+                if use_schema:use_schema=False
+                if 'nearby' in group:group={k:v for k,v in group.items() if k!='nearby'}  # request too large for the 8k context: drop nearby first
             reason=type(exc).__name__
         except Exception as exc:
             reason=type(exc).__name__
@@ -332,7 +356,7 @@ def stop_model():
     raise RuntimeError('Model container cleanup failed; GPU release is unverified')
 
 
-PROMPT_VERSION='2026-11-13b'  # bump when the instructions change, so old verdicts are reviewed again
+PROMPT_VERSION='2026-11-14a'  # bump when the instructions change, so old verdicts are reviewed again; 14a adds history lines and cross-host nearby lines
 
 
 def review_key(group):
@@ -408,7 +432,7 @@ def main():
             report['load_seconds']=0.0
         report.update(model=PROFILES[profile]['model'],model_label=PROFILES[profile]['label'],fallback_reason=fallback)
         generation_started=time.time()
-        findings=[];skipped=[];usage={'prompt_tokens':0,'completion_tokens':0};truncated=False
+        findings=[];skipped=[];usage={'prompt_tokens':0,'completion_tokens':0};max_prompt_tokens=0;truncated=False
         for index,group in enumerate(groups,1):
             if reusable(group) is not None:
                 repeated=dict(reusable(group))
@@ -427,13 +451,14 @@ def main():
             finding['review_key']=review_key(group)
             findings.append(finding)
             for key in usage:usage[key]+=used.get(key,0)
+            max_prompt_tokens=max(max_prompt_tokens,used.get('prompt_tokens',0))
         if groups and not findings:
             report['validation_error']=skipped[0]['reason'] if skipped else 'none'
             raise ValueError('No log group could be reviewed: '+report['validation_error'])
         # Publish success only after GPU release has been verified.
         if owned:stop_model();owned=False
         report.update(status='complete',completed_at=int(time.time()),findings=findings,skipped_groups=skipped,
-                      model_output_truncated=truncated,usage=usage,
+                      model_output_truncated=truncated,usage=usage,max_prompt_tokens=max_prompt_tokens,
                       generation_seconds=round(time.time()-generation_started,1),
                       inference_seconds=round(time.time()-generation_started+(report.get('load_seconds') or 0),1),notes='Model interpretation; source facts are shown separately.')
         save(report,final=True)
