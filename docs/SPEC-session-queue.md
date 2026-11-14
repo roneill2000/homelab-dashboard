@@ -78,6 +78,22 @@ once evict each other on every turn: each turn re-reads the whole conversation (
   flag off or redeploy the previous commit.
 - Review by Claude before the flag goes on.
 
+## Decided after Phase 1 (14 Nov, Ryan; report `/mnt/share/notes/reports/session-queue-phase1-20261114.md`)
+- **Session key:** `x-session-affinity` header when present (pi family: set `"compat": {"sendSessionAffinityHeaders": true}`
+  on the homelab provider in `/root/.pi/agent/models.json`, Ryan approved; stable across compaction), else the hash
+  fallback. Broker history gains `client` and `queued_s` columns.
+- **`LEASE_IDLE_S = 600`**, `ASK_GRACE_S = DONE_GRACE_S = 600`.
+- **Fairness (`FAIR_HOLD_S = 1800`):** when the holder has held the lease longer than 30 min **and** someone is
+  waiting, the holder's next request hands the lease to the head of the queue and itself queues at the back (it
+  pays one re-read later). With nobody waiting a holder keeps the lease indefinitely.
+- **Pass-through clients never queue and never take or move the lease:** Open WebUI (`.16`) and the Ask box /
+  other Unraid callers (`.4`). They are served at once (evicting the cache as today); the holder keeps its lease
+  and its place. (Ryan: he won't use Open WebUI while things are queued.) Decide per client in one constant
+  (`PASS_THROUGH`), documented; Proxmox `.3` callers (homelab-why) follow the same rule unless Phase 2 finds a reason
+  not to.
+- SSE keep-alive comment at most every 15 s (undici kills a silent stream at 300 s: measured in Phase 1).
+- The >X-hours phone ping for a long-queued session: off.
+
 ## Open questions for Ryan (answer when they come up)
 - N (idle hold): decided from the data above, Ryan confirms.
 - Should Open WebUI chats (short, interactive) skip ahead of queued Pocket work, or wait in line?
