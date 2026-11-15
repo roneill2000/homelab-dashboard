@@ -22,10 +22,79 @@ class SnapshotTests(unittest.TestCase):
   self.assertTrue(data['coverage_limited']);self.assertEqual(data['hosts'][0]['unknown_timestamps'],1)
   with tempfile.TemporaryDirectory() as d:
    self.assertTrue(s.snapshot(Path(d),[],[],200000)['coverage_limited'])
- def test_tail_limits_do_not_claim_whole_window(self):
-  with patch.object(s,'MAX_BYTES',100):
-   data=self.scan([self.line(100000+i,'x'*70+' FAILURE') for i in range(5)]+[self.line(199999,'FAILURE')])
+ def test_read_budget_smaller_than_the_window_marks_coverage_incomplete(self):
+  # Seeks land on the window start, but the window itself is bigger than MAX_BYTES: the read is truncated and the
+  # snapshot must not claim the whole window (the 16 MB tail read used to make this the only failure mode).
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)
+   (p/'utilities.log').write_text('\n'.join([self.line(100000+i,'x'*70) for i in range(5)]
+    +[self.line(199900+i,'FAILURE y'*20) for i in range(40)])+'\n')
+   with patch.object(s,'MAX_BYTES',100):
+    data=s.snapshot(p,[re.compile('CRITICAL')],[re.compile('FAILURE')],200000)
   self.assertTrue(data['hosts'][0]['truncated']);self.assertTrue(data['coverage_limited'])
+ def _seek_file(self,text):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'x.log';p.write_bytes(text if isinstance(text,bytes) else text.encode())
+   return s._seek_window_start(p,200000-86400,p.stat().st_size),p
+ def test_seek_terminates_when_a_probed_line_runs_past_the_interval(self):
+  # Regression for the 14 Nov hang in test_context_extraction...: with a 47-byte-plus-newline line the first probe
+  # (mid=(0+95)//2=47) landed inside line 2, so the probe read line 2 whole (pos=48, 48+48=96) and the fresh branch
+  # set hi=pos-1=47, which left the interval [0,47] unchanged: the same mid and the same line forever (SIGTERM was
+  # swallowed, only timeout -k killed it). Any line longer than half the file can trigger it.
+  old=self.line(100000,'a'*47); fresh=self.line(199999,'b'*47)
+  (res,_),p=self._seek_file(old+'\n'+fresh+'\n')
+  self.assertEqual(res,len(old)+1)  # the window really starts at the fresh line
+ def test_seek_start_of_file_when_every_line_is_inside_the_window(self):
+  text=''.join(self.line(199990+i,'m%d'%i)+'\n' for i in range(5))
+  (res,proven),p=self._seek_file(text)
+  self.assertEqual((res,proven),(0,False))  # byte 0: coverage is decided by the caller, not claimed by the seek
+ def test_seek_all_older_than_the_window(self):
+  text=''.join(self.line(100000+i,'m%d'%i)+'\n' for i in range(5))
+  (res,proven),p=self._seek_file(text)
+  self.assertEqual((res,proven),(0,False))  # nothing to read from; the caller reports no window lines
+ def test_seek_treats_unparseable_lines_as_older(self):
+  old=self.line(100000,'old'); junk='garbage FAILURE'
+  text=old+'\n'+junk+'\n'+self.line(199990,'FAILURE in window')+'\n'
+  (res,proven),p=self._seek_file(text)
+  self.assertEqual((res,proven),(len(old)+1+len(junk)+1,True))
+  self.assertEqual(text.encode()[res:],self.line(199990,'FAILURE in window').encode()+b'\n')
+ def test_seek_handles_a_file_without_a_trailing_newline(self):
+  # A probe inside the final unterminated line must not claim that line starts past the end of the file.
+  old=self.line(100000,'a'*40); fresh=self.line(199999,'b'*40)
+  (res,proven),p=self._seek_file(old+'\n'+fresh)  # no trailing newline
+  self.assertEqual(res,len(old)+1);self.assertTrue(proven)
+  (res2,proven2),p2=self._seek_file(fresh)  # single fresh line, no newline at all
+  self.assertEqual((res2,proven2),(0,False))
+ def test_seek_matches_a_brute_force_scan(self):
+  # Differential check: on mixed generated files the seek must land on exactly the first line whose timestamp is
+  # at or after the cutoff (unparseable lines count as older), and must not read a partial tail line.
+  import random
+  rng=random.Random(20261115)
+  cases=0
+  for trial in range(60):
+   n=rng.randint(1,40);cutoff=200000-86400;lines=[]
+   t=rng.choice([100000,110000,150000])
+   for i in range(n):
+    t+=rng.randint(0,9000)  # non-decreasing: appended, timestamp-ordered as syslog is
+    if rng.random()<0.15: lines.append(rng.choice(['garbage line','?? not-a-timestamp x','']))
+    else: lines.append(self.line(t,'msg%d %s'%(i,'q'*rng.randint(0,60))))
+   text='\n'.join(lines)+('' if rng.random()<0.2 else '\n')
+   (res,proven),p=self._seek_file(text)
+   # rebuild the byte offset of the first line whose timestamp is at or after the cutoff
+   off=0;expect=None
+   for ln in text.split('\n'):
+    try:ts=datetime.fromisoformat(ln.split()[0].replace('Z','+00:00')).timestamp()
+    except (ValueError,IndexError):ts=None
+    if ts is not None and ts>=cutoff:expect=off;break
+    off+=len(ln.encode())+1
+   if expect is None: expect=0
+   self.assertEqual(res,expect,'trial %d'%trial)
+   self.assertEqual(proven,expect>0)  # proven only when the seek landed past byte 0
+   # the offset must be a line start: the read from it must not begin mid-line
+   if res:
+    self.assertEqual(text.encode()[res-1:res],b'\n')
+   cases+=1
+  self.assertEqual(cases,60)
  def test_rotation_and_quiet_sources_are_full_coverage(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d);import os
