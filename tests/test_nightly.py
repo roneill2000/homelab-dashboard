@@ -17,6 +17,18 @@ class SnapshotTests(unittest.TestCase):
   data=self.scan([self.line(110000,'old FAILURE'),self.line(199990,'systemd[1]: FAILURE token=abc'),self.line(199999,'systemd[4]: FAILURE token=def'),self.line(200090,'future FAILURE')])
   self.assertEqual(data['matched_entries'],2);self.assertEqual(data['distinct_groups'],1)
   self.assertEqual(data['groups'][0]['count'],2);self.assertNotIn('abc',json.dumps(data));self.assertFalse(data['coverage_limited'])
+ def test_snapshot_strips_a_host_prefix_whose_case_differs_from_the_stem(self):
+  # The device writes its own mixed-case name into the line; the file stem is lowercase.
+  line=lambda ts,msg:datetime.fromtimestamp(ts,timezone.utc).isoformat()+' gl-be9300 '+msg
+  with tempfile.TemporaryDirectory() as d:
+   # The line names the host twice: once as the transport host, once as the device's own
+   # mixed-case spelling inside the message. Both prefixes must go.
+   (Path(d)/'gl-be9300.log').write_text(line(199990,"GL-BE9300 netifd: Network device 'eth0' link is down")+'\n'+line(199995,"gl-be9300 dnsmasq: link is down")+'\n')
+   data=s.snapshot(Path(d),[re.compile('CRITICAL')],[re.compile('link is down')],200000)
+  self.assertEqual(data['distinct_groups'],2)
+  self.assertFalse(any('GL-BE9300' in g['message'] or 'gl-be9300' in g['message'] for g in data['groups']))
+  self.assertIn("netifd: Network device 'eth0' link is down",[g['message'] for g in data['groups']])
+  self.assertIn('dnsmasq: link is down',[g['message'] for g in data['groups']])
  def test_incomplete_timestamp_and_empty_sources(self):
   data=self.scan([self.line(199990,'FAILURE'),'unknown FAILURE'])
   self.assertTrue(data['coverage_limited']);self.assertEqual(data['hosts'][0]['unknown_timestamps'],1)

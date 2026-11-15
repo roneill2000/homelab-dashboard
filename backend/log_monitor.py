@@ -19,7 +19,7 @@ def normalized(event):
     # Remove only transport timestamp/host and process PID; retain failure codes and paths.
     text=re.sub(r'^\d{4}-\d\d-\d\dT\S+\s+', '', text)
     host=event.get('host','')
-    if host and text.startswith(host+' '): text=text[len(host)+1:]
+    while host and text.casefold().startswith(host.casefold()+' '): text=text[len(host)+1:]
     return re.sub(r'\b([\w.-]+)\[\d+\]:',r'\1:',text)
 
 

@@ -411,7 +411,10 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
                 matched+=1
                 clean=scrub(line)
                 message=re.sub(r'^\S+\s+', '',clean)
-                if message.startswith(p.stem+' '):message=message[len(p.stem)+1:]
+                # The host name in front of the message is the device's own spelling, which is
+                # not always the case of the log file's stem, and some devices repeat it (the
+                # GL-BE9300 router writes 'GL-BE9300 netifd: ...' after the transport host).
+                while message.casefold().startswith(p.stem.casefold()+' '):message=message[len(p.stem)+1:]
                 message=re.sub(r'\b([\w.-]+)\[\d+\]:',r'\1:',message)
                 normalized=normalize(message)
                 key=(p.stem,level,normalized)

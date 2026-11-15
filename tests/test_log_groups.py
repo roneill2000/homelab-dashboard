@@ -18,6 +18,15 @@ class GroupTests(unittest.TestCase):
         repeated=next(g for g in groups if g['count']==2)
         self.assertEqual((repeated['first_at'],repeated['last_at']),(10,20));self.assertEqual(repeated['unit'],'filebrowser.service')
         self.assertNotIn('2026-',repeated['summary']);self.assertIn('status=1',repeated['summary'])
+    def test_host_prefix_is_stripped_even_when_the_log_line_case_differs(self):
+        # A router writes its own name into every line ('GL-BE9300 netifd: ...') while its log file
+        # stem is lowercase (gl-be9300.log); the summary must still drop the host name (15 Nov 2026:
+        # the mixed-case prefix reached the dashboard and tripped the content gate).
+        event=dict(ts=10,host='gl-be9300',level='WARNING',
+                   msg="2026-11-15T12:00:00-05:00 GL-BE9300 netifd: Network device 'eth0' link is down")
+        group=m.group_events([event])[0][0]
+        self.assertEqual(group['summary'],"netifd: Network device 'eth0' link is down")
+        self.assertFalse(group['summary'].startswith('GL-BE9300'))
     def test_service_requires_new_start_after_event(self):
         group=self.group()
         def status(active='active',sub='running',since=11,observed=20):
