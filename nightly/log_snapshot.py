@@ -30,14 +30,6 @@ _IPV4=re.compile(r'(?<![0-9.])(?:\d{1,3}\.){3}\d{1,3}(?![0-9.])')
 _HEX=re.compile(r'(?<![0-9A-Za-z])(?=[0-9A-Fa-f]*[a-fA-F])[0-9A-Fa-f]{8,}(?![0-9A-Za-z])')
 _UNIT=re.compile(r'(?<![0-9A-Za-z.])(\d+(?:\.\d+)?)(ms|min|us|ns|GB|GiB|TB|TiB|MB|MiB|KB|KiB|kB|mb|kb|b|B|%|s|h|m|d)(?![0-9A-Za-z])')
 _NUMBER=re.compile(r'(?<![0-9A-Za-z=.])\d{3,}(?:\.\d+)?(?![0-9A-Za-z])')
-# Cross-host lines: what other hosts logged within a minute of a group's latest line (a router reboot
-# explains a dozen downstream lines). Only candidate-worthy lines are kept: matched, boot, link, or service start/stop.
-BOOT_RE=re.compile(r'Booting Linux|kernel: \[\s*\d+\.\d+\]|procd: - init -|Startup finished')
-LINK_RE=re.compile(r'(?i)\b(?:link is down|link is up|link established|link lost|carrier lost|link up\b|link down\b)')
-SOAK_RE=re.compile(r'(?i)\b(?:Started|Stopping|Stopped)\b')
-NEARBY_WINDOW=60
-NEARBY_PER_GROUP=4
-NEARBY_MAX_PER_FILE=2000  # Started/Stopped chatter is capped; matched/boot/link lines always pass
 
 
 def normalize(message):
@@ -143,9 +135,8 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
     baseline=load_baseline(baseline_path)
     files=sorted(p for p in directory.glob('*.log') if not p.is_symlink())
     groups={};coverage=[];matched=0;file_spans={}
-    candidates=[]  # (ts, host, scrubbed line) across all files, for the nearby pass below
     for p in files[:MAX_FILES]:
-        size=p.stat().st_size;start=max(0,size-MAX_BYTES);parsed=[];unknown=0;lines=0;error=False;soaked=0
+        size=p.stat().st_size;start=max(0,size-MAX_BYTES);parsed=[];unknown=0;lines=0;error=False
         # Weekly rotation leaves the start of the window in <name>.log.1 (uncompressed: delaycompress), so read it
         # too while it was still being written inside the window.
         rotated=p.with_name(p.name+'.1');prev=b'';rot_start=0
@@ -170,9 +161,6 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
                 parsed.append(ts)
                 if ts<cutoff or ts>now+60:continue
                 level='CRITICAL' if any(r.search(line) for r in critical) else 'WARNING' if any(r.search(line) for r in warning) else None
-                if level or BOOT_RE.search(line) or LINK_RE.search(line) or (soaked<NEARBY_MAX_PER_FILE and SOAK_RE.search(line)):
-                    if level is None and SOAK_RE.search(line):soaked+=1
-                    candidates.append((ts,p.stem,scrub(line)[:300]))
                 if not level:continue
                 matched+=1
                 clean=scrub(line)
@@ -207,7 +195,7 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
         dates,counts=_baseline_stats(entry)
         g['nights_seen_30']=sum(1 for d in dates if d>=oldest_night)
         g['baseline_count']=statistics.median(counts) if counts else 0
-        g['first_seen']=entry.get('first_seen') or (today if g['nights_seen_30']==0 else None)
+        g['first_seen']=entry.get('first_seen')
         g['novelty']=(3 if g['nights_seen_30']==0 else 0)+(2 if g['count']>3*g['baseline_count'] else 0)+sum(1 for h in g['hours'] if h>=6)
     update_baseline(baseline,groups,today)
     write_baseline(baseline,baseline_path,now)
@@ -217,10 +205,6 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
     by_file={}
     for g in top:
         src,idx=g.pop('_ctx');by_file.setdefault(src,[]).append((g,idx))
-    # Nearby lines for the kept groups: up to 4 lines from other hosts within ±60 s of the group's latest line.
-    for g in top:
-        near=sorted((abs(ts-g['last_at']),line) for ts,host,line in candidates if host!=g['host'] and abs(ts-g['last_at'])<=NEARBY_WINDOW)
-        g['nearby']=[line for _,line in near[:NEARBY_PER_GROUP]]
     for g in ordered[MAX_GROUPS:]:g.pop('_ctx',None)
     for src,items in by_file.items():
         try:flines=_read_stream(src,*file_spans[src])

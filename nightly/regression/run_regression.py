@@ -5,9 +5,7 @@ Run on Unraid (the A310 box): python3 /mnt/disk1/.homelab-nightly/regression/run
 Starts the model exactly like runner.py does (same image, args, profile) but under its own
 container name and port 11438, holds the same run.lock, never runs inside the blocked windows,
 runs each event once at the runner's seed (42), scores 2/1/0 with the rubric rule, prints a
-table plus the total, writes results-<date>-<PROMPT_VERSION>.jsonl to /tmp/homelab-nightly-regression-results on Unraid,
-and removes its container. The operator then copies the file to /mnt/share/ai/nightly-regression/ on Proxmox and md5-verifies
-before deleting the staging copy (Unraid has no ssh key to 192.168.0.3; --out writes elsewhere instead).
+table plus the total, writes results-<date>-<PROMPT_VERSION>.jsonl, and removes its container.
 Scoring only: importing this module does not import the runner (tests import score directly).
 """
 import json
@@ -26,9 +24,6 @@ BLOCKED_WINDOWS = [((2, 45), (4, 0)), ((6, 45), (7, 15))]
 def blocked_now(now=None):
     now = now or datetime.now()
     return any((h1, m1) <= (now.hour, now.minute) < (h2, m2) for (h1, m1), (h2, m2) in BLOCKED_WINDOWS)
-
-
-SHARE_DIR = '/mnt/share/ai/nightly-regression'
 
 
 def load_events(path=HERE / 'events.jsonl'):
@@ -178,15 +173,13 @@ def main(argv=None):
         secs = sum(r.get('seconds', 0) for r in results)
         print(f'usage: {pt} prompt + {ct} completion tokens in {secs:.0f} s '
               f'(~{ct / max(secs, 1):.1f} tok/s client-side)')
-        out_dir = Path(args.out) if args.out else Path('/tmp/homelab-nightly-regression-results')
+        out_dir = Path(args.out) if args.out else runner.ROOT / 'regression-results'
         out_dir.mkdir(parents=True, exist_ok=True)
         name = f"results-{datetime.now().strftime('%Y%m%d')}-{runner.PROMPT_VERSION}.jsonl"
         body = [json.dumps(dict(r, model=runner.MODEL, prompt_version=runner.PROMPT_VERSION, image=runner.IMAGE,
                                 seed=42, ts=int(time.time()), load_seconds=load_seconds)) for r in results]
-        path = out_dir / name
-        path.write_text('\n'.join(body) + '\n')
-        print(f'wrote {path}')
-        print(f'STAGE {path} -> copy to {SHARE_DIR} (md5-verify, then delete staging)')
+        (out_dir / name).write_text('\n'.join(body) + '\n')
+        print(f'wrote {out_dir / name}')
         return 0
     finally:
         try:

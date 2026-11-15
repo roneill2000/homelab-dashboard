@@ -104,7 +104,6 @@ class SnapshotTests(unittest.TestCase):
    base=str(Path(d)/'baseline.json')
    first=self.scan([self.line(1794499990,'nightly.service: FAILURE heartbeat')],now=1794500000,baseline=base)
    self.assertEqual(first['groups'][0]['nights_seen_30'],0);self.assertEqual(first['groups'][0]['novelty'],5)
-   self.assertEqual(first['groups'][0]['first_seen'],datetime.fromtimestamp(1794500000).strftime('%Y-%m-%d'))  # first seen tonight
    today1=datetime.fromtimestamp(1794500000).strftime('%Y-%m-%d')
    saved=json.loads(Path(base).read_text())
    key=json.dumps(['utilities','WARNING','nightly.service: FAILURE heartbeat'])
@@ -134,31 +133,6 @@ class SnapshotTests(unittest.TestCase):
   self.assertEqual(entry['first_seen'],'2026-10-01');self.assertEqual(entry['last_seen'],'2026-11-01')
   s.update_baseline(base,{'g':dict(host='h',level='WARNING',normalized='m',count=7)},'2026-11-01')
   self.assertEqual(base[json.dumps(['h','WARNING','m'])]['counts'][-1],7)  # a repeat run the same night takes the larger count
- def test_nearby_lines_from_other_hosts_within_a_minute(self):
-  with tempfile.TemporaryDirectory() as d:
-   p=Path(d)
-   line=lambda ts,host,msg:datetime.fromtimestamp(ts,timezone.utc).isoformat()+' '+host+' '+msg
-   (p/'utilities.log').write_text(line(199990,'utilities','ssh FAILURE boom here')+'\n'+line(199991,'utilities','systemd: Started own.service')+'\n')
-   (p/'router.log').write_text(line(199950,'router','FAILURE upstream blip')+'\n'+line(199930,'router','systemd: Started web.service')+'\n'
-                               +line(199000,'router','FAILURE way outside the minute')+'\n'+line(199995,'router','plain chatter no pattern')+'\n'
-                               +line(199960,'router','kernel: [   47.882101] Booting Linux on physical CPU')+'\n')
-   data=s.snapshot(p,[re.compile('CRITICAL')],[re.compile('FAILURE')],200000)
-  g=next(g for g in data['groups'] if 'boom' in g['message'])
-  self.assertTrue(any('upstream blip' in l for l in g['nearby']))
-  self.assertTrue(any('Started web.service' in l for l in g['nearby']))
-  self.assertTrue(any('Booting Linux' in l for l in g['nearby']))
-  self.assertFalse(any('plain chatter' in l for l in g['nearby']))  # candidate-worthy only
-  self.assertFalse(any('way outside' in l for l in g['nearby']))    # ±60 s bound
-  self.assertFalse(any('own.service' in l for l in g['nearby']))    # other hosts only
-  self.assertLessEqual(len(g['nearby']),4);self.assertTrue(all(len(l)<=300 for l in g['nearby']))
- def test_nearby_lines_are_scrubbed(self):
-  with tempfile.TemporaryDirectory() as d:
-   p=Path(d)
-   line=lambda ts,host,msg:datetime.fromtimestamp(ts,timezone.utc).isoformat()+' '+host+' '+msg
-   (p/'a.log').write_text(line(199990,'a','FAILURE boom')+'\n')
-   (p/'b.log').write_text(line(199980,'b','systemd: Started x token=SYNTHETIC_NEARBY_TOKEN service')+'\n')
-   data=s.snapshot(p,[re.compile('CRITICAL')],[re.compile('FAILURE')],200000)
-  self.assertNotIn('SYNTHETIC_NEARBY_TOKEN',json.dumps(data['groups'][0]['nearby']))
  def test_baseline_key_cap_and_size_bound_evict_oldest_first(self):
   groups=lambda n:{n:dict(host='h',level='WARNING',normalized=n,count=1)}
   with patch.object(s,'BASELINE_MAX_KEYS',2):
@@ -203,45 +177,6 @@ class RunnerTests(unittest.TestCase):
   self.assertTrue(body['chat_template_kwargs']['enable_thinking'])
   self.assertLessEqual(body['max_tokens'],1152)
   self.assertIn('--reasoning-budget',r.container_command())
- def test_history_line_nearby_and_budget_trims_reach_the_model(self):
-  group=dict(host='utilities',message='m',count=1,first_at=1000,last_at=2000,hours=[0]*24,context=[],
-             current_service_state={'state':'unverified'},nights_seen_30=27,first_seen='2026-10-20',
-             nearby=['2026-11-13T03:00:00+00:00 gl-be9300 systemd: Started web.service'])
-  body=r.request_body(group)
-  payload=json.loads(body['messages'][-1]['content'])
-  self.assertEqual(payload['history'],'seen on 27 of the last 30 nights (first seen 2026-10-20)')
-  self.assertEqual(payload['nearby'],group['nearby'])
-  self.assertIn('last 30 nights',body['messages'][0]['content'])
-  self.assertIn('other hosts logged within a minute',body['messages'][0]['content'])
-  # oversized: nearby dropped first...
-  big=dict(group,nearby=['x'*400 for _ in range(4)]*40)
-  payload=json.loads(r.request_body(big)['messages'][-1]['content'])
-  self.assertNotIn('nearby',payload)
-  self.assertIn('history',payload)
-  # ...then the context is cut to 6 + 3 lines
-  huge=dict(group,context=['c'*1600 for _ in range(13)],nearby=['y'*400]*40)
-  payload=json.loads(r.request_body(huge)['messages'][-1]['content'])
-  self.assertEqual(len(payload['context']),9)
- def test_oversized_context_400_retries_without_nearby(self):
-  import urllib.error
-  ok={'choices':[{'finish_reason':'stop','message':{'content':'Fine.'}}],'usage':{'completion_tokens':3}}
-  seen=[]
-  def seq(url,body,timeout=None):
-   seen.append(json.loads(body['messages'][-1]['content']))
-   if len(seen)==1:raise urllib.error.HTTPError(url,400,'too large',{},None)
-   return ok
-  with patch.object(r,'fetch',side_effect=seq):
-   finding,used,reason=r.review_group({'id':'g','host':'h','message':'m','nearby':['other host line']},'quick')
-  self.assertEqual(finding['interpretation'],'Fine.');self.assertIsNone(reason)
-  self.assertIn('nearby',seen[0]);self.assertNotIn('nearby',seen[1])
- def test_prepare_evidence_passes_history_and_nearby_through(self):
-  snap=dict(groups=[dict(id='a',host='u',level='WARNING',count=1,first_at=800,last_at=800,message='x FAILURE',
-                         normalized='x FAILURE',nights_seen_30=5,first_seen='2026-10-01',nearby=['2026-11-13T03:00:00+00:00 b systemd: Started s'])],
-            window_start=1,window_end=1000,coverage_limited=False,files_scanned=1,matched_entries=1,distinct_groups=1,source='patterns',hosts=[])
-  with patch.object(r.time,'time',return_value=1000):e=r.prepare_evidence(snap,{},{})
-  self.assertEqual(e['groups'][0]['nights_seen_30'],5)
-  self.assertEqual(e['groups'][0]['first_seen'],'2026-10-01')
-  self.assertEqual(e['groups'][0]['nearby'],['2026-11-13T03:00:00+00:00 b systemd: Started s'])
  def test_known_causes_matching(self):
   self.assertTrue(r.match_known_causes({'host':'utilities','message':'dl-123.service: exited status=143'}))
   self.assertTrue(r.match_known_causes({'host':'gl-be9300','message':'hostapd: wlan1: disconnected'}))
@@ -404,16 +339,6 @@ class RegressionTests(unittest.TestCase):
    payload=json.loads(body['messages'][-1]['content'])
    for key in ('host','message','count','hours','context','current_service_state'):self.assertIn(key,payload)
    self.assertIsInstance(payload['first_at'],str);self.assertEqual(body['seed'],42)
-   self.assertIn('history',payload)  # live groups all carry history (as the history line, not a raw field)
-   if e['id'] in ('h5_smart_pending','h8_ssh_flood','h12_wifi_flap','h6_jellyfin_cancel'):
-    self.assertTrue(payload['history'].startswith('seen on 30 of the last 30 nights'))
-    self.assertIn('history never lowers the verdict',body['messages'][0]['content'])
-    self.assertIn('A note explains',body['messages'][0]['content'])
-   if e['id'] in ('h2_router_boot','h3_scrutiny_array'):
-    self.assertTrue(payload['nearby'])
-    self.assertTrue(all(len(l)<=300 for l in payload['nearby']))
-   if e['id'] in ('h7_ext4','h15_dl_stop_plus'):
-    self.assertTrue(payload['history'].startswith('seen on 0 of the last 30 nights'))
  def test_rubric_scoring_rule(self):
   f=lambda verdict,what,next='':dict(verdict=verdict,interpretation=what,next=next)
   e=g.load_expected()
