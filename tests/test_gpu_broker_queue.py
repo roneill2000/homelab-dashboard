@@ -211,7 +211,7 @@ class QueueIT(unittest.TestCase):
         for name, val in (('LEASE_IDLE_S', 5.0), ('LEASE_MAX_S', 5.0), ('FAIR_HOLD_S', 5.0)):
             patch.object(g, name, val).start()
         self.addCleanup(lambda: [setattr(g, n, v) for n, v in
-                                 (('LEASE_IDLE_S', 600), ('LEASE_MAX_S', 4 * 3600), ('FAIR_HOLD_S', 1800))])
+                                 (('LEASE_IDLE_S', 600), ('LEASE_MAX_S', 4 * 3600), ('FAIR_HOLD_S', 900))])
         with closing(self.conn()) as c:
             self.assertEqual(send_recv(c, 'T')[0], 200)  # working holder (bash tool call)
         with closing(self.conn()) as c:
@@ -492,7 +492,7 @@ class QueueIT(unittest.TestCase):
         patch.object(g, 'LEASE_IDLE_S', 30.0).start()
         self.addCleanup(setattr, g, 'LEASE_IDLE_S', 600)
         patch.object(g, 'FAIR_HOLD_S', 30.0).start()
-        self.addCleanup(setattr, g, 'FAIR_HOLD_S', 1800)
+        self.addCleanup(setattr, g, 'FAIR_HOLD_S', 900)
         patch.object(g, 'GRANTED_UNUSED_S', 30.0).start()
         self.addCleanup(setattr, g, 'GRANTED_UNUSED_S', 30)
         patch.object(g, 'LEASE_MAX_S', 60.0).start()

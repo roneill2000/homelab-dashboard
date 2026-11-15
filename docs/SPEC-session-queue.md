@@ -29,7 +29,7 @@ once evict each other on every turn: each turn re-reads the whole conversation (
   - *waiting*: the holder's response called a tool that waits for a person (Pocket `ask`; add others found in the
     tool lists). Pocket approval cards for ordinary tools are invisible to the broker → covered by B1 or by idle.
   - **Grace for Ryan (14 Nov, Ryan):** *waiting* and *done* do not release at once. The holder keeps the lease for
-    `ASK_GRACE_S` (default 600 s) after a question and `DONE_GRACE_S` (default 600 s) after a finished turn, so a quick
+    `ASK_GRACE_S` (600 s, 180 s since 15 Nov) after a question and `DONE_GRACE_S` (default 600 s) after a finished turn, so a quick
     answer while Ryan is watching continues on a warm cache. If Ryan answers inside the grace the session simply goes
     on working; if not, the lease passes to the next waiter. The grace only matters when someone is queued: with an
     empty queue the lease stays put and costs nothing. When the session's next request arrives after losing the
@@ -82,8 +82,8 @@ once evict each other on every turn: each turn re-reads the whole conversation (
 - **Session key:** `x-session-affinity` header when present (pi family: set `"compat": {"sendSessionAffinityHeaders": true}`
   on the homelab provider in `/root/.pi/agent/models.json`, Ryan approved; stable across compaction), else the hash
   fallback. Broker history gains `client` and `queued_s` columns.
-- **`LEASE_IDLE_S = 600`**, `ASK_GRACE_S = DONE_GRACE_S = 600`.
-- **Fairness (`FAIR_HOLD_S = 1800`):** when the holder has held the lease longer than 30 min **and** someone is
+- **`LEASE_IDLE_S = 600`**, `DONE_GRACE_S = 600`, `ASK_GRACE_S = 180` (was 600; 15 Nov, Ryan).
+- **Fairness (`FAIR_HOLD_S = 900`, was 1800 until 15 Nov):** when the holder has held the lease longer than 15 min **and** someone is
   waiting, the holder's next request hands the lease to the head of the queue and itself queues at the back (it
   pays one re-read later). With nobody waiting a holder keeps the lease indefinitely.
 - **Pass-through clients never queue and never take or move the lease:** Open WebUI (`.16`) and the Ask box /

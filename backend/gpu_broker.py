@@ -72,9 +72,11 @@ def client_allowed(address):
 # with the flag off nothing below changes behaviour (the new history columns stay None).
 QUEUE_ENABLED = os.environ.get('QUEUE_ENABLED', '0').strip().lower() in ('1', 'true', 'on', 'yes')
 LEASE_IDLE_S = 600       # no request from the holder for this long: idle, lease may pass (Phase 1 p99.9 was 316 s)
-ASK_GRACE_S = 600        # holder keeps the lease this long after an ask card, then the queue may take it
+ASK_GRACE_S = 180        # holder keeps the lease this long after an ask card, then the queue may take it (15 Nov, Ryan:
+# 600 -> 180; an open question held the GPU 6 min while another session waited)
 DONE_GRACE_S = 600       # holder keeps the lease this long after a finished reply (71% of Ryan's replies came within)
-FAIR_HOLD_S = 1800       # Ryan's fairness: >30 min held with someone waiting -> handover (the holder re-queues)
+FAIR_HOLD_S = 900        # Ryan's fairness: >15 min held with someone waiting -> handover (the holder re-queues; 15 Nov,
+# Ryan: 30 -> 15 min after a second session waited the full 30 min; a handover costs the holder one re-read)
 LEASE_MAX_S = 4 * 3600   # a lease with no progress (session died mid-turn) is cut after 4 h, queue or not
 QUEUE_HOLD_S = 120       # a non-streaming request waits at most this long, then 503 + Retry-After
 QUEUE_KEEPALIVE_S = 15   # SSE comment every 15 s while queued: undici (pi family) kills a silent stream at 300 s
