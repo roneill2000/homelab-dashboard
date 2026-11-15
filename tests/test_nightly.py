@@ -42,6 +42,22 @@ class SnapshotTests(unittest.TestCase):
    p=Path(d);(p/'utilities.log.1').write_text(self.line(50000,'x')+'\n');os.utime(p/'utilities.log.1',(50000,50000))
    (p/'utilities.log').write_text(self.line(195000,'FAILURE')+'\n')
    self.assertTrue(s.snapshot(p,[],[re.compile('FAILURE')],200000)['coverage_limited'])
+ def test_timestamp_seek_covers_a_window_bigger_than_the_read_budget(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)
+   line=lambda ts,msg:datetime.fromtimestamp(ts,timezone.utc).isoformat()+' utilities '+msg
+   lines=[line(113000+i,'x'*60) for i in range(400)]  # all predate the cutoff (113600)
+   lines.append(line(114000,'early-in-window FAILURE start of the window'))
+   lines.append(line(199990,'late FAILURE end'))
+   (p/'utilities.log').write_text('\n'.join(lines)+'\n')
+   with patch.object(s,'MAX_BYTES',8000):
+    data=s.snapshot(p,[re.compile('CRITICAL')],[re.compile('FAILURE')],200000)
+  hosts={h['host']:h for h in data['hosts']}
+  self.assertFalse(hosts['utilities']['window_may_be_incomplete'])
+  self.assertFalse(hosts['utilities']['truncated'])
+  msgs=' '.join(g['message'] for g in data['groups'])
+  self.assertIn('start of the window',msgs)  # the old tail read had skipped it
+  self.assertIn('late FAILURE end',msgs)
  def test_critical_priority_and_symlink_ignored(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d);(p/'real.log').write_text(self.line(199900,'CRITICAL')+'\n'+self.line(199999,'FAILURE'))

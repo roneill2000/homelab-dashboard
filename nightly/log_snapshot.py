@@ -65,6 +65,31 @@ def scrub(text):
     return text
 
 
+def _seek_window_start(p, cutoff, size):
+    """Binary-search the appended, timestamp-ordered file for the byte offset of its first line at or after cutoff.
+    Returns (offset, proven): proven=True means the read cannot skip window content. A seek past byte 0 is proven (the
+    search proved lines before it predate the window); reading from byte 0 is proven only when the whole file is read and
+    no unread rotated sibling exists (it may hold the start of the window). Unparseable lines are treated as older."""
+    with p.open('rb') as f:
+        lo,hi=0,size
+        best=None
+        while lo<=hi:
+            mid=(lo+hi)//2
+            if mid>=size: hi=mid-1;continue
+            f.seek(mid)
+            if mid: f.readline()  # skip partial line
+            pos=f.tell()
+            if pos>=size: hi=mid-1;continue
+            line=f.readline()
+            try: ts=datetime.fromisoformat(line.split(None,1)[0].decode('ascii','replace').replace('Z','+00:00')).timestamp()
+            except ValueError: ts=None
+            if ts is None or ts<cutoff:
+                lo=pos+len(line)
+            else:
+                best=pos;hi=pos-1
+        return (best if best is not None else 0, best is not None and best>0)
+
+
 def _read_stream(p, rot_start, prev_len, start, raw_len):
     rotated=p.with_name(p.name+'.1');prev=b'';raw=b''
     if prev_len and rotated.is_file() and not rotated.is_symlink():
@@ -136,23 +161,27 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
     files=sorted(p for p in directory.glob('*.log') if not p.is_symlink())
     groups={};coverage=[];matched=0;file_spans={}
     for p in files[:MAX_FILES]:
-        size=p.stat().st_size;start=max(0,size-MAX_BYTES);parsed=[];unknown=0;lines=0;error=False
+        size=p.stat().st_size;start=0;_cur_proven=False;parsed=[];unknown=0;lines=0;error=False
         # Weekly rotation leaves the start of the window in <name>.log.1 (uncompressed: delaycompress), so read it
         # too while it was still being written inside the window.
-        rotated=p.with_name(p.name+'.1');prev=b'';rot_start=0
+        rotated=p.with_name(p.name+'.1');prev=b'';rot_start=0;rotated_read=False;truncated=False
         try:
             if rotated.is_file() and not rotated.is_symlink() and rotated.stat().st_mtime>=cutoff:
-                rsize=rotated.stat().st_size;rot_start=max(0,rsize-MAX_BYTES)
+                rotated_read=True
+                rsize=rotated.stat().st_size;rot_start,_rot_proven=_seek_window_start(rotated,cutoff,rsize)
                 with rotated.open('rb') as f:
                     f.seek(rot_start)
                     if rot_start:f.readline()
                     prev=f.read(MAX_BYTES)
+                    if f.tell()<rsize:truncated=True
         except OSError:error=True
         try:
+            start,_cur_proven=_seek_window_start(p,cutoff,size)
             with p.open('rb') as f:
                 f.seek(start)
                 if start:f.readline()
                 raw=f.read(MAX_BYTES)
+                if f.tell()<size:truncated=True
             file_spans[p]=(rot_start,len(prev),start,len(raw))
             for idx,line in enumerate((prev+(b'\n' if prev and not prev.endswith(b'\n') else b'')+raw).decode('utf-8','replace').splitlines()):
                 lines+=1
@@ -184,9 +213,10 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
         except OSError:error=True
         # A file with no lines at all is a quiet source (nothing logged), not a gap in coverage.
         quiet=not error and lines==0
-        coverage.append(dict(host=p.stem,bytes_read=min(size,MAX_BYTES)+len(prev),lines=lines,unknown_timestamps=unknown,quiet=quiet,
-                             rotated_read=bool(prev),truncated=start>0 or rot_start>0,
-                             window_may_be_incomplete=not quiet and (error or unknown>0 or not parsed or min(parsed)>cutoff),
+        proven=_cur_proven or (size<=MAX_BYTES and not (rotated.is_file() and not rotated.is_symlink() and rotated_read))
+        coverage.append(dict(host=p.stem,bytes_read=len(prev)+len(raw),lines=lines,unknown_timestamps=unknown,quiet=quiet,
+                             rotated_read=rotated_read,truncated=truncated,
+                             window_may_be_incomplete=not quiet and (error or unknown>0 or not parsed or not (proven or min(parsed)<=cutoff)),
                              oldest_read_at=min(parsed,default=None),newest_read_at=max(parsed,default=None),read_error=error))
     # Novelty against the baseline: a never-seen line first, then a spike over its usual nightly count,
     # then how long the burst lasted; a line seen most nights at its usual count ends up last.
