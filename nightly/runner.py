@@ -137,7 +137,7 @@ def prepare_evidence(snapshot,services,storage):
         unit='filebrowser.service' if 'filebrowser.service:' in g['message'] else None
         item['current_service_state']=service_state(dict(host=g['host'],unit=unit,last_at=g['last_at']),services,time.time())
         groups.append(item)
-    return dict(window_start=snapshot['window_start'],window_end=snapshot['window_end'],
+    return dict(generated_at=snapshot.get('generated_at'),window_start=snapshot['window_start'],window_end=snapshot['window_end'],
                 coverage_limited=snapshot['coverage_limited'],files_scanned=snapshot['files_scanned'],
                 matched_entries=snapshot['matched_entries'],distinct_groups=snapshot['distinct_groups'],
                 groups_omitted_from_model=max(0,snapshot['distinct_groups']-min(8,len(groups))),

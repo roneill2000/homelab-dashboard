@@ -10,6 +10,8 @@ from pathlib import Path
 
 MAX_FILES=32
 MAX_BYTES=16*1024*1024
+# A live re-check only needs the newest lines, so group_recent reads the tail of each file.
+GROUP_RECENT_TAIL_BYTES=2*1024*1024
 MAX_GROUPS=80
 # Normalization folds varying identifiers into stable placeholders so one noisy source is one group, not 30.
 # Small tokens that known causes match on (exit statuses, wlan0, sdc1) are deliberately kept.
@@ -323,6 +325,9 @@ def _read_stream(p, rot_start, prev_len, start, raw_len):
     return (prev+(b'\n' if prev and not prev.endswith(b'\n') else b'')+raw).decode('utf-8','replace').splitlines()
 
 
+def _group_id(host,level,normalized):return hashlib.sha256(repr((host,level,normalized)).encode()).hexdigest()[:12]
+
+
 def _baseline_key(host,level,normalized):return json.dumps([host,level,normalized])
 
 
@@ -370,6 +375,44 @@ def write_baseline(baseline,path,now):
         tmp.write_text(json.dumps(dict(updated_at=int(now),keys=baseline)))
         os.replace(tmp,target)
     except OSError:pass  # a baseline failure must not take down the snapshot endpoint
+
+
+def group_recent(directory,group_id,since,critical,warning,tail_bytes=GROUP_RECENT_TAIL_BYTES):
+    """How many lines in one group were logged at or after `since` (the snapshot time), read live.
+
+    An act push is made from a snapshot that is hours old; this re-reads the newest lines of each
+    log file and counts the ones the snapshot would have put in this group. The line-to-group
+    reduction mirrors snapshot() exactly - scrub, drop the transport host (any case) and any [pid],
+    normalize, hash - so a group id from the snapshot is the same id here. Only the tail is read
+    (GROUP_RECENT_TAIL_BYTES per file); a file that cannot be read sets error=True instead of
+    quietly reporting zero. `last_line` is scrubbed.
+    """
+    tail_bytes=min(max(int(tail_bytes),0),GROUP_RECENT_TAIL_BYTES)
+    count=0;files_scanned=0;error=False;last_line=None
+    for p in sorted(p for p in Path(directory).glob('*.log') if not p.is_symlink())[:MAX_FILES]:
+        try:
+            with p.open('rb') as f:
+                f.seek(0,os.SEEK_END);size=f.tell()
+                f.seek(max(0,size-tail_bytes))
+                if f.tell()>0:f.readline()  # a partial first line is not a line
+                chunk=f.read().decode('utf-8','replace')
+        except OSError:error=True;continue  # never a silent zero: the caller must know the read failed
+        files_scanned+=1
+        for line in chunk.splitlines():
+            try:ts=datetime.fromisoformat(line.split()[0].replace('Z','+00:00')).timestamp()
+            except (ValueError,IndexError):continue
+            if ts<since:continue
+            level='CRITICAL' if any(r.search(line) for r in critical) else 'WARNING' if any(r.search(line) for r in warning) else None
+            if not level:continue
+            clean=scrub(line)
+            message=re.sub(r'^\S+\s+','',clean)
+            while message.casefold().startswith(p.stem.casefold()+' '):message=message[len(p.stem)+1:]
+            message=re.sub(r'\b([\w.-]+)\[\d+\]:',r'\1:',message)
+            if _group_id(p.stem,level,normalize(message))!=group_id:continue
+            count+=1
+            if last_line is None or ts>=last_line[0]:last_line=(ts,clean[:300])
+    return dict(count=count,files_scanned=files_scanned,error=error,
+                last_line=(dict(ts=last_line[0],line=last_line[1]) if last_line else None))
 
 
 def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH):
@@ -421,7 +464,7 @@ def snapshot(directory, critical, warning, now=None, baseline_path=BASELINE_PATH
                 if key not in groups:
                     # Bound distinct group storage; coverage records overflow below.
                     if len(groups)>=2000:continue
-                    groups[key]=dict(id=hashlib.sha256(repr(key).encode()).hexdigest()[:12],host=p.stem,level=level,
+                    groups[key]=dict(id=_group_id(*key),host=p.stem,level=level,
                                      normalized=normalized,message=message[:1200],count=0,first_at=ts,last_at=ts,hours=[0]*24,
                                      variants=dict(count=0,examples=[]),_seen=set(),_ctx=(p,idx))
                 g=groups[key];g['count']+=1;g['first_at']=min(g['first_at'],ts)

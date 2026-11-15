@@ -1,4 +1,4 @@
-import json, sys, unittest
+import json, sys, tempfile, unittest
 from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -310,3 +310,70 @@ class NightlyActTests(unittest.TestCase):
             self.assertFalse(a.nightly_act_notify(self.report(), path=p, sender=lambda *a, **k: calls.append(a)))
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][3], 4)
+
+    # --- item 4: live re-check before the act push ---
+
+    def report_dated(self):
+        r = self.report()
+        r['evidence']['generated_at'] = 1794711600  # 2026-11-15 03:00 local, the snapshot time
+        r['evidence']['window_end'] = 1794711600
+        return r
+
+    def test_recheck_still_happening_keeps_priority_and_says_so(self):
+        calls = []
+        fn = lambda gid, since: {'count': 7, 'error': False, 'files_scanned': 2, 'last_line': {'ts': 1794715000, 'line': 'x'}}
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(a.nightly_act_notify(self.report_dated(), path=Path(d) / 'sent.json',
+                                                 sender=lambda *args, **k: calls.append(args), recent_fn=fn))
+        title, body = a.nightly_act_message(self.report_dated(), a.act_group_status(self.report_dated(), fn))
+        self.assertIn('still happening: 7 since', body)
+        self.assertEqual(calls[0][3], 4)
+        self.assertNotIn('not seen since', body)
+
+    def test_recheck_cleared_still_pushes_at_priority_3(self):
+        calls = []
+        fn = lambda gid, since: {'count': 0, 'error': False, 'files_scanned': 2, 'last_line': None}
+        r = self.report_dated()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(a.nightly_act_notify(r, path=Path(d) / 'sent.json',
+                                                 sender=lambda *args, **k: calls.append(args), recent_fn=fn))
+        self.assertEqual(len(calls), 1, 'a cleared act is never dropped silently')
+        self.assertEqual(calls[0][3], 3, 'quiet act drops to priority 3')
+        self.assertIn('not seen since', calls[0][2])
+
+    def test_recheck_failure_pushes_as_now(self):
+        calls = []
+        fn = lambda gid, since: None  # monitor unreachable
+        r = self.report_dated()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(a.nightly_act_notify(r, path=Path(d) / 'sent.json',
+                                                 sender=lambda *args, **k: calls.append(args), recent_fn=fn))
+        self.assertEqual(calls[0][3], 4, 'a failed re-check must not quiet the alert')
+        self.assertNotIn('not seen since', calls[0][2], 'a failed re-check is not "it stopped"')
+        self.assertNotIn('still happening', calls[0][2], 'a failed re-check claims nothing')
+
+    def test_recheck_error_flag_is_not_cleared(self):
+        # count 0 with error=True means the monitor could not read a file, not that the log is quiet.
+        fn = lambda gid, since: {'count': 0, 'error': True, 'files_scanned': 1, 'last_line': None}
+        status = a.act_group_status(self.report_dated(), fn)
+        self.assertTrue(status['a1']['live'])
+        title, body = a.nightly_act_message(self.report_dated(), status)
+        self.assertNotIn('not seen since', body)
+
+    def test_recheck_asks_since_the_snapshot_time_for_each_act_group(self):
+        seen = []
+        def fn(gid, since):
+            seen.append((gid, since))
+            return {'count': 1, 'error': False, 'files_scanned': 1, 'last_line': {'ts': since, 'line': 'x'}}
+        a.nightly_act_message(self.report_dated(), a.act_group_status(self.report_dated(), fn))
+        self.assertEqual(seen, [('a1', 1794711600)], 'only the new act finding, since the snapshot time')
+
+    def test_recheck_that_raises_is_not_cleared(self):
+        def fn(gid, since):
+            raise RuntimeError('monitor died')
+        status = a.act_group_status(self.report_dated(), fn)
+        self.assertTrue(status['a1']['live'])
+
+    def test_group_recent_returns_none_when_the_monitor_does_not_answer(self):
+        self.assertIsNone(a.group_recent('', 1))  # no id, no call
+        self.assertIsNone(a.group_recent('a1', 1, base='http://127.0.0.1:1', timeout=1))

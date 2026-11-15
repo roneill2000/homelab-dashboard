@@ -274,6 +274,25 @@ class SyslogHandler(BaseHTTPRequestHandler):
             except Exception:
                 self._send_bytes(503, 'application/json', b'{"error":"Snapshot unavailable"}', head_only)
             return
+        # HOMELAB_GROUP_RECENT_V1
+        if path == '/api/group-recent':
+            from pathlib import Path
+            from homelab_log_snapshot import group_recent
+            try:
+                gid = query.get('id', [''])[0]
+                since = float(query.get('since', [''])[0])
+            except (ValueError, IndexError):
+                self._send_bytes(400, 'application/json', b'{"error":"id and since are required"}', head_only)
+                return
+            if not gid:
+                self._send_bytes(400, 'application/json', b'{"error":"id and since are required"}', head_only)
+                return
+            try:
+                payload = group_recent(Path(LOG_DIR), gid, since, CRITICAL_PATTERNS, WARNING_PATTERNS)
+                self._send_bytes(200, 'application/json; charset=utf-8', json.dumps(payload).encode('utf-8'), head_only)
+            except Exception:
+                self._send_bytes(503, 'application/json', b'{"error":"group-recent unavailable"}', head_only)
+            return
         if path == "/api/status":
             stats = get_stats()
             self._send_bytes(200, "application/json; charset=utf-8", json.dumps(stats).encode("utf-8"), head_only)

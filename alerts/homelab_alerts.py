@@ -33,6 +33,7 @@ CONFIG_BACKUP = Path('/var/backups/homelab-configs/last_success')
 EVENTS = Path('/var/lib/homelab-alerts/events.jsonl')  # sent alerts, read by the runner's "what changed" timeline
 RESTORE_TEST = Path('/var/lib/homelab-cloud-backup/restore-test.json')
 NIGHTLY_HISTORY = Path('/var/lib/homelab-alerts/nightly-history.json')
+SYSLOG_URL = 'http://192.168.0.3:8999'  # syslog monitor: the live re-check behind an act push (item 4)
 NIGHTLY_ACT_SENT = Path('/var/lib/homelab-alerts/nightly-act-sent.json')  # local_dates whose 'act' findings were pushed  # local_date -> final status of the 03:00 review
 WHY_URL = 'http://192.168.0.3:8997/why'
 QWEN_URL = HOME + '/api/qwen'
@@ -239,7 +240,60 @@ def nightly_check(nightly, path=NIGHTLY_HISTORY):
                                 f"Last error: {nightly.get('error') or 'unknown'}. See Infrastructure > Nightly log review.", 3)}
 
 
-def nightly_act_message(nightly):
+def group_recent(group_id, since, base=SYSLOG_URL, timeout=6):
+    """Live re-check of one act finding (SPEC item 4): how many lines the syslog monitor logged in
+    this group at or after `since` (the review's snapshot time). Returns the /api/group-recent payload,
+    or None when the monitor did not answer - a failed re-check must never read as "it stopped"."""
+    if not group_id:
+        return None
+    url = f'{base}/api/group-recent?id={urllib.parse.quote(str(group_id))}&since={int(since)}'
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            data = json.load(r)
+    except Exception:
+        return None  # fail open: push as now
+    if not isinstance(data, dict) or not isinstance(data.get('count'), int):
+        return None
+    return data
+
+
+def act_group_status(nightly, recent_fn=None):
+    """{group_id: {live, count, last_seen}} for this review's new act findings, plus '_since'.
+
+    live is True while the group is still being logged, or when the re-check could not be made
+    (fail open); False only when the monitor answered cleanly and the group has been quiet.
+    """
+    fn = recent_fn or group_recent
+    evidence = (nightly.get('evidence') or {}) if isinstance(nightly, dict) else {}
+    since = max([(evidence.get(k) or 0) for k in ('generated_at', 'window_end')])
+    out = {'_since': since}
+    for f in (nightly.get('findings') or []):
+        if not isinstance(f, dict) or f.get('verdict') != 'act' or f.get('repeated'):
+            continue
+        gid = f.get('group_id')
+        if not gid or gid in out:
+            continue
+        try:
+            data = fn(gid, since)
+        except Exception:
+            data = None  # a re-check that raises is a failed re-check, not a cleared finding
+        if not isinstance(data, dict):
+            out[gid] = dict(live=True, count=None, last_seen=None)
+            continue
+        quiet = data.get('error') is False and data.get('count') == 0
+        last = (data.get('last_line') or {}).get('ts') if isinstance(data.get('last_line'), dict) else None
+        out[gid] = dict(live=not quiet,
+                        count=(0 if quiet else data.get('count')),
+                        last_seen=(evidence.get('generated_at') if quiet else last))
+    return out
+
+
+def _hm(ts):
+    """HH:MM in the host's local time, for the re-check sentence."""
+    return time.strftime('%H:%M', time.localtime(ts)) if isinstance(ts, (int, float)) and not isinstance(ts, bool) else ''
+
+
+def nightly_act_message(nightly, status=None):
     """Title and body for the 03:00 review's 'act' findings (Ryan, 13 Nov 2026: send them to me so I can spawn a fix),
     or None when there is nothing new to act on. Repeated findings (seen on earlier nights) are left out."""
     if not isinstance(nightly, dict) or nightly.get('status') != 'complete':
@@ -250,11 +304,20 @@ def nightly_act_message(nightly):
     if not acts:
         return None
     lines, prompt = [], []
+    status = status or {}
     for n, f in enumerate(acts, 1):
         host = hosts.get(f.get('group_id')) or 'unknown host'
         what = ' '.join(str(f.get('interpretation') or '').split())[:400]
         nxt = ' '.join(str(f.get('next') or '').split())[:240]
-        lines.append(f"{n}. {host}: {what}" + (f"\n   Next: {nxt}" if nxt else ''))
+        st = status.get(f.get('group_id')) or {}
+        # Item 4: say what the live re-check saw. A cleared finding is still pushed, only quieter.
+        if st.get('live') and st.get('count') is not None:
+            check = f" (still happening: {st['count']} since {_hm(status.get('_since'))})"
+        elif st.get('live') is False:
+            check = f" (not seen since {_hm(st.get('last_seen'))})"
+        else:
+            check = ''
+        lines.append(f"{n}. {host}: {what}{check}" + (f"\n   Next: {nxt}" if nxt else ''))
         prompt.append(f"{n}) {host}: {what}" + (f" Suggested next step: {nxt}" if nxt else ''))
     title = f"Nightly review: {len(acts)} to act on" if len(acts) > 1 else 'Nightly review: 1 to act on'
     body = ('\n'.join(lines) + '\n\nFix prompt (paste into pi):\n'
@@ -264,9 +327,16 @@ def nightly_act_message(nightly):
     return title, body[:3900]
 
 
-def nightly_act_notify(nightly, path=NIGHTLY_ACT_SENT, sender=None):
-    """Push the review's new 'act' findings once per review date."""
-    msg = nightly_act_message(nightly)
+def nightly_act_notify(nightly, path=NIGHTLY_ACT_SENT, sender=None, recent_fn=None):
+    """Push the review's new 'act' findings once per review date.
+
+    Item 4: every act finding is re-checked live first. One the monitor still sees is pushed at
+    priority 4 with the live count; one it has stopped seeing goes to priority 3 with
+    "not seen since HH:MM" - never dropped, because a quiet act (pending disk sectors) still
+    matters. A re-check that failed pushes as before (fail open).
+    """
+    status = act_group_status(nightly, recent_fn)
+    msg = nightly_act_message(nightly, status)
     if not msg:
         return False
     try:
@@ -276,7 +346,9 @@ def nightly_act_notify(nightly, path=NIGHTLY_ACT_SENT, sender=None):
     date = nightly.get('local_date')
     if date in sent:
         return False
-    (sender or send)('info', msg[0], msg[1], 4, key='nightly-act', tags='mag')
+    live = {k: v for k, v in status.items() if k != '_since'}
+    prio = 3 if live and all(not s['live'] for s in live.values()) else 4
+    (sender or send)('info', msg[0], msg[1], prio, key='nightly-act', tags='mag')
     sent = (sent + [date])[-30:]
     path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(sent))
     return True
