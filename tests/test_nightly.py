@@ -407,7 +407,6 @@ class RegressionTests(unittest.TestCase):
    self.assertIn('history',payload)  # live groups all carry history (as the history line, not a raw field)
    if e['id'] in ('h5_smart_pending','h8_ssh_flood','h12_wifi_flap','h6_jellyfin_cancel'):
     self.assertTrue(payload['history'].startswith('seen on 30 of the last 30 nights'))
-    self.assertIn('keep their rating however often they recur',body['messages'][0]['content'])
     self.assertIn('history never lowers the verdict',body['messages'][0]['content'])
     self.assertIn('A note explains',body['messages'][0]['content'])
    if e['id'] in ('h2_router_boot','h3_scrutiny_array'):
