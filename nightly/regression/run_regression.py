@@ -5,9 +5,9 @@ Run on Unraid (the A310 box): python3 /mnt/disk1/.homelab-nightly/regression/run
 Starts the model exactly like runner.py does (same image, args, profile) but under its own
 container name and port 11438, holds the same run.lock, never runs inside the blocked windows,
 runs each event once at the runner's seed (42), scores 2/1/0 with the rubric rule, prints a
-table plus the total, writes results-<date>-<PROMPT_VERSION>.jsonl, publishes it to /mnt/share/ai/nightly-regression/ on
-Proxmox over ssh (md5-verified; the /tmp staging copy is then removed; --out keeps the local copy only),
-and removes its container.
+table plus the total, writes results-<date>-<PROMPT_VERSION>.jsonl to /tmp/homelab-nightly-regression-results on Unraid,
+and removes its container. The operator then copies the file to /mnt/share/ai/nightly-regression/ on Proxmox and md5-verifies
+before deleting the staging copy (Unraid has no ssh key to 192.168.0.3; --out writes elsewhere instead).
 Scoring only: importing this module does not import the runner (tests import score directly).
 """
 import json
@@ -29,28 +29,6 @@ def blocked_now(now=None):
 
 
 SHARE_DIR = '/mnt/share/ai/nightly-regression'
-
-
-def publish_to_share(name, local_path, ssh_host='root@192.168.0.3'):
-    """Copy the results file to the Proxmox share, verify by md5, then remove the Unraid staging copy."""
-    import hashlib
-    import subprocess
-    raw = local_path.read_bytes()
-    try:
-        r = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', ssh_host,
-                            f"mkdir -p {SHARE_DIR} && cat > {SHARE_DIR}/{name}"],
-                           input=raw, capture_output=True, timeout=30)
-        if r.returncode != 0:
-            return f'failed, keeping {local_path}: {(r.stderr or b"").decode("utf-8","replace").strip()[:120]}'
-        v = subprocess.run(['ssh', '-o', 'BatchMode=yes', ssh_host, f'md5sum {SHARE_DIR}/{name}'],
-                           capture_output=True, timeout=15)
-        remote = (v.stdout or b'').decode('ascii','replace').split()[:1]
-        if not remote or remote[0] != hashlib.md5(raw).hexdigest():
-            return f'pushed but unverified, keeping {local_path}'
-        local_path.unlink()
-        return f'{SHARE_DIR}/{name} (staging copy removed)'
-    except Exception as exc:
-        return f'failed, keeping {local_path}: {type(exc).__name__}'
 
 
 def load_events(path=HERE / 'events.jsonl'):
@@ -208,8 +186,7 @@ def main(argv=None):
         path = out_dir / name
         path.write_text('\n'.join(body) + '\n')
         print(f'wrote {path}')
-        if not args.out:  # spec: results live on the share, not on Unraid's disk1 or /tmp
-            print(f'published to share: {publish_to_share(name, path)}')
+        print(f'STAGE {path} -> copy to {SHARE_DIR} (md5-verify, then delete staging)')
         return 0
     finally:
         try:
