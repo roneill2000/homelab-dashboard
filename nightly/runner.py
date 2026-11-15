@@ -185,8 +185,12 @@ def request_body(group, profile='quick', use_schema=True):
                   "happened, and why. The history line, when present, says how often this pattern was seen in the last 30 "
                   "nights: a line seen on most nights is the usual pattern, say so, and only rate it above ignore if the count "
                   "or the lines changed, unless it points to hardware failure, data loss or a security problem: those keep their "
-                  "rating however often they recur. nearby lines, when present, are lines other hosts logged within a minute of this one; "
-                  "use them to explain a cause (for example a reboot explains link blips), but never treat them as this group's lines. "
+                  "rating however often they recur. A usual pattern is not automatically ignore when the lines carry a rate "
+                  "(N times a day) or a count in the hundreds: keep the urgency those lines alone would give. nearby lines, "
+                  "when present, are lines other hosts logged within a minute of this one; use them to explain a cause "
+                  "(for example a reboot explains link blips), but never treat them as this group's lines. The message is "
+                  "not the whole finding: if the context lines add a signal the message lacks (a device I/O error, a "
+                  "controller reset), include it and let it raise the verdict. "
                   "Then give `verdict`: `act` (Ryan should do something), `watch` (worth "
                   "noticing if it repeats) or `ignore` (expected or harmless), and `next`: one concrete next "
                   "step, or empty for ignore. Say 'likely' when you infer. Never claim a hardware fault unless "
@@ -371,7 +375,7 @@ def stop_model():
     raise RuntimeError('Model container cleanup failed; GPU release is unverified')
 
 
-PROMPT_VERSION='2026-11-14a'  # bump when the instructions change, so old verdicts are reviewed again; 14a adds history lines and cross-host nearby lines
+PROMPT_VERSION='2026-11-14b'  # bump when the instructions change, so old verdicts are reviewed again; 14a added history+nearby, 14b keeps rate and context urgency despite recurrence
 
 
 def review_key(group):

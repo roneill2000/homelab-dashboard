@@ -408,6 +408,8 @@ class RegressionTests(unittest.TestCase):
    if e['id'] in ('h5_smart_pending','h8_ssh_flood','h12_wifi_flap','h6_jellyfin_cancel'):
     self.assertTrue(payload['history'].startswith('seen on 30 of the last 30 nights'))
     self.assertIn('keep their rating however often they recur',body['messages'][0]['content'])
+    self.assertIn('not automatically ignore',body['messages'][0]['content'])
+    self.assertIn('if the context lines add a signal the message lacks',body['messages'][0]['content'])
    if e['id'] in ('h2_router_boot','h3_scrutiny_array'):
     self.assertTrue(payload['nearby'])
     self.assertTrue(all(len(l)<=300 for l in payload['nearby']))

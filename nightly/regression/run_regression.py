@@ -39,12 +39,12 @@ def publish_to_share(name, local_path, ssh_host='root@192.168.0.3'):
     try:
         r = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', ssh_host,
                             f"mkdir -p {SHARE_DIR} && cat > {SHARE_DIR}/{name}"],
-                           input=raw, capture_output=True, text=True, timeout=30)
+                           input=raw, capture_output=True, timeout=30)
         if r.returncode != 0:
-            return f'failed, keeping {local_path}: {(r.stderr or "").strip()[:120]}'
+            return f'failed, keeping {local_path}: {(r.stderr or b"").decode("utf-8","replace").strip()[:120]}'
         v = subprocess.run(['ssh', '-o', 'BatchMode=yes', ssh_host, f'md5sum {SHARE_DIR}/{name}'],
-                           capture_output=True, text=True, timeout=15)
-        remote = (v.stdout or '').split()[:1]
+                           capture_output=True, timeout=15)
+        remote = (v.stdout or b'').decode('ascii','replace').split()[:1]
         if not remote or remote[0] != hashlib.md5(raw).hexdigest():
             return f'pushed but unverified, keeping {local_path}'
         local_path.unlink()
