@@ -404,7 +404,7 @@ class RegressionTests(unittest.TestCase):
    payload=json.loads(body['messages'][-1]['content'])
    for key in ('host','message','count','hours','context','current_service_state'):self.assertIn(key,payload)
    self.assertIsInstance(payload['first_at'],str);self.assertEqual(body['seed'],42)
-   self.assertIsInstance(payload['nights_seen_30'],int)  # live groups all carry history now
+   self.assertIn('history',payload)  # live groups all carry history (as the history line, not a raw field)
    if e['id'] in ('h5_smart_pending','h8_ssh_flood','h12_wifi_flap','h6_jellyfin_cancel'):
     self.assertTrue(payload['history'].startswith('seen on 30 of the last 30 nights'))
     self.assertIn('keep their rating however often they recur',body['messages'][0]['content'])
