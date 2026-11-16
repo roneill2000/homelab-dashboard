@@ -306,8 +306,11 @@ class NightlyActTests(unittest.TestCase):
         calls = []
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / 'sent.json'
-            self.assertTrue(a.nightly_act_notify(self.report(), path=p, sender=lambda *a, **k: calls.append(a)))
-            self.assertFalse(a.nightly_act_notify(self.report(), path=p, sender=lambda *a, **k: calls.append(a)))
+            # recent_fn stubbed: the default re-check calls the live syslog monitor, so the priority depended on
+            # what the real logs said at test time (flaky; found by the 16 Nov audit). A failed re-check = push as before.
+            nocheck = lambda gid, since: None
+            self.assertTrue(a.nightly_act_notify(self.report(), path=p, sender=lambda *a, **k: calls.append(a), recent_fn=nocheck))
+            self.assertFalse(a.nightly_act_notify(self.report(), path=p, sender=lambda *a, **k: calls.append(a), recent_fn=nocheck))
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][3], 4)
 
