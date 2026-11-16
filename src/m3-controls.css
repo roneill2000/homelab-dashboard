@@ -433,6 +433,7 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-rel:hover>.dl-rel__card,.dl-rel:focus-within>.dl-rel__card{visibility:visible;opacity:1;transform:none;transition:opacity .15s .35s,transform .15s .35s,visibility 0s linear .35s}
 .dl-rel:focus-within>.dl-rel__card{transition-delay:0s}
 .dl-rel__name{display:block;font-family:var(--md-ref-typeface-mono,ui-monospace,monospace);overflow-wrap:anywhere;user-select:text;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--md-sys-color-outline-variant)}
+.dl-rel__note{display:block;margin:-4px 0 8px;color:var(--md-sys-color-on-surface-variant);font-style:italic}
 .dl-rel__facts{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}.dl-rel__facts dt{color:var(--md-sys-color-on-surface-variant)}.dl-rel__facts dd{margin:0;overflow-wrap:anywhere}
 .dl-group{font-weight:500;color:var(--md-sys-color-on-surface)}
 @media (prefers-reduced-motion:reduce){.dl-rel__card,.dl-rel:hover>.dl-rel__card{transform:none}}
