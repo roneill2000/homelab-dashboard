@@ -230,6 +230,11 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .ov-actions .quick-actions>.m3-btn,.ov-actions .quick-actions>.m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 20px 0 16px;border:0;box-shadow:none;
   border-radius:var(--md-sys-shape-corner-full);background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}
 .ov-actions .quick-actions>.m3-btn:is(:active,.is-pressing):not(:disabled){border-radius:var(--md-sys-shape-corner-small)}
+/* The tonal rule above is (0,3,0) and beats both the generic disabled style (0,2,0) and .quick-actions .is-snoozed in
+   styles.css, so a disabled quick action looked enabled and a snoozed one lost its highlight (15 Nov audit).
+   These (0,4,0) rules win again; the disabled colours are the generic .m3-btn:disabled values. */
+.ov-actions .quick-actions>.m3-btn:disabled{background:color-mix(in srgb,var(--md-sys-color-on-surface) 10%,transparent);color:color-mix(in srgb,var(--md-sys-color-on-surface) 38%,transparent);box-shadow:none}
+.ov-actions .quick-actions>.m3-btn.is-snoozed{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container)}
 .ov-actions .quick-actions>.m3-btn .material-symbols-rounded{color:inherit;font-size:18px!important}
 .ov-actions .quick-actions>.pc-power{min-height:56px;padding:8px 8px 8px 16px;gap:12px;border-radius:var(--md-sys-shape-corner-large);background:var(--md-sys-color-surface-container-high);box-shadow:none}
 .ov-actions .pc-power .m3-btn,.ov-actions .pc-power .m3-btn:active:not(:disabled){height:40px;min-height:40px;padding:0 16px 0 12px;margin-left:auto;border:0;box-shadow:none;

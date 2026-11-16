@@ -262,7 +262,10 @@ function LocalAI({ai,gpu,live:liveFeed,queue,compact=false,onOpen,power,onNaviga
  const coder=ai?.coder||{},coderLive=sourceFresh(coder);
  const items=[...llamaItems,{id:strata.model||STRATA_MODEL,engine:'strata',state:strataLive?(strata.loaded?'loaded':'unloaded'):'unknown',context_tokens:strata.context_tokens??null},...(ai?.coder?[{id:coder.model||CODER_MODEL,engine:'coder',state:coderLive?(coder.loaded?'loaded':'unloaded'):'unknown',context_tokens:coder.context_tokens??null}]:[])];
  const fresh=m=>m.engine==='strata'?strataLive:m.engine==='coder'?coderLive:live,canChat=m=>fresh(m)&&webLive;
- const pcStatus=pc.online===false?'Gaming PC unavailable':'Waiting for gaming PC status';
+ // "PC unavailable" must not be driven by llama-server alone: Strata and the Coder are separate servers on the same PC
+ // that can be up while llama-server is down (game-watch, the llm-router stopped). Reachable = any engine answers fresh.
+ const anyEngine=live||strataLive||coderLive;
+ const pcStatus=anyEngine?'llama-server offline':pc.online===false?'Gaming PC unavailable':'Waiting for gaming PC status';
  const labels={loaded:'Loaded',unloaded:'Loads on demand',loading:'Loading',unloading:'Unloading',sleeping:'Idle · unloaded',failed:'Failed',unknown:'Unknown'};
  const loaded=items.filter(m=>fresh(m)&&m.state==='loaded'),others=items.filter(m=>!(fresh(m)&&m.state==='loaded'));
  const chat=id=>`http://192.168.0.16:3000/?model=${encodeURIComponent(id)}`;
@@ -278,9 +281,9 @@ function LocalAI({ai,gpu,live:liveFeed,queue,compact=false,onOpen,power,onNaviga
     {loaded.map(m=><div className="ai-model is-featured" key={m.id}><div className="ai-model-title"><div><span className="ai-featured__badge">Loaded now</span><h3>{PC_MODEL_NAMES[m.id]||m.id}</h3>{modelProfiles[m.id]&&<p className="ai-role">{modelProfiles[m.id].role}</p>}<p className="ai-facts">{facts(m)}</p></div></div>
      {canChat(m)?<a className="m3-btn m3-btn--filled m3-state" href={chat(m.id)} target="_blank" rel="noreferrer">Open chat <Icon name="external" size={18}/></a>:<button className="m3-btn m3-btn--filled m3-state" disabled>Web UI unavailable</button>}</div>)}
     {live&&!loaded.length&&<p className="ai-task__note">No model is loaded. Choosing one in Open WebUI loads it (about 30 s).</p>}
-    {!live&&<p className="ai-task__note ai-offline" role="status"><strong>{pcStatus}.</strong> It may be off, asleep, or its model server stopped. Wake it to chat; status checks resume automatically.</p>}
+    {!live&&<p className="ai-task__note ai-offline" role="status"><strong>{pcStatus}.</strong>{anyEngine?' The gaming PC is on; only its desktop model server is stopped, so the other engines keep working.':' It may be off, asleep, or its model server stopped. Wake it to chat;'} Status checks resume automatically.</p>}
     {live&&others.length>0&&<details className="ai-others"><summary>Other models <span className="count">{others.length}</span><Icon name="down" size={20} className="ai-others__chevron"/></summary><div className="ai-model-list">{others.map(modelRow)}</div><p className="source-note">One desktop model loads at a time. Opening a chat with another model switches to it (Strata takes about 2 minutes).</p></details>}
-    <div className="ai-task__actions">{power}<span className="ai-task__links"><a className="m3-btn m3-btn--text m3-state text-button ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer">Open WebUI <Icon name="external" size={16}/></a></span></div>
+    <div className="ai-task__actions">{!live&&anyEngine?null:power}<span className="ai-task__links"><a className="m3-btn m3-btn--text m3-state text-button ai-launch" href="http://192.168.0.16:3000/" target="_blank" rel="noreferrer">Open WebUI <Icon name="external" size={16}/></a></span></div>
     <SourceNote source={web}/>
    </article>
    <AskQwen gpu={gpu} ai={ai} task/>
@@ -326,7 +329,9 @@ function PcGpuPanel({live,history:h,ranges}){
  const g=gFresh?liveG:serverFresh?serverG:(liveG||serverG);const fresh=gFresh||serverFresh;
  const v=k=>g&&valid(g[k])?g[k]:null;const name=(g?.name||'').replace(/^NVIDIA (GeForce )?/,'')||'Gaming PC GPU';
  const speed=live?.is_active&&valid(live.active_speed)?live.active_speed:null;const [key,label,unit]=pcGpuMetrics[metric];
- const status=fresh?'Live':g?`Last reading ${new Date(g.observed_at*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`:'Unavailable';
+ // A reading counts only with a valid timestamp: the collector can hold an empty object ({}), and
+ // new Date(undefined*1000) prints "Last reading Invalid Date" (15 Nov audit).
+ const status=fresh?'Live':valid(g?.observed_at)?`Last reading ${new Date(g.observed_at*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`:'Unavailable';
  const tiles=[['power_w','Power','W',1],['temperature_c','Temperature','°C',0],['utilization_pct','GPU load','%',0],['fan_pct','Fan','%',0],['clock_mhz','Clock','MHz',0]];
  // Server history for the selected range; while watching, the 2 s live samples extend the newest edge (live points
  // carry the same columns) so the 15 m chart moves between 10 s collector ticks.
@@ -387,6 +392,9 @@ function AskQwen({gpu,ai,slim=false,task=false}){
  const [prompt,setPrompt]=useState(''),[target,setTarget]=useState(()=>{try{const saved=localStorage.getItem('qwenTarget');return ASK_TARGETS.includes(saved)?saved:'a310'}catch{return 'a310'}}),[job,setJob]=useState(null),[posting,setPosting]=useState(false),[error,setError]=useState(''),[expanded,setExpanded]=useState(true),[focused,setFocused]=useState(false);
  const jobRef=useRef(null),version=useRef(0),mounted=useRef(true),requestRef=useRef(null);
  const active=posting||['queued','loading','generating','busy'].includes(job?.status);
+ // "· off" means the PC is truly unreachable: llama down alone is not enough, because Strata and the Coder run on the
+ // same PC and can be up while llama-server is stopped (15 Nov audit).
+ const pcOff=ai?.desktop?.online===false&&!sourceFresh(ai?.strata)&&!sourceFresh(ai?.coder);
  const accept=result=>{if(!['idle','queued','loading','generating','complete','failed','busy'].includes(result?.status))throw Error('Invalid model status');jobRef.current=result;setJob(result)};
  useEffect(()=>{
   mounted.current=true;let timer,controller,checkId=0;
@@ -443,8 +451,8 @@ function AskQwen({gpu,ai,slim=false,task=false}){
   const labels={idle:'Ready',queued:'Queued',loading:'Loading model',generating:'Writing answer',complete:'Answer ready',failed:'Request failed',busy:'Model in use'};
  return <section ref={sectionRef} className={'qwen-section'+(collapsed?' qwen-collapsed':'')+(slim?' qwen-slim':'')+(task?' ai-task ai-task--ask':'')} aria-labelledby="qwen-heading"><div className="qwen-heading">{task&&<span className="ai-task__icon"><Icon name="psychology" size={24}/></span>}<h2 id="qwen-heading">{task?'Ask about the homelab':'Ask AI'}</h2><span className="qwen-model">{job?.model&&['queued','loading','generating'].includes(job.status)?job.model:targetLabel(target)}</span></div><div className="m3-card m3-card--outlined panel qwen-panel"><form onSubmit={submit} onFocus={()=>setFocused(true)} onBlur={ev=>{if(!ev.currentTarget.contains(ev.relatedTarget))setFocused(false)}}><label htmlFor="qwen-prompt">Your question</label><div className="qwen-input-row"><textarea id="qwen-prompt" readOnly={noKbd} onPointerDown={()=>{tapCollapsed.current=collapsed}} onClick={e=>{if(noKbd&&!tapCollapsed.current){const t=e.currentTarget;setTyping(true);t.readOnly=false;t.blur();t.focus()}}} rows={collapsed?1:2} maxLength="3000" value={prompt} onChange={event=>setPrompt(event.target.value)} placeholder={slim&&collapsed?'Ask about your homelab…':'How busy is the scratch disk right now?'} aria-describedby="qwen-help qwen-count"/><MenuSelect className="m3-select--qwen qwen-target" aria-label="Which model answers" value={target} disabled={active} onChange={v=>{haptic('tap');setTarget(v);try{localStorage.setItem('qwenTarget',v)}catch{}}}
   options={[{value:'a310',label:'Nemotron Bolt E4B · small, always on',group:'Unraid (A310)'},
-   ...ASK_PC_MODELS.map(id=>({value:'pc:'+id,label:askLabel(id),disabled:ai?.desktop?.online===false,group:`Gaming PC${ai?.desktop?.online===false?' · off':''}`})),
-   {value:'strata',label:askLabel(STRATA_MODEL),disabled:ai?.strata?.online===false,group:`Gaming PC${ai?.desktop?.online===false?' · off':''}`},
+   ...ASK_PC_MODELS.map(id=>({value:'pc:'+id,label:askLabel(id),disabled:ai?.desktop?.online===false,group:`Gaming PC${pcOff?' · off':''}`})),
+   {value:'strata',label:askLabel(STRATA_MODEL),disabled:ai?.strata?.online===false,group:`Gaming PC${pcOff?' · off':''}`},
    {value:'auto',label:"Auto · PC if it's on, else Unraid"}]}/><button className="m3-btn m3-btn--filled m3-state primary-button" disabled={active||!prompt.trim()||!job} type="submit"><span>{posting?'Submitting…':active?'Please wait':'Ask'}</span><Icon name="arrow" size={18}/></button></div><div className="qwen-help"><button type="button" className="qwen-homelab m3-state" aria-pressed={homelab} disabled={active} onClick={()=>{haptic('tap');const v=!homelab;setHomelab(v);try{localStorage.setItem('qwenHomelab',v?'1':'0')}catch{}}}>{homelab&&<Icon name="check" size={18}/>}Include homelab data</button><p id="qwen-help">{homelab?'Adds current host, disk, service, network and log readings, with instructions to stick to them.':'Asks the model directly, with no system prompt or homelab data.'}{target==='strata'?' Strata may search the web.':''} No chat history or actions.</p><span id="qwen-count">{prompt.length}/3000</span></div></form><div className="qwen-status" role="status" aria-live="polite"><span className={active?'qwen-progress':''}>{posting?'Submitting question':job?labels[job.status]:'Checking model status'}</span>{['queued','loading','generating','busy'].includes(job?.status)&&<p>{job?.model?.includes('gaming PC')?'Answering on the gaming PC. Switching its loaded model can add 10–30 seconds.':'The A310 model loads in about 12 seconds and stops after the answer.'}</p>}</div>{job?.fallback&&<p className="source-note">{job.fallback}</p>}{job?.model?.includes('gaming PC')&&['loading','generating','complete'].includes(job.status)&&<div className="qwen-gpu">Answered on the gaming PC (RTX 5070 Ti)</div>}{active&&valid(job?.started_at)&&<p className="source-note">Elapsed {num(Math.max(0,Date.now()/1000-job.started_at))}s{valid(job?.load_seconds)?` · Model loaded in ${num(job.load_seconds,1)}s`:''}</p>}{job?.status==='complete'&&<><div className="qwen-performance"><span><strong>{num(perf.tokens_per_second,1)}</strong> tokens/s</span><span><strong>{num(perf.input_tokens)}</strong> input tokens</span><span><strong>{num(perf.output_tokens)}</strong> output tokens</span>{valid(job.load_seconds)&&<span>Load <strong>{num(job.load_seconds,1)}s</strong></span>}<span>Model <strong>{job.model||'—'}</strong></span><span>Generation <strong>{num(perf.generation_seconds,1)}s</strong></span><span>Total <strong>{num(job.total_seconds,1)}s</strong></span></div><p className="source-note">Output tokens and generation speed include internal reasoning. Speed appears after completion.</p></>}{error&&<p className="source-note error" role="alert">{error}</p>}{job?.status==='busy'&&job.error&&<p className="source-note">{job.error}</p>}{job?.status==='failed'&&<p className="source-note error">{job.error||'The model could not finish this question. You can try again.'}</p>}{job?.status==='complete'&&<div className="qwen-result"><button className="m3-btn m3-btn--text m3-state text-button" type="button" aria-expanded={expanded} aria-controls="qwen-answer" onClick={()=>setExpanded(value=>!value)}>{expanded?'Hide answer':'Read answer'}<Icon name={expanded?'up':'down'} size={16}/></button>{expanded&&<div id="qwen-answer">{job.prompt&&<p className="qwen-question"><strong>Question</strong>{job.prompt}</p>}<div className="qwen-answer"><SafeMarkdown text={job.answer||'No answer was returned.'}/></div>{valid(job.context_at)&&<p className="source-note">Readings captured {new Date(job.context_at*1000).toLocaleString()}</p>}{job.context_note&&<p className="source-note">{job.context_note}</p>}<p className="source-note">Model interpretation · verify before making changes.</p><QwenEvidence evidence={job.evidence}/></div>}</div>}</div></section>
 }
 // "This is fine" (item 5): Ryan's judgement about a log pattern, saved by the dashboard under the action guard and
@@ -1182,10 +1190,13 @@ function DownloadsPanel({notify=()=>{}}){
   if(r.ok){notify(`Cancelled ${d.title}.`);dRefresh.current?.()}else notify(sentence(r.error)||'It could not be cancelled.')}
  async function dismissGrab(t){const r=await postAction('/api/downloads',{dismiss:t.id}).catch(()=>({ok:false,error:'Could not reach the dashboard.'}));
   if(r.ok){notify('Removed from the list.');gRefresh.current?.()}else notify(sentence(r.error)||'It could not be removed.')}
+ // The history rows format finished (epoch seconds) here; the ago/when helpers of the other panels are not in scope.
+ const when=t=>valid(t)?new Date(t*1000).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
  async function toggleHistory(){if(histOpen){setHistOpen(false);return}
   setHistOpen(true);
   if(hist===null){const r=await fetch('/api/debrid?history=1',{cache:'no-store',signal:AbortSignal.timeout(8000)}).catch(()=>null);
-   setHist(r&&r.ok?(r.history||[]):false)}}
+   let d=null;try{d=await r?.json()}catch{}
+   setHist(r&&r.ok&&Array.isArray(d?.history)?d.history:false)}}
  function submit(e){e.preventDefault();if(busy)return;isUrl?addUrl():search()}
  const list=results?.list||[];
  // A start the backend says will not fit is disabled here, and says why: the panel never sends a
