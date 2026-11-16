@@ -8,6 +8,12 @@ import urllib.request
 
 CONFIG=Path('/etc/homelab-dashboard/qwen.json')
 HOSTS={'192.168.0.2','192.168.0.2:80','127.0.0.1','localhost','home.lan','homepage.lan'}
+# A question plus this browser tab's chat history must stay bounded on the way to the broker (spec item 11): the
+# page caps the history it sends at 10,000 characters, this proxy keeps a hard 32 KiB cap on the whole body.
+BODY_LIMIT=32768
+HISTORY_MAX=20
+HISTORY_Q_MAX=3000
+HISTORY_A_MAX=6000
 
 
 def same_origin(handler,header):
@@ -28,7 +34,7 @@ def handle(handler,post=False):
             reply(403,dict(status='failed',error='Use the homepage to submit a question.'));return True
         try:
             length=int(handler.headers.get('Content-Length','0'))
-            if not 0<length<=16384:raise ValueError()
+            if not 0<length<=BODY_LIMIT:raise ValueError()
             handler.connection.settimeout(5)
             data=json.loads(handler.rfile.read(length))
             prompt=data.get('prompt') if isinstance(data,dict) else None
@@ -37,7 +43,18 @@ def handle(handler,post=False):
             if not isinstance(target,str) or not re.match(r'^(a310|a310-12b|auto|strata|pc|pc:[a-z0-9][a-z0-9.\-]{0,63})$',target):raise ValueError()
             homelab=data.get('homelab',False)
             if not isinstance(homelab,bool):raise ValueError()
-            body=json.dumps({'prompt':prompt,'target':target,'homelab':homelab}).encode()
+            # Chat history is passed through unchanged (the broker scrubs it); only its shape is checked here, and
+            # only question and answer text travels, never any model reasoning.
+            history=data.get('history',[])
+            if not isinstance(history,list) or len(history)>HISTORY_MAX:raise ValueError()
+            turns=[]
+            for turn in history:
+                if not isinstance(turn,dict):raise ValueError()
+                q,a=turn.get('q'),turn.get('a')
+                if not isinstance(q,str) or not isinstance(a,str) or len(q)>HISTORY_Q_MAX or len(a)>HISTORY_A_MAX:raise ValueError()
+                turns.append({'q':q,'a':a})
+            body=json.dumps({'prompt':prompt,'target':target,'homelab':homelab,'history':turns}).encode()
+            if len(body)>BODY_LIMIT:raise ValueError()
         except (ValueError,OSError):
             reply(400,dict(status='failed',error='Enter a question of 1–3,000 characters.'));return True
     try:

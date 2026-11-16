@@ -688,11 +688,27 @@ h1{font-size:36px}
 .qwen-status p{margin-top:4px}
 .qwen-progress::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--md-sys-color-primary);margin-right:8px}
 .qwen-result{margin-top:14px;padding-top:10px;border-top:1px solid var(--md-sys-color-outline-variant)}
-.qwen-answer,.qwen-question{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75;font-size:17px}
+.qwen-answer,.qwen-question,.qwen-history-answer,.qwen-history-question{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75;font-size:17px}
 .qwen-question{margin:12px 0;color:var(--md-sys-color-on-surface-variant);font-size:15px}
 .qwen-question strong{display:block;margin-bottom:4px;color:var(--md-sys-color-on-surface);font-weight:550}
-.qwen-answer{margin-top:12px;max-width:1100px}
+.qwen-answer,.qwen-history-answer{margin-top:12px;max-width:1100px}
+/* Chat history for this browser tab only: it sits above the input, newest turn last, and long chats scroll inside
+   the card so a 412 px phone still shows the question box (spec item 2). */
+.qwen-history{max-height:300px;overflow-y:auto;overscroll-behavior:contain;margin:0 0 16px;padding-bottom:2px;
+  border-bottom:1px solid var(--md-sys-color-outline-variant)}
+.qwen-history-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:4px 0 8px}
+.qwen-history-bar p{margin:0;flex:1 1 200px}
+.qwen-new-chat{flex:none;display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 14px;border-radius:var(--md-sys-shape-corner-small,8px);border:1px solid var(--md-sys-color-outline-variant);background:transparent;color:var(--md-sys-color-on-surface);font:inherit;font-size:14px;font-weight:500;cursor:pointer}
+.qwen-new-chat:disabled{opacity:.38;cursor:default}
+.qwen-turn{padding:12px 0;border-top:1px solid var(--md-sys-color-outline-variant)}
+.qwen-history-question{margin:0;color:var(--md-sys-color-on-surface-variant);font-size:15px}
+.qwen-history-question strong{display:block;margin-bottom:4px;color:var(--md-sys-color-on-surface);font-weight:550}
+.qwen-history .source-note{line-height:1.55;overflow-wrap:anywhere;font-size:13px}
 .qwen-panel .source-note{line-height:1.6;overflow-wrap:anywhere}
+@media(max-height:720px){
+  /* Keep the scroll area short on a landscape phone or a small window, so the input stays on screen. */
+  .qwen-history{max-height:170px}
+}
 @media(max-width:760px){
   .qwen-panel{padding:18px}
   .qwen-input-row{flex-direction:column;gap:10px}

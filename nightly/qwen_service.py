@@ -47,6 +47,44 @@ def pc_label(model):
     return f"{PC_NAMES.get(model, model)} · gaming PC"
 
 
+# Chat history the Ask box keeps in one browser tab (docs/SPEC-ask-history.md). Answers only: the model's own
+# thinking is never stored or sent back. Limits match what the page can produce: a question is at most 3,000
+# characters and usable() accepts an answer of at most 6,000.
+HISTORY_MAX=20
+HISTORY_Q_MAX=3000
+HISTORY_A_MAX=6000
+# Context windows the Ask answers use, named so the fit rules and the tests read the same numbers.
+A310_LIMIT=6144
+PC_LIMIT=49152
+STRATA_LIMIT=32768
+
+
+def turn_word(n):
+    return 'turn' if n == 1 else 'turns'
+
+
+def clean_history(value):
+    """Validate and scrub the history the page sends; None means the request is a 400."""
+    if value is None:
+        return []
+    if not isinstance(value,list) or len(value)>HISTORY_MAX:
+        return None
+    turns=[]
+    for item in value:
+        if not isinstance(item,dict):
+            return None
+        q,a=item.get('q'),item.get('a')
+        if not isinstance(q,str) or not isinstance(a,str) or len(q)>HISTORY_Q_MAX or len(a)>HISTORY_A_MAX:
+            return None
+        turns.append(dict(q=scrub(q.strip()),a=scrub(a.strip())))
+    return turns
+
+
+def messages_from_history(history):
+    # Alternating user/assistant turns from this tab's chat: {q,a} becomes one user turn and one assistant turn.
+    return [m for t in history for m in (dict(role='user',content=t['q']),dict(role='assistant',content=t['a']))]
+
+
 A310_THINKING = 256  # tokens; halves answer time vs 768 with the same accuracy (evals/ask-qwen-2026-10-22/THINK-CAP.md)
 SYSTEM = ('Answer the user directly. You may explain general topics using your learned knowledge; '
           'you have no internet search and may not know recent facts. Use only supplied observations for claims about this homelab. '
@@ -107,11 +145,11 @@ def family(model):
     return 'qwen'
 
 
-def body_for(prompt, evidence=None, model=None, kind=None):
+def body_for(prompt, evidence=None, model=None, kind=None, history=None):
     model = model or r.MODEL
-    messages=[dict(role='user',content=prompt)] if evidence is None else \
-             [dict(role='system',content=SYSTEM),
-              dict(role='user',content='Observations: '+json.dumps(evidence,separators=(',',':'))+'\nQuestion: '+prompt)]
+    turns=messages_from_history(history or [])
+    question=dict(role='user',content='Observations: '+json.dumps(evidence,separators=(',',':'))+'\nQuestion: '+prompt) if evidence is not None else dict(role='user',content=prompt)
+    messages=([dict(role='system',content=SYSTEM)] if evidence is not None else [])+turns+[question]
     return dict(model=model, **SAMPLING[kind or family(model)], seed=42,
                 max_tokens=1400, stream=False, chat_template_kwargs={'enable_thinking':True}, messages=messages)
 
@@ -152,11 +190,37 @@ def usable(response):
     return answer
 
 
-def context_note(evidence):
+def history_note(sent, dropped, label, strata=False):
+    """The plain-question note, extended with what this tab's chat history added (item 9)."""
+    if not sent and not dropped:
+        return STRATA_NOTE if strata else PLAIN_NOTE
+    note=f'Your question and {sent} earlier {turn_word(sent)} were sent; no system prompt or homelab data.'
+    if strata:note+=' Strata may search the web to answer.'
+    if dropped:note+=f' {dropped} older {turn_word(dropped)} {"was" if dropped==1 else "were"} left out to fit {label}.'
+    return note
+
+
+def context_note(evidence, sent=0, dropped=0, label='the A310'):
     omitted=evidence.get('budget_omissions',[])
     note='Included: '+', '.join(evidence['sources'])+'.'
     if omitted:note+=' Trimmed to fit: '+', '.join(dict.fromkeys(omitted))+'.'
-    return note+' Sources include timestamps; unavailable readings stay unknown. No chat history or internet search.', omitted
+    if sent:note+=f' Your question and {sent} earlier {turn_word(sent)} from this tab were sent.'
+    if dropped:note+=f' {dropped} older {turn_word(dropped)} {"was" if dropped==1 else "were"} left out to fit {label}.'
+    history_line='No chat history or internet search.' if not sent and not dropped else 'Chat history from this tab was sent; no internet search.'
+    return note+' Sources include timestamps; unavailable readings stay unknown. '+history_line, omitted
+
+
+def estimate_tokens(messages):
+    """Cheap upper-bound token estimate for the gaming PC path, which counts nothing before it sends."""
+    return sum(len(m.get('content') or '') for m in messages)//3
+
+
+# ask_pc always sends max_tokens=10000, so the input of a PC or Strata request must leave room for that plus the
+# chat template's markers; only an estimate is available there, so the budget is deliberately conservative.
+PC_OUTPUT_RESERVE=10000+128
+
+def fit_label(target):
+    return 'Strata' if target=='strata' else 'the gaming PC' if target.startswith('pc') or target=='auto' else 'the A310'
 
 
 class Broker:
@@ -175,11 +239,14 @@ class Broker:
                 self.job = dict(status='idle',model=A310_LABEL)
             return dict(self.job)
 
-    def submit(self, prompt, target='a310', homelab=False):
+    def submit(self, prompt, target='a310', homelab=False, history=None):
         if not isinstance(target, str) or not TARGET_RE.match(target):
             return 400, dict(status='failed', error='Unknown model choice.')
         if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>3000:
             return 400, dict(status='failed',error='Enter a question of 1–3,000 characters.')
+        history=clean_history(history)
+        if history is None:
+            return 400, dict(status='failed',error='Chat history must be at most 20 earlier questions and answers.')
         with self.mutex:
             if self.job['status'] in ACTIVE:
                 return 409, dict(self.job, error='A question is already running. Wait for its answer.')
@@ -189,9 +256,10 @@ class Broker:
             except BlockingIOError:
                 lock.close()
                 return 409, dict(status='busy',model=A310_LABEL,error='The nightly review is using Qwen. Try again when it finishes.')
-            self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),target=target,homelab=homelab is True,
+            self.job = dict(status='queued',id=uuid.uuid4().hex,prompt=scrub(prompt.strip()),target=target,homelab=homelab is True,history=history,
+                            history_sent=len(history),history_dropped=0,
                             model=STRATA_LABEL if target=='strata' else pc_label(target[3:] or PC_MODEL) if target.startswith('pc') else A310_LABEL,updated_at=int(time.time()),started_at=int(time.time()),
-                            context_note=PLAIN_NOTE)
+                            context_note=history_note(len(history),0,fit_label(target),target=='strata'))
             accepted = dict(self.job)
             worker=threading.Thread(target=self.work,args=(lock,),name='qwen-question',daemon=False)
             try:worker.start()
@@ -215,32 +283,45 @@ class Broker:
         now=time.time()
         return prompt,qwen_context.build(prompt,storage,telemetry,snapshot,now,context(storage,now),services,fleet)
 
+    def fit_pc(self, prompt, evidence, model, history, limit, strata=False):
+        """Drop this tab's oldest turns until the request fits the target's window (item 8)."""
+        dropped=0
+        while history and estimate_tokens(body_for(prompt,evidence,model,'strata' if strata else None,history)['messages'])>limit-PC_OUTPUT_RESERVE:
+            history=history[1:];dropped+=1
+        return history,dropped
+
     def answer_on_pc(self, token, model=PC_MODEL, strata=False):
         self.update(status='loading',model=STRATA_LABEL if strata else pc_label(model),load_started_at=int(time.time()))
+        limit=STRATA_LIMIT if strata else PC_LIMIT
         if self.state().get('homelab'):
             prompt,evidence=self.observations(r.fetch('http://192.168.0.2/api/storage',timeout=20))
             while len(json.dumps(evidence).encode())>24576:
                 if not qwen_context.reduce_evidence(evidence):
                     raise ValueError('This question is too long with its observations. Please ask about one system at a time.')
-            note,omitted=context_note(evidence)
+            history,dropped=self.fit_pc(prompt,evidence,model or STRATA_MODEL,list(self.state().get('history') or []),limit,strata)
+            note,omitted=context_note(evidence,len(history),dropped,'Strata' if strata else 'the gaming PC')
             self.update(status='generating',context_at=evidence['observed_at'],generation_started_at=int(time.time()),
-                        context_note=note,context_sources=list(evidence['sources']),context_omissions=omitted,context_limit=32768 if strata else 49152,
-                        evidence=evidence)
+                        context_note=note,context_sources=list(evidence['sources']),context_omissions=omitted,context_limit=limit,
+                        history_sent=len(history),history_dropped=dropped,evidence=evidence)
         else:
             prompt,evidence=self.state()['prompt'],None
-            self.update(status='generating',generation_started_at=int(time.time()),context_note=STRATA_NOTE if strata else PLAIN_NOTE,context_limit=32768 if strata else 49152)
+            history,dropped=self.fit_pc(prompt,evidence,STRATA_MODEL if strata else model,list(self.state().get('history') or []),limit,strata)
+            self.update(status='generating',generation_started_at=int(time.time()),
+                        context_note=history_note(len(history),dropped,'Strata' if strata else 'the gaming PC',strata),
+                        context_limit=limit,history_sent=len(history),history_dropped=dropped)
         started=time.monotonic()
         # Strata may need loading by the broker first (~2 min warm, longer after a reboot). strata_mcp gives it the web
         # search and page-fetch tools from its launch config (DuckDuckGo); it runs the tool calls itself.
-        response=ask_pc(None,dict(body_for(prompt,evidence,STRATA_MODEL,'strata'),strata_mcp=True),STRATA_MODEL,STRATA_API,1500) if strata else ask_pc(token,body_for(prompt,evidence,model),model)
+        response=ask_pc(None,dict(body_for(prompt,evidence,STRATA_MODEL,'strata',history),strata_mcp=True),STRATA_MODEL,STRATA_API,1500) if strata else ask_pc(token,body_for(prompt,evidence,model,None,history),model)
         answer=usable(response)
         self.update(input_tokens=(response.get('usage') or {}).get('prompt_tokens'))
         return dict(status='complete',answer=scrub(answer),performance=performance(response,time.monotonic()-started))
 
     def work(self, lock):
-        owned=False;result={};work_started=time.monotonic()
+        owned=False;result={};work_started=time.monotonic();dropped=0
         try:
             target=self.state().get('target','a310')
+            history=list(self.state().get('history') or [])
             if target=='strata':
                 try:
                     result=self.answer_on_pc(None,strata=True);return
@@ -302,26 +383,39 @@ class Broker:
                 raise ValueError('Cache free space fell below 1 GiB. Try again after space is available.')
             if self.state().get('homelab'):
                 prompt,evidence=self.observations(storage)
+                history=list(self.state().get('history') or [])
                 while True:
-                    body=body_for(prompt,evidence,r.PROFILES[profile]['model'])
+                    body=body_for(prompt,evidence,r.PROFILES[profile]['model'],None,history)
                     template=r.fetch(r.API+'/apply-template',{'messages':body['messages'],'chat_template_kwargs':body['chat_template_kwargs']},timeout=10)['prompt']
                     count=len(r.fetch(r.API+'/tokenize',{'content':template,'add_special':True},timeout=10)['tokens'])
                     if count<=INPUT_BUDGET and len(json.dumps(evidence).encode())<=24576:break
+                    # Chat history is the only optional part of the conversation: drop this tab's oldest turn first,
+                    # then shrink the observations as before.
+                    if history:
+                        history=history[1:];dropped+=1;continue
                     if not qwen_context.reduce_evidence(evidence):
+                        # Report the chat history that was given up, then keep today's error.
+                        self.update(history_sent=len(history),history_dropped=dropped)
                         raise ValueError('This question is too long with its observations. Please ask about one system at a time.')
-                note,omitted=context_note(evidence)
+                note,omitted=context_note(evidence,len(history),dropped,'the A310')
                 self.update(status='generating',context_at=evidence['observed_at'],generation_started_at=int(time.time()),
                             context_note=note,context_sources=list(evidence['sources']),context_omissions=omitted,input_tokens=count,context_limit=6144,
-                            evidence=evidence)
+                            history_sent=len(history),history_dropped=dropped,evidence=evidence)
             else:
                 prompt=self.state()['prompt']
-                body=body_for(prompt,None,r.PROFILES[profile]['model'])
-                template=r.fetch(r.API+'/apply-template',{'messages':body['messages'],'chat_template_kwargs':body['chat_template_kwargs']},timeout=10)['prompt']
-                count=len(r.fetch(r.API+'/tokenize',{'content':template,'add_special':True},timeout=10)['tokens'])
-                if count>INPUT_BUDGET:
-                    raise ValueError('This question is too long for the A310. Shorten it, or ask the gaming PC.')
+                while True:
+                    body=body_for(prompt,None,r.PROFILES[profile]['model'],None,history)
+                    template=r.fetch(r.API+'/apply-template',{'messages':body['messages'],'chat_template_kwargs':body['chat_template_kwargs']},timeout=10)['prompt']
+                    count=len(r.fetch(r.API+'/tokenize',{'content':template,'add_special':True},timeout=10)['tokens'])
+                    if count<=INPUT_BUDGET:break
+                    # No history left to drop: keep today's error for a question that alone does not fit.
+                    if not history:
+                        self.update(history_sent=0,history_dropped=dropped)
+                        raise ValueError('This question is too long for the A310. Shorten it, or ask the gaming PC.')
+                    history=history[1:];dropped+=1
                 self.update(status='generating',generation_started_at=int(time.time()),
-                            context_note=PLAIN_NOTE,input_tokens=count,context_limit=6144)
+                            context_note=history_note(len(history),dropped,'the A310'),input_tokens=count,context_limit=6144,
+                            history_sent=len(history),history_dropped=dropped)
             generation_started=time.monotonic()
             response=r.fetch(r.API+'/v1/chat/completions',body,timeout=180)
             answer=usable(response)
@@ -361,12 +455,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.path!='/job':return self.reply(404,{'error':'Not found'})
         try:
             size=int(self.headers.get('Content-Length','0'))
-            if not 0<size<=16384:raise ValueError()
+            # A question plus this tab's chat history is capped here as tightly as in the dashboard proxy (item 11).
+            if not 0<size<=32768:raise ValueError()
             self.connection.settimeout(5)
             data=json.loads(self.rfile.read(size))
             if not isinstance(data,dict):raise ValueError()
         except (ValueError,OSError):return self.reply(400,{'error':'Invalid question'})
-        code,result=BROKER.submit(data.get('prompt'),data.get('target','a310'),data.get('homelab') is True);self.reply(code,result)
+        code,result=BROKER.submit(data.get('prompt'),data.get('target','a310'),data.get('homelab') is True,data.get('history'));self.reply(code,result)
     def log_message(self,*args):pass
 
 
