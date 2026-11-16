@@ -46,7 +46,9 @@ if router:  # gaming PC llama.cpp router key, so Ask Qwen can use the 27B when t
  os.replace(stage,rf)
 cron=pathlib.Path('/boot/config/plugins/dynamix/homelab-qwen.cron')
 if cron.exists():shutil.copy2(cron,backup/cron.name)
-cron.write_text('# Local Qwen prompt broker; GPU starts only on request\n* * * * * test ! -f /mnt/disk1/.homelab-nightly/qwen_service.py || /usr/bin/python3 /mnt/disk1/.homelab-nightly/qwen_service.py --ensure\n')
+# Only while the array is started: during an array stop the hooks end qwen_service, and a respawn from /mnt/disk1
+# between them and the unmount keeps disk1 busy (11 Nov hang). Installs before 15 Nov dropped this guard.
+cron.write_text('# Local Qwen prompt broker; GPU starts only on request; only while the array is started\n* * * * * grep -qs \'^fsState="Started"\' /var/local/emhttp/var.ini && test -f /mnt/disk1/.homelab-nightly/qwen_service.py && /usr/bin/python3 /mnt/disk1/.homelab-nightly/qwen_service.py --ensure\n')
 subprocess.run(['/bin/bash','/usr/local/sbin/update_cron'],check=True,stdout=subprocess.DEVNULL)
 for attempt in range(10):
  subprocess.run(['/usr/bin/python3',str(root/'qwen_service.py'),'--ensure'],check=True)
