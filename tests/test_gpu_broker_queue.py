@@ -603,6 +603,33 @@ class LeaseClock(unittest.TestCase):
         self.assertEqual(g._lease['key'], 'B')  # with a waiter and grace past: hand-over
         self.assertEqual(g._queue, [])
 
+    def test_one_shot_waits_at_the_front_behind_earlier_one_shots(self):
+        g.lease_grant('A', 'x', 0)
+        g.queue_add({'key': 'B', 'client': 'x', 'first': 1})
+        g.queue_add({'key': 'fb:one', 'client': 'x', 'first': 2})
+        g.queue_add({'key': 'C', 'client': 'x', 'first': 3})
+        g.queue_add({'key': 'fb:two', 'client': 'x', 'first': 4})
+        self.assertEqual([q['key'] for q in g._queue], ['fb:one', 'fb:two', 'B', 'C'])
+        self.assertEqual(g._lease['key'], 'A')  # the holder is never interrupted
+
+    def test_one_shot_holder_hands_on_when_its_reply_ends(self):
+        g.lease_grant('fb:one', 'x', 0)
+        g._queue.append({'key': 'B', 'client': 'x', 'first': 1})
+        g.lease_end(30, 'done', 'fb:one')
+        self.assertEqual(g._lease['key'], 'B')  # no 600 s done grace for a one-shot
+        self.assertEqual(g._queue, [])
+
+    def test_one_shot_holder_alone_keeps_the_lease(self):
+        g.lease_grant('fb:one', 'x', 0)
+        g.lease_end(30, 'done', 'fb:one')
+        self.assertEqual(g._lease['key'], 'fb:one')  # nobody waits: nothing to hand over
+
+    def test_session_holder_still_gets_its_done_grace(self):
+        g.lease_grant('A', 'x', 0)
+        g._queue.append({'key': 'B', 'client': 'x', 'first': 1})
+        g.lease_end(30, 'done', 'A')
+        self.assertEqual(g._lease['key'], 'A')
+
     def test_ask_grace_600(self):
         g.lease_grant('A', 'x', 0)
         g.lease_end(5, 'waiting', 'A')

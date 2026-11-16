@@ -158,6 +158,26 @@ _queue = []  # FIFO sessions: [{'key': str, 'client': str, 'first': float, 'expi
 _lease_cv = threading.Condition()
 
 
+def one_shot(key):
+    """A request with no x-session-affinity header gets a hashed 'fb:' key. From the pi family those are Pocket's own
+    side jobs (compaction, titles): one request each, and the session that asked is blocked until it is answered.
+    15 Nov 2026 (Claude, Ryan approved): they wait at the front of the line, not the back (a compaction once waited
+    ~18 min behind full 15-min turns), and hand the GPU on as soon as their reply ends."""
+    return isinstance(key, str) and key.startswith('fb:')
+
+
+def queue_add(entry):
+    """Put a waiter in line: a one-shot after the one-shots already at the front, everyone else at the back. The
+    holder is never interrupted, so its prompt cache is safe; a one-shot only skips other waiters."""
+    if one_shot(entry.get('key')):
+        i = 0
+        while i < len(_queue) and one_shot(_queue[i].get('key')):
+            i += 1
+        _queue.insert(i, entry)
+    else:
+        _queue.append(entry)
+
+
 def lease_release(now):
     """Why the holder may lose the lease now, or None. idle: no request for LEASE_IDLE_S. grace: a done/ask
     signal older than DONE/ASK_GRACE_S (release_at). max: LEASE_MAX_S of continuous holding. fairness: Ryan's
@@ -230,6 +250,13 @@ def lease_end(now, state, key):
     with _lease_cv:
         if _lease['key'] != key:
             return  # no longer the holder (hand-over or pass-through evicted it during the stream): nothing to note
+        if one_shot(key):
+            # one request, one reply: no grace. With a waiter the lease moves on now; alone it simply stays.
+            _lease['state'] = 'done'
+            _lease['release_at'] = now
+            _lease_update(now)
+            _lease_cv.notify_all()
+            return
         if state == 'waiting':
             _lease['state'] = 'waiting'
             _lease['release_at'] = now + ASK_GRACE_S
@@ -939,7 +966,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 entry = next((q for q in _queue if q['key'] == key), None)
                 if entry is None:
                     entry = {'key': key, 'client': client_ip(self.client_address[0]), 'first': time.time()}
-                    _queue.append(entry)
+                    queue_add(entry)
                 entry.pop('expire', None)  # a retry inside QUEUE_HOLD_S: the place is kept, the ghost clock stops
                 if not streaming and time.time() - t0 >= QUEUE_HOLD_S:
                     entry['expire'] = time.time() + QUEUE_HOLD_S
