@@ -70,6 +70,9 @@ def scrub(text):
 
 SEEK_PROBE_BYTES = 65536          # window read at each binary-search probe
 SEEK_SCAN_CAP = SEEK_PROBE_BYTES * 4   # extra whole-line scan around a probe
+SEEK_LINE_SCAN = 64               # lines a probe walks before giving up
+SEEK_LINE_MAX = 8 * 1024 * 1024   # a line longer than this is never read whole
+SEEK_LINE_MAX = 8 * 1024 * 1024   # a line longer than this is never read whole
 
 
 def _parse_ts(line):
@@ -104,15 +107,21 @@ class _SeekReader:
         lines to the first timestamped one. If it is inside the window, the window
         starts no later than it; if it predates the window, it and every line up to
         its end predate the window.
-      prev_parseable(mid) - the last line that starts at or before mid. If it is
-        inside the window, every earlier timestamped line is older (syslog timestamps
-        do not go backwards), so the window starts strictly after mid.
+      prev_parseable(mid) - the last line whose text covers mid (a probe on a newline
+        counts as inside the line that newline terminates). If it is inside the window
+        it is a candidate for the window's first line; if it predates the window, no
+        timestamped line at or before mid can be inside it (syslog timestamps do not go
+        backwards), so the window starts strictly after mid.
     A probe sitting on a terminator is bracketed by the line before it and the line
     after it; a probe inside a line is bracketed by that same line on both sides.
     """
 
-    def __init__(self, f, size, cutoff):
-        self.f, self.size, self.cutoff = f, size, cutoff
+    def __init__(self, f, size, cutoff, boundary=True):
+        # boundary decides what a probe sitting on a newline belongs to. The search
+        # uses True: the probe has read the line that newline terminates, so an old
+        # timestamp found at or before mid is that line's own. The walk forward uses
+        # False so it never re-reads the line it just stepped past.
+        self.f, self.size, self.cutoff, self.boundary = f, size, cutoff, boundary
 
     def _read(self, off, length):
         self.f.seek(off)
@@ -136,8 +145,15 @@ class _SeekReader:
 
         end is the position of that line's terminator, or size when the line is the
         unterminated tail. complete is False when the scan cap could not reach the
-        line's start.
+        line's start; callers must then treat the line as unknown, not guess from a
+        slice of it.
         """
+        if self.boundary and off < self.size and self._read(off, 1) == b'\n':
+            # The probe sits on the newline that ends the line before it.
+            start = self._line_ending_at(off)
+            if start is None:
+                return off, off, b'', False   # that line is longer than the scan cap
+            return start, off, self._read(start, off - start), True
         term = self._terminator_after(off)
         limit = self.size if term is None else term
         start = max(0, off - SEEK_SCAN_CAP)
@@ -148,9 +164,33 @@ class _SeekReader:
                 break
             idx = chunk.rfind(b'\n', 0, min(len(chunk), limit - pos))
             if idx >= 0:
-                return pos + idx + 1, limit, chunk[idx + 1:limit - pos], True
-            pos -= len(chunk)
-        return start, limit, self._read(start, limit - start), False
+                # Read the line whole: callers step past it with len(text), so a text
+                # cut short at the chunk edge would send them back to the same line.
+                start = pos + idx + 1
+                return start, limit, self._read(start, limit - start), True
+            if pos == 0:
+                break
+            # Step down by what was read, clamped at the floor, so no byte between the
+            # floor and limit is left unread: a gap here would look like "no newline".
+            pos = max(0, pos - len(chunk))
+        # start == 0 means the scan covered byte 0 and found no newline: the line really
+        # does start there. Anything else is the cap cutting the scan short.
+        return start, limit, self._read(start, limit - start), start == 0
+
+    def _line_ending_at(self, term):
+        """Start of the line terminated by the newline at term, or None when the
+        scan cap cannot reach it (a line longer than SEEK_SCAN_CAP)."""
+        if term == 0:
+            return 0   # an empty line at byte 0
+        start = max(0, term - SEEK_SCAN_CAP)
+        pos = term
+        while pos > start:
+            from_ = max(start, pos - SEEK_PROBE_BYTES)
+            idx = self._read(from_, pos - from_).rfind(b'\n')
+            if idx >= 0:
+                return from_ + idx + 1
+            pos = from_
+        return 0 if start == 0 else None
 
     def _next_line(self, off):
         """First line whose text reaches off or beyond: (start, text, complete).
@@ -162,12 +202,10 @@ class _SeekReader:
         start, end, text, complete = self._line_containing(off)
         if start <= off:
             return start, text, complete
-        # off is a terminator: the line containing it begins after off.
-        nxt = self._read(start, min(SEEK_PROBE_BYTES, self.size - start))
-        cut = nxt.find(b'\n')
-        if cut < 0:
-            return start, nxt, True
-        return start, nxt[:cut], True
+        # off is a terminator: the line containing it begins after off, and end (the
+        # first newline past off) is that line's own terminator - so an empty line is
+        # read as empty rather than skipped into the next one.
+        return start, self._read(start, max(0, end - start)), True
 
     def _terminator_before(self, off):
         """Position of the last newline at or before off, or None."""
@@ -181,45 +219,118 @@ class _SeekReader:
             pos = start
         return None
 
+    def first_window_line(self, start):
+        """Forward whole-line scan from a position known to be a line start: the first
+        line whose text parses inside the window, as (offset, found).
+
+        Lines are read from a chunk buffer, so a file of many short lines costs one read
+        per SEEK_PROBE_BYTES rather than one per line. A line with no terminator (the
+        file's last line, its rest unknown) is never stepped over: its own start is
+        returned as the answer, since every line before it was already shown outside the
+        window. A line longer than SEEK_LINE_MAX is not read whole: found=False.
+        """
+        pos = start          # offset of the first byte in buf
+        buf = b''
+        while True:
+            idx = buf.find(b'\n')
+            if idx >= 0:
+                ts = _parse_ts(buf[:idx])
+                if ts is not None and self._in_window(ts):
+                    return pos, True
+                pos += idx + 1
+                buf = buf[idx + 1:]
+                continue
+            more = self._read(pos + len(buf), SEEK_PROBE_BYTES)
+            if pos + len(buf) >= self.size or not more:
+                if buf:
+                    # The line that began at pos has no terminator: its rest is unknown
+                    # and it is never stepped over, so its own start is the answer.
+                    return (pos, True) if pos > 0 else (0, False)
+                return 0, False          # the file ended on a terminator: nothing left
+            buf += more
+            if len(buf) > SEEK_LINE_MAX:
+                return 0, False
+    def _line_start_at_or_after(self, pos):
+        """Snap pos to a line start. pos itself when a line begins there; else the start
+        of the line after the one holding pos (probes can move pos just past mid, into a
+        line already proven outside the window, so dropping the rest of it loses
+        nothing); else, when pos sits in the unterminated tail line with no terminator
+        to step past, the start of that tail line.
+        """
+        if pos == 0:
+            return 0
+        if self._read(pos - 1, 1) == b'\n':
+            return pos
+        nxt = self._terminator_after(pos - 1)
+        if nxt is not None:
+            return nxt + 1
+        prev = self._terminator_before(pos)
+        return 0 if prev is None else prev + 1
     def _prev_line(self, off):
         """Line terminated by the last newline at or before off: (start, text, complete).
 
-        Returns (size, b'', True) when off sits before the first newline, i.e. there
-        is no line ending at or before off.
+        complete=False when off sits before the first newline (no line ends at or before
+        off) or when the line cannot be read whole.
         """
         term = self._terminator_before(off)
         if term is None:
-            return self.size, b'', True
-        start, end, text, complete = self._line_containing(term)
-        return start, text, complete
+            return off, b'', False
+        start = self._line_ending_at(term)
+        if start is None:
+            return term, b'', False
+        return start, self._read(start, term - start), True
 
     def next_parseable(self, off):
-        """First line whose text reaches off and parses, scanning whole lines forward."""
+        """First line whose text reaches off and parses, scanning whole lines forward.
+
+        Returns (start, ts, cover, blocked). cover is the start of the line holding off
+        itself, so a caller can tell where the scan's "no timestamped line here" region
+        begins. blocked=True means the line holding off could not be read whole: nothing
+        is known about the region around off, and cover is None.
+        """
         pos = off
-        for _ in range(64):
-            start, text, _ = self._next_line(pos)
+        cover = None
+        scanned = 0
+        while True:
+            start, text, complete = self._next_line(pos)
+            if pos == off:
+                if not complete:
+                    return None, None, None, True      # the line holding off is unreadable
+                cover = start if start <= off else off
+            if not complete:
+                return None, None, cover, False        # a later line is unreadable
             if start >= self.size:
-                return self.size, None
+                return self.size, None, cover, False
             ts = _parse_ts(text)
             if ts is not None:
-                return start, ts
+                return start, ts, cover, False
             pos = start + len(text) + 1
-            if pos > off + SEEK_SCAN_CAP:
-                return None, None
-        return None, None
+            scanned += 1
+            # Both bounds matter: the byte cap alone would walk an endless run of empty
+            # or one-byte lines, re-scanning around each one.
+            if pos > off + SEEK_SCAN_CAP or scanned > SEEK_LINE_SCAN:
+                return None, None, cover, False
+        return None, None, None, True
 
     def prev_parseable(self, off):
-        """Last line starting at or before off that parses, scanning whole lines back."""
+        """Last line starting at or before off that parses, scanning whole lines back.
+
+        Returns (None, None) when a line too long to read whole blocks the scan.
+        """
         pos = off
-        for _ in range(64):
-            start, text, _ = self._prev_line(pos)
+        scanned = 0
+        while True:
+            start, text, complete = self._prev_line(pos)
+            if not complete:
+                return None, None
             ts = _parse_ts(text)
             if ts is not None:
                 return start, ts
             if start == 0:
                 return None, None
             pos = start - 1
-            if pos < off - SEEK_SCAN_CAP:
+            scanned += 1
+            if pos < off - SEEK_SCAN_CAP or scanned > SEEK_LINE_SCAN:
                 return None, None
         return None, None
 
@@ -235,79 +346,121 @@ def _seek_window_start(p, cutoff, size):
     its first line at or after cutoff - is monotone in the file. Binary search
     brackets it with whole-line probes and keeps two bounds on it:
 
-      lo      no line before lo can be the window's first line;
+      lo      no window record can start at or before lo;
       hi + 1  the window's first line starts no later than here.
 
-    A probe at mid resolves the whole line whose text reaches mid (mid may sit inside
-    a line, or on a terminator), then scans whole lines forward from there:
+    A probe at mid reads the whole line whose text reaches mid (mid may sit inside a
+    line, or on the newline that ends one), then scans whole lines forward from there:
 
-      A. that line, or a later one within SEEK_SCAN_CAP, is timestamped and inside
-         the window: the window starts no later than that line, and since an older
-         or unparseable line reaches mid, nothing before mid can be the window's
-         first line, so hi shrinks to max(mid, that line's start) - 1.
-      B. that line is timestamped and predates the window: no window record can start
-         at or before it (a window record starting earlier would hold mid itself and
-         be the timestamped line the probe just read), so lo moves past its start.
-      C. no timestamped line is reachable from mid: an unparseable line, or a run of
-         continuation lines longer than SEEK_SCAN_CAP, reaches mid. Such a line is
-         never the window's first line, but its head may start before mid, so only
-         the parseable line before mid says anything: if that one is inside the
-         window, every timestamped line up to mid predates nothing and the window
-         starts after mid, so lo moves past mid; otherwise step back conservatively.
+      A. a timestamped line at or after mid, reachable within SEEK_SCAN_CAP, is
+         inside the window: it is a candidate, so hi tightens to its start - 1. A
+         candidate is a real line start, so hi stays a bound that holds. When the
+         candidate lies past hi, no timestamped line starts between the line holding
+         mid and that candidate, so hi steps back to before the line holding mid.
+      B. the line the probe read predates the window: timestamps do not go backwards,
+         so no window record can start at or before mid - lo moves past mid, and past
+         that line's start when the probe sits on the newline that ends it.
+      C. no timestamped line is reachable from mid. What the probe could read decides:
+         if the parseable line ending at or before mid is inside the window it is a
+         candidate and hi tightens to its start - 1; if that line predates the window
+         and the line holding mid was read whole (so it is not itself a window record),
+         lo moves past mid; if the line holding mid could not be read whole, or a scan
+         hit its cap, nothing is known - hi only steps back, and lo never moves, because
+         an unread line at mid might itself be the window's first record.
+
+    lo only moves up, hi only moves down, and every round moves at least one of them,
+    so the interval shrinks each round and the search ends on its own: a candidate at or
+    before hi tightens it to the candidate, and a candidate past hi - which cannot bind -
+    is handled by stepping back to before the line holding mid, which halves the
+    interval. That makes the round guard below unreachable; reaching it is a bug, so it
+    is raised rather than returned as an answer (the old 64-round cap returned one).
+
+    The answer is then read by walking whole lines forward from lo, starting at the
+    line start at or after it. Each line is read to its terminator, never as a
+    truncated window, and only a line shown outside the window is stepped over. The
+    last line of a file with no final newline is never stepped over: its rest is
+    unknown, so the walk stops there and that line's own start is the answer. A line
+    longer than SEEK_LINE_MAX is never read whole, and when the walk reaches one it
+    stops and the seek claims nothing.
 
     Returns (offset, proven). proven=True only for a seek past byte 0: every line
-    before that offset was ruled out by a probe, so the read from it cannot skip a
-    window record. Byte 0 claims nothing and the caller decides coverage from the
-    timestamps it actually parsed.
+    before that offset was read whole by a probe or the walk and shown outside the
+    window, so a read from the offset cannot skip a window record. Byte 0 claims
+    nothing and the caller decides coverage from the timestamps it actually parsed.
     """
     try:
         with open(p, 'rb') as f:
             r = _SeekReader(f, size, cutoff)
-            lo, hi, best = 0, size - 1, None
-            for _ in range(64):
+            lo, hi = 0, size - 1
+            # Every round shrinks [lo, hi]; halving is the normal step, so twice the
+            # bit length is far more rounds than a converging search can use.
+            for _round in range(size.bit_length() * 2 + 8):
                 if lo > hi:
                     break
                 mid = (lo + hi) // 2
-                n_start, n_ts = r.next_parseable(mid)
-                if n_start is not None and n_start < size and r._in_window(n_ts):
-                    best = n_start if best is None else min(best, n_start)
-                    hi = max(mid, n_start) - 1
-                    continue
+                n_start, n_ts, cover, blocked = r.next_parseable(mid)
                 if n_start is not None and n_start < size:
-                    # A timestamped older line reaches mid: it and everything before
-                    # its end predate the window.
-                    lo = max(lo, n_start + 1)
+                    if r._in_window(n_ts):
+                        # A real in-window line starts at n_start, so the window's
+                        # first line starts no later than there: hi = n_start - 1.
+                        # When that candidate lies past hi it cannot tighten the bound,
+                        # but the probe did show that no timestamped line starts from
+                        # cover up to n_start - 1, and the window's first line starts
+                        # before cover (or is that candidate itself, which the walk
+                        # forward from lo will read). So step back to before cover.
+                        if n_start <= hi:
+                            hi = n_start - 1
+                        elif cover is not None:
+                            hi = cover - 1
+                        else:
+                            # The line holding mid is too long to resolve, so nothing
+                            # is known about the region: narrow the interval so the
+                            # search still ends. lo is untouched, and the answer comes
+                            # from the walk, which never starts above a proven bound.
+                            hi = mid - 1
+                    else:
+                        # Case B: the line the probe read predates the window and no
+                        # timestamped line reaches mid any earlier, so no window record
+                        # can start at or before mid.
+                        lo = max(lo, mid + 1, n_start + 1)
                     continue
-                p_ts = r.prev_parseable(mid)[1]
-                if p_ts is not None and r._in_window(p_ts):
+                p_start, p_ts = r.prev_parseable(mid)
+                if p_start is not None and p_start < size and r._in_window(p_ts):
+                    # A whole line ending at or before mid is inside the window, so the
+                    # window's first line starts no later than there.
+                    hi = p_start - 1
+                elif p_ts is not None and not blocked:
+                    # The line holding mid was read whole and is not a record start, and
+                    # the last line ending at or before mid predates the window, so no
+                    # window record can start at or before mid.
                     lo = max(lo, mid + 1)
                 else:
+                    # Nothing was learned: either the line holding mid is too long to
+                    # read (it could itself be the window's first line, so lo must not
+                    # move), or the scans hit their caps. Narrow the interval only.
                     hi = mid - 1
-            start = lo
-            if best is not None:
-                start = best
-            for _ in range(4096):
-                if start >= size:
-                    break
-                n_start, n_ts = r.next_parseable(start)
-                if n_start is None or n_start >= size:
-                    break
-                if r._in_window(n_ts):
-                    best = n_start if best is None else min(best, n_start)
-                    start = n_start
-                    break
-                ts_line = r._next_line(start)
-                if ts_line[0] != n_start:
-                    break
-                start = n_start + len(ts_line[1]) + 1
-            if not best:
-                # Nothing found, or byte 0: either way the seek claims nothing. A
-                # rotated sibling, or a read capped short of byte 0, may still hold
-                # earlier window records, so the caller decides coverage.
+            else:
+                # Unreachable while every round shrinks the interval. A search that
+                # does not converge is a bug, and its answer would be unproven, so it
+                # must not be returned as one.
+                raise RuntimeError('timestamp seek did not converge: lo=%d hi=%d size=%d' % (lo, hi, size))
+            walk = _SeekReader(f, size, cutoff)
+            # A probe may have moved lo to just past mid, inside a line already proven
+            # outside the window; the walk starts at the next line start so the read
+            # begins on a line. From there it reads whole lines forward.
+            start = walk._line_start_at_or_after(lo)
+            if start is None or start >= size:
                 return 0, False
-            # best > 0: every line before it was ruled out by a probe - an older
-            # timestamp the walk stepped past, or an unparseable line the search
-            # bracketed - so opening here cannot skip a window record.
+            best, found = walk.first_window_line(start)
+            if not found:
+                best = None
+            if not best:
+                # Nothing at or after lo is inside the window, or the walk could not
+                # read the file whole. Either way the seek claims nothing: opening at
+                # byte 0 reads everything, so it cannot lose a window record.
+                return 0, False
+            # best > 0: lo ruled out every line before it, and the walk stepped over
+            # only older timestamped lines, so opening here cannot skip a record.
             return best, True
     except OSError:
         return 0, False
