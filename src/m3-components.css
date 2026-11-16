@@ -301,6 +301,7 @@ body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on
 
 
 .m3-search-view .command-results a{display:flex}
+.m3-search-view .command-results:empty{display:none}.m3-search-view .command-web{flex:0 0 auto}
 .m3-search-view__empty{padding:24px 16px;color:var(--md-sys-color-on-surface-variant)}
 .spinning .material-symbols-rounded{animation:m3-spin 1s linear infinite}
 @media (max-width:419px){

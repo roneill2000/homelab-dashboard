@@ -281,6 +281,7 @@
 /* ---------- Interaction fixes (Audit) ---------- */
 .m3-page-header__title:focus{outline:none}
 .m3-page-header__title:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:4px;border-radius:4px}
+.m3-page-header__title[tabindex="-1"]:focus-visible{outline:none}
 .m3-search-view__empty{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;color:var(--md-sys-color-on-surface-variant)}
 .m3-search-view__empty p{margin:0}
 /* Selected + pressed connected button: the pressed shape wins over the selected (fully round) shape. */

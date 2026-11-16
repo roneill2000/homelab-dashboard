@@ -422,7 +422,7 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-row--result .dl-row__text>strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dl-row--result .dl-tags,.dl-row--result .dl-row__text small{flex-wrap:nowrap;overflow:hidden}
 .dl-row--result .dl-row__text small>span{flex:none}.dl-row--result .dl-row__text small>.dl-indexer{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-@media (max-width:599px){.dl-row--result .m3-btn{min-width:0;padding:0 12px}.dl-row--result .dl-get-label{display:none}.dl-row--result .dl-row__text small{gap:4px 8px}}
+@media (max-width:599px){.dl-row--result .m3-btn{min-width:0;padding:0 12px}.dl-row--result .dl-get-label{display:none}.dl-row--result .dl-row__text small{gap:4px 8px}.dl-row--result .dl-tags,.dl-row--result .dl-row__text small{flex-wrap:wrap;overflow:visible}}
 .dl-filters{display:flex;align-items:center;gap:8px;margin:0 0 8px;overflow-x:auto;scrollbar-width:none}.dl-filters::-webkit-scrollbar{display:none}.dl-filters>*{flex:none}
 button.dl-filter{appearance:none;border:0;background:transparent;color:inherit;cursor:pointer}
 button.dl-filter[aria-pressed=true]{box-shadow:none;background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container)}button.dl-filter[aria-pressed=true] .material-symbols-rounded{color:inherit}

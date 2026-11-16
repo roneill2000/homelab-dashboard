@@ -22,6 +22,7 @@ nav{display:grid;gap:5px}
 kbd{font-size:14px;font-family:var(--md-ref-typeface-plain);color:var(--md-sys-color-on-surface-variant);padding:1px 5px;border:1px solid var(--md-sys-color-outline-variant);border-radius:4px;white-space:nowrap}
 .live-dot,.tiny-dot{display:inline-block;flex-shrink:0;width:5px;height:5px;border-radius:50%;background:var(--md-sys-color-primary)}
 .live-dot{box-shadow:0 0 0 4px color-mix(in srgb,var(--md-custom-teal) 4%,transparent);animation:breathe 3s infinite}
+@media (prefers-reduced-motion:reduce){.live-dot{animation:none}}
 .tiny-dot.unknown{background:var(--md-sys-color-on-surface-variant);animation:none}
 h1{font-size:30px;line-height:1.4;letter-spacing:-1.2px;font-weight:750}
 .summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--md-sys-color-outline-variant);border-radius:12px;background:var(--md-sys-color-surface-container-low);box-shadow:var(--md-sys-elevation-level1);margin-bottom:29px;overflow:hidden}
@@ -911,6 +912,7 @@ body :is(.ov-hero .summary-grid,.summary-grid)>.summary-stat strong.text-value{o
 .quick-actions .is-snoozed{background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container)}
 /* Local AI request history tables (30 Oct 2026). */
 .ai-history .table-scroll{overflow-x:auto;margin:0 0 8px}
+.table-scroll{overflow-x:auto;background:linear-gradient(to right,var(--md-sys-color-surface-container) 30%,transparent) left/32px 100% no-repeat local,linear-gradient(to left,var(--md-sys-color-surface-container) 30%,transparent) right/32px 100% no-repeat local,radial-gradient(farthest-side at 0 50%,color-mix(in srgb,var(--md-sys-color-shadow) 28%,transparent),transparent) left/12px 100% no-repeat scroll,radial-gradient(farthest-side at 100% 50%,color-mix(in srgb,var(--md-sys-color-shadow) 28%,transparent),transparent) right/12px 100% no-repeat scroll}
 .ai-hist{width:100%;border-collapse:collapse;font-size:var(--md-sys-typescale-body-medium-size);font-variant-numeric:tabular-nums;min-width:640px}
 .ai-hist th,.ai-hist td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--md-sys-color-outline-variant);white-space:nowrap}
 .ai-hist thead th{font-weight:500;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-label-medium-size)}
