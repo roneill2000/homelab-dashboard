@@ -259,7 +259,10 @@ def _mark_suggested(rows):
 
 
 def search(query, kind):
-    rows = prowlarr('/api/v1/search?' + urllib.parse.urlencode({'query': query, 'type': 'search', 'limit': 100}))
+    # Ask only the indexers of the kind shown (Prowlarr: -2 = every torrent indexer, -1 = every usenet one). Prowlarr
+    # answers when its slowest indexer does, so a Debrid search used to wait on NZBgeek and a Usenet one on every torrent site.
+    rows = prowlarr('/api/v1/search?' + urllib.parse.urlencode({'query': query, 'type': 'search', 'limit': 100,
+                                                                'indexerIds': -1 if kind == 'usenet' else -2}))
     now = time.time()
     out, hash_of = [], {}
     # A result the indexer gave no hash to cannot be checked at TorBox, and it is not fetched just to ask.

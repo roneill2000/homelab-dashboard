@@ -112,6 +112,13 @@ class DownloadTests(unittest.TestCase):
         self.assertNotIn('secret', json.dumps(body)); self.assertNotIn('idx/1', json.dumps(body))
         self.assertEqual(call('/api/downloads/search?q=a', OK, post=False)[1], [400])
 
+    def test_search_asks_only_the_indexers_of_its_kind(self):
+        # Prowlarr waits for its slowest indexer: a Debrid search must not wait on usenet, nor the other way round.
+        for kind, ids in (('torrent', '-2'), ('usenet', '-1')):
+            with patch.object(dp, 'prowlarr', return_value=[]) as pr:
+                call(f'/api/downloads/search?q=ab&kind={kind}', OK, post=False)
+            self.assertIn(f'indexerIds={ids}', pr.call_args[0][0])
+
     # ------------------------------------------------------------- dismiss ---
     HASH40 = '0123456789abcdef0123456789abcdef01234567'
 
