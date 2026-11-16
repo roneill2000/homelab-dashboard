@@ -14,6 +14,13 @@ import time
 import urllib.error
 import urllib.request
 from log_monitor import service_state
+# The redaction every log reading already goes through, reused for Ryan's own free-text notes (item 5).
+# log_snapshot.py is installed next to this file on the review host (nightly/install_qwen.py); in the repo it
+# lives under nightly/, which is how the tests import it.
+try:
+    from log_snapshot import scrub
+except ImportError:
+    from nightly.log_snapshot import scrub
 
 ROOT=Path('/mnt/disk1/.homelab-nightly')
 MODEL_ROOT=Path('/mnt/cache/appdata/homelab-models')  # cache SSD (appdata is cache-only): 14 s cold load vs 41 s from the array HDD
@@ -69,6 +76,62 @@ def known_causes():
         return [c for c in data if isinstance(c,dict) and c.get('pattern') and c.get('note')]
     except (OSError,ValueError):
         return []
+
+
+FINE_URL='http://192.168.0.2/api/nightly-fine'  # Ryan's "This is fine" marks, written by the dashboard
+
+
+def fine_marks(url=FINE_URL,timeout=10):
+    """Ryan's marks, each keyed by the log group id (sha256 over host, level and normalized pattern).
+
+    Failing to read the list changes nothing about the review: it judges the lines as they stand.
+    Only the fields a mark can be attached to are kept, and nothing here is trusted beyond that."""
+    data=fetch(url,timeout=timeout)
+    items=data.get('fine') if isinstance(data,dict) else None
+    out=[]
+    for item in items or []:
+        if not isinstance(item,dict):continue
+        group_id=str(item.get('id') or '').strip().lower()
+        marked=item.get('marked_at')
+        if not re.fullmatch(r'[0-9a-f]{12}',group_id):continue
+        if not isinstance(marked,(int,float)) or isinstance(marked,bool):continue
+        out.append(dict(id=group_id,host=str(item.get('host') or '')[:64],level=str(item.get('level') or '').upper(),
+                        reason=str(item.get('reason') or '')[:200],marked_at=int(marked)))
+    return out
+
+
+def fine_notes(group,marks):
+    """What Ryan said about this exact group, newest first, redacted here before it can reach the model.
+
+    A mark is context about his intent, never a suppression: the group is still reviewed, and the model
+    is told to judge the lines in front of it."""
+    notes=[]
+    for mark in sorted((m for m in marks if m['id']==group.get('id')),key=lambda m:-m['marked_at'])[:2]:
+        day=datetime.fromtimestamp(mark['marked_at']).astimezone().strftime('%Y-%m-%d')
+        reason=scrub(mark['reason'])[:200].strip()
+        notes.append('Ryan marked this as fine on '+day+((': '+reason) if reason else '')+
+                     '. This is what Ryan thinks about the pattern, not a fact about these lines: judge the lines in front of you.')
+    return notes
+
+
+def attach_fine_marks(evidence,marks=None):
+    """Put Ryan's notes on the groups they name (item 5). A mark never skips a group and never lowers a
+    verdict; it changes the notes, which changes review_key, so a newly marked group is reviewed once more.
+    A dashboard that will not answer is recorded in the report as unavailability, not guessed at."""
+    if marks is None:
+        try:
+            marks=fine_marks()
+        except Exception as exc:
+            marks=[];evidence['fine_marks_error']=type(exc).__name__
+    for group in evidence['groups']:
+        notes=fine_notes(group,marks)
+        if notes:group['fine_notes']=notes
+    return evidence
+
+
+def group_notes(group):
+    """Everything the model is told about a group besides the lines themselves."""
+    return match_known_causes(group)+boot_notes(group)+list(group.get('fine_notes') or [])
 
 
 def match_known_causes(group, causes=None):
@@ -181,7 +244,7 @@ def request_body(group, profile='quick', use_schema=True):
     for k in ('first_at','last_at'):
         formatted=_local_time(group.get(k))
         if formatted is not None:evidence[k]=formatted
-    notes=match_known_causes(group)+boot_notes(group)
+    notes=group_notes(group)
     if notes:evidence['notes']=notes
     body=dict(model=PROFILES[profile]['model'],temperature=1.0,top_p=0.95,top_k=0,seed=42,  # Bolt's card: 1.0 / 0.95, no top-k
               max_tokens=PROFILES[profile]['max_tokens'],stream=False,
@@ -352,7 +415,7 @@ PROMPT_VERSION='2026-11-13b'  # bump when the instructions change, so old verdic
 def review_key(group):
     """What a verdict depended on: the model, the prompt version and the notes this group gets. A saved verdict is
     reused only when all three are unchanged (13 Nov: Gemma's verdicts were otherwise carried forward forever)."""
-    basis=json.dumps([MODEL,PROMPT_VERSION,match_known_causes(group)+boot_notes(group)],sort_keys=True)
+    basis=json.dumps([MODEL,PROMPT_VERSION,group_notes(group)],sort_keys=True)
     return hashlib.sha256(basis.encode()).hexdigest()[:16]
 
 
@@ -404,6 +467,7 @@ def main():
         else:
             snapshot=fetch('http://192.168.0.3:8999/api/nightly-snapshot',timeout=60)
         evidence=prepare_evidence(snapshot,measured_services(),storage)
+        attach_fine_marks(evidence)
         report.update(status='running',notes='Loading the local model.',evidence=evidence,
                       coverage_hosts=snapshot['hosts'])
         save(report)

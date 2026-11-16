@@ -1,8 +1,16 @@
 import ast
+import io
+import json
+import os
+import sys
+import tempfile
 import threading
+import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from backend_patch import patch_actions, patch_nightly_fine
 from backend_patch import (patch_widget_more, patch_widget_strata, patch_widget_dns, patch_widget_cloud, patch_backend,
                            patch_compression, patch_fonts, patch_hardening, patch_widget, patch_ai_live, patch_ai_queue,
                            patch_inline_safe, patch_jellyfin_auth, patch_speedtest_latest_completed, patch_speedtest_time)
@@ -695,3 +703,209 @@ class TestNetworkMapRows(unittest.TestCase):
         from backend_patch import patch_network_map_rows
         with self.assertRaises(AssertionError):
             patch_network_map_rows("def poll_network_and_matrix():\n    checks = {}\n")
+
+
+# Spec 19 Nov 2026 item 5: "This is fine" on a nightly finding. This fixture is the same shape
+# tests/test_action_guard.py uses, plus the /api/storage route the deployed file already has, so
+# patch_nightly_fine is applied exactly as scripts/deploy.py applies it: after patch_actions.
+FINE_FIXTURE = '''
+import json
+import urllib.parse
+
+def set_pihole_cluster_blocking(enable_bool, timer_sec=300):
+    payload = {"blocking": bool(enable_bool), "timer": None if enable_bool else int(timer_sec)}
+    return payload
+
+class DashboardHandler(object):
+    def do_POST(self):
+        if self.path == "/api/action/pihole-toggle":
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.body if length > 0 else "{}"
+            try:
+                req_data = json.loads(raw)
+            except Exception:
+                req_data = {}
+            enable = bool(req_data.get("enable", True))
+            timer = int(req_data.get("timer", 300))
+            self.result = set_pihole_cluster_blocking(enable, timer)
+        elif self.path == "/api/action/syslog-clear":
+            self.result = "cleared"
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if self.path.startswith("/api/telemetry"):
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+        if parsed.path == "/api/storage":
+            self.result = "storage"
+
+    def _dashboard_send(self, body, ctype, cache, etag=None):
+        self.result = ("sent", body, ctype, cache)
+'''
+
+LAN = {'192.168.0.2', '192.168.0.2:80', 'localhost', '127.0.0.1', 'home.lan'}
+G = {'id': 'a1b2c3d4e5f6', 'host': 'utilities', 'level': 'WARNING', 'pattern': 'sshd: FAILURE Failed password for root from <ip> port <n> ssh2'}
+
+
+class NightlyFineTests(unittest.TestCase):
+    """Item 5: GET /api/nightly-fine and POST /api/action/nightly-fine[-remove]. A mark never
+    suppresses a review, and a free-text reason is only stored after the log redactor has run."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__('shutil').rmtree(self.dir, ignore_errors=True))
+        self.file = self.dir / 'nightly-fine.json'
+        os.environ['HOMELAB_NIGHTLY_FINE_FILE'] = str(self.file)
+        self.addCleanup(os.environ.pop, 'HOMELAB_NIGHTLY_FINE_FILE', None)
+        # Stand-in for the real same-origin guard, whose own behaviour test_action_guard.py covers.
+        stub = types.ModuleType('qwen_proxy')
+        stub.same_origin = lambda handler, header: (
+            str(handler.headers.get('Host') or '').lower() in LAN
+            and str(handler.headers.get('Origin') or '').startswith('http://192.168.0.2')
+            and bool(handler.headers.get(header)))
+        self.scrubbed = []
+
+        def scrub(text):
+            self.scrubbed.append(text)
+            return text.replace('hunter2', '<secret>')
+
+        redactor = types.ModuleType('homelab_log_snapshot')
+        redactor.scrub = scrub
+        # The exec'd helpers import qwen_proxy and homelab_log_snapshot at call time, so the stand-in
+        # redactor has to stay installed for the whole test, not only while the source is built.
+        for name, module in (('qwen_proxy', stub), ('homelab_log_snapshot', redactor)):
+            self._install(name, module)
+        self.source = patch_nightly_fine(patch_actions(FINE_FIXTURE))
+        self.ns = {}
+        exec(compile(self.source, '<fixture>', 'exec'), self.ns)
+
+    def _install(self, name, module):
+        previous = sys.modules.get(name)
+        sys.modules[name] = module
+        if previous is None:
+            self.addCleanup(lambda n=name: sys.modules.pop(n, None))
+        else:
+            self.addCleanup(lambda n=name, p=previous: sys.modules.__setitem__(n, p))
+
+    def post(self, path, headers, body='{}'):
+        h = self.ns['DashboardHandler']()
+        codes = []
+        h.path, h.wfile, h.rfile = path, io.BytesIO(), io.BytesIO(body.encode())
+        h.headers = {'Content-Length': str(len(body)), **headers}
+        h.send_response, h.send_header, h.end_headers = codes.append, lambda *a: None, lambda: None
+        h.do_POST()
+        return codes, json.loads(h.wfile.getvalue().decode())
+
+    def get(self, path):
+        h = self.ns['DashboardHandler']()
+        h.path = path
+        h.do_GET()
+        return h.result
+
+    def mark(self, body, headers=None):
+        return self.post('/api/action/nightly-fine', headers or self.OK, json.dumps(body))
+
+    @property
+    def OK(self):
+        return {'Host': '192.168.0.2', 'Origin': 'http://192.168.0.2', 'X-Dashboard-Action': '1'}
+
+    def stored(self):
+        return self.ns['_nightly_fine_load']()
+
+    def test_guarded_and_serves_the_list_to_the_nightly_runner(self):
+        for headers in ({'Host': '192.168.0.2'},
+                        {'Host': 'evil.example', 'X-Dashboard-Action': '1'},
+                        {'Host': '192.168.0.2', 'X-Dashboard-Action': '1', 'Origin': 'http://evil.example'}):
+            codes, _ = self.post('/api/action/nightly-fine', headers, json.dumps(G))
+            self.assertEqual(codes, [403], headers)
+        self.assertEqual(self.stored(), [])
+        codes, body = self.mark(G)
+        self.assertEqual(codes, [200])
+        self.assertEqual(body['fine'], [{**G, 'reason': '', 'marked_at': body['fine'][0]['marked_at']}])
+        self.assertEqual(self.stored(), body['fine'])
+        sent = self.get('/api/nightly-fine')
+        self.assertEqual(sent[0], 'sent')
+        self.assertEqual(json.loads(sent[1]), {'fine': self.stored()})
+        self.assertEqual(sent[2:4], ('application/json', 'no-store'))
+        self.assertEqual(self.get('/api/storage'), 'storage')  # the existing route still runs
+
+    def test_reason_is_scrubbed_and_capped_at_200_characters(self):
+        long = 'disk hunter2 fills up ' * 40
+        codes, body = self.mark({**G, 'reason': long})
+        self.assertEqual(codes, [200])
+        entry = body['fine'][0]
+        self.assertTrue(entry['scrubbed'])
+        self.assertLessEqual(len(entry['reason']), 200)
+        self.assertEqual(entry['reason'], ('disk <secret> fills up ' * 40)[:200])
+        self.assertIn('hunter2', self.scrubbed[0])  # redaction ran over the raw text, not the cut
+
+    def test_the_dashboard_scrub_is_best_effort_and_never_drops_the_reason(self):
+        # The dashboard host has no copy of the log redactor installed, so a mark made there is stored
+        # as typed and simply carries no "scrubbed" proof. The nightly runner redacts it again before the
+        # model sees it (tests/test_nightly.py); a stored reason is never silently emptied.
+        saved = sys.modules.pop('homelab_log_snapshot')
+        self.addCleanup(lambda: sys.modules.update({'homelab_log_snapshot': saved}))
+        codes, body = self.mark({**G, 'reason': 'plain text hunter2'})
+        self.assertEqual(codes, [200])
+        entry = body['fine'][0]
+        self.assertEqual(entry['reason'], 'plain text hunter2')
+        self.assertNotIn('scrubbed', entry)
+        self.assertEqual(self.stored(), [entry])
+
+    def test_remarking_updates_the_reason_and_undone_marks_are_gone(self):
+        codes, body = self.mark({**G, 'reason': 'known brute-force noise'})
+        self.assertEqual(codes, [200])
+        codes, body = self.mark({**G, 'reason': 'script on the VPN box retries on purpose'})
+        stored = self.stored()
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]['reason'], 'script on the VPN box retries on purpose')
+        self.assertGreater(stored[0]['marked_at'], 0)
+        codes, body = self.post('/api/action/nightly-fine-remove', self.OK, json.dumps(G))
+        self.assertEqual(codes, [200])
+        self.assertEqual(body['fine'], [])
+        self.assertEqual(self.stored(), [])
+        self.assertFalse(self.file.exists() is False)  # undo leaves an empty list, not a missing file
+
+    def test_entries_are_validated_and_the_list_stays_small(self):
+        for bad in ({}, {'host': G['host'], 'level': 'WARNING'},                      # no id: nothing to attach a mark to
+                    {**G, 'id': 'zzzzzzzzzzzz'},                                     # id is not a group id
+                    {**G, 'id': 'a1b2c3d4e5f'},                                     # id too short
+                    {**G, 'level': 'DEBUG'},
+                    {**G, 'host': 'x' * 200},
+                    {**G, 'pattern': 'x' * 500}):
+            codes, _ = self.mark(bad)
+            self.assertEqual(codes, [400], bad)
+        self.assertEqual(self.stored(), [])
+        self.assertEqual(self.post('/api/action/nightly-fine-remove', self.OK, 'not json')[0], [400])
+        self.assertEqual(self.post('/api/action/nightly-fine-remove', self.OK, '[]')[0], [400])
+        for i in range(250):
+            self.mark({'id': '%012x' % i, 'host': 'host%d' % (i % 100), 'level': 'WARNING', 'pattern': 'pattern %d' % i})
+        stored = self.stored()
+        self.assertEqual(len(stored), 200)
+        self.assertEqual(stored[0]['pattern'], 'pattern 50')  # oldest evicted first
+        self.assertEqual(stored[-1]['pattern'], 'pattern 249')
+        self.assertTrue(self.file.stat().st_mode & 0o777 == 0o600)
+
+    def test_corrupt_file_does_not_loose_valid_lines_and_patch_is_idempotent(self):
+        self.mark(G)
+        kept = self.stored()
+        self.file.write_text('{ this is not json', encoding='utf-8')
+        self.assertEqual(self.stored(), [])
+        self.file.write_text(json.dumps([{'id': '0123456789ab', 'host': 'h', 'level': 'WARNING', 'pattern': 'm',
+                                          'marked_at': 5, 'reason': 'x' * 500}, 'junk', {'no': 'fields'}]), encoding='utf-8')
+        stored = self.stored()
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]['reason'], 'x' * 200)  # the cap is re-applied on read
+        self.ns['_nightly_fine_save'](kept)
+        self.assertEqual(self.source, patch_nightly_fine(self.source))
+        # The patch never changes the existing action or storage routes.
+        self.assertIn('if self.path == "/api/action/pihole-toggle":', self.source)
+        self.assertIn('if parsed.path == "/api/storage":', self.source)
+
+    def test_patch_refuses_a_source_it_does_not_recognise(self):
+        with self.assertRaises(ValueError):
+            patch_nightly_fine('class DashboardHandler(object):\n    pass\n')
+
+
+if __name__ == '__main__':
+    unittest.main()

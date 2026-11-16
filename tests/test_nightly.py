@@ -302,7 +302,7 @@ class RunnerTests(unittest.TestCase):
   gs=[dict(id='g1',host='h',level='WARNING',count=1,first_at=1,last_at=2,message='x'),
       dict(id='g2',host='h',level='WARNING',count=1,first_at=1,last_at=2,message='y')]
   snapshot=dict(groups=gs,window_start=1,window_end=1000,coverage_limited=False,files_scanned=1,matched_entries=2,distinct_groups=2,source='patterns',hosts=[])
-  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot]
+  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'fine':[]}]
   with tempfile.TemporaryDirectory() as d:
    reports=Path(d)/'reports';reports.mkdir()
    key=r.review_key(gs[0])
@@ -328,7 +328,7 @@ class RunnerTests(unittest.TestCase):
   self.assertNotIn('withheld_reason',r.checked_finding(group,'The exit code was unknown; status=1 was recorded.'))
  def test_failure_stops_owned_container_and_saves_failure(self):
   snapshot=dict(groups=[],window_start=1,window_end=1000,coverage_limited=True,files_scanned=0,matched_entries=0,distinct_groups=0,source='patterns',hosts=[])
-  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot]
+  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'fine':[]}]
   with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=type('Space',(),{'free':2**32})()),patch.object(r.subprocess,'run') as run,patch.object(r,'stop_model') as stop:
    run.side_effect=[type('Result',(),{'returncode':1})(),RuntimeError('launch failure'),None]
    with self.assertRaises(RuntimeError):r.main()
@@ -338,7 +338,7 @@ class RunnerTests(unittest.TestCase):
   group=dict(id='g',host='utilities',level='WARNING',count=1,first_at=800,last_at=800,message='filebrowser.service: FAILURE')
   snapshot=dict(groups=[group],window_start=1,window_end=1000,coverage_limited=True,files_scanned=1,matched_entries=1,distinct_groups=1,source='patterns',hosts=[])
   answer={'choices':[{'finish_reason':'stop','message':{'content':'Historical process failure.','reasoning_content':'Private speculation that must not be published.'}}],'usage':{'prompt_tokens':10,'completion_tokens':20}}
-  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'data':[{'id':r.MODEL}]},answer]
+  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'fine':[]},{'data':[{'id':r.MODEL}]},answer]
   with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=type('Space',(),{'free':2**32})()),patch.object(r.subprocess,'run') as run,patch.object(r,'stop_model') as stop:
    run.return_value=type('Result',(),{'returncode':1})()
    r.main();raw=(Path(d)/'reports/latest.json').read_text();saved=json.loads(raw)
@@ -352,7 +352,7 @@ class RunnerTests(unittest.TestCase):
   self.assertEqual(cmd[cmd.index('--alias')+1],r.MODEL);self.assertEqual(cmd[cmd.index('--memory')+1],'7g')
  def _run(self,groups,start=None,review=None,clock=None):
   snapshot=dict(groups=groups,window_start=1,window_end=1000,coverage_limited=False,files_scanned=1,matched_entries=len(groups),distinct_groups=len(groups),source='patterns',hosts=[])
-  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot]
+  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'fine':[]}]
   d=tempfile.mkdtemp()
   with patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',side_effect=clock or (lambda:1000)),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(r,'start_model',side_effect=start or [12.0]) as st,patch.object(r,'review_group',side_effect=review or []) as rv,patch.object(r,'stop_model') as stop:
    try:r.main()
@@ -405,11 +405,88 @@ class RunnerTests(unittest.TestCase):
    self.assertFalse(r.acquire_run_lock(object(),True))
  def test_cleanup_failure_replaces_complete_report(self):
   snapshot=dict(groups=[],window_start=1,window_end=1000,coverage_limited=True,files_scanned=0,matched_entries=0,distinct_groups=0,source='patterns',hosts=[])
-  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'data':[{'id':r.MODEL}]}]
+  values=[{'activity':{'recovery':{'backup':{'running':False,'observed_at':1000}}}},snapshot,{'fine':[]},{'data':[{'id':r.MODEL}]}]
   with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)),patch('sys.argv',['runner']),patch.object(r.time,'time',return_value=1000),patch.object(r,'fetch',side_effect=values),patch.object(r,'measured_services',return_value={}),patch.object(r.shutil,'disk_usage',return_value=SimpleNamespace(free=2**32)),patch.object(r.subprocess,'run',return_value=SimpleNamespace(returncode=1)),patch.object(r,'stop_model',side_effect=RuntimeError('cleanup failed')):
    with self.assertRaises(RuntimeError):r.main()
    report=json.loads((Path(d)/'reports/latest.json').read_text())
    self.assertEqual(report['status'],'failed');self.assertEqual(report['error'],'cleanup_failed')
+ def test_fine_marks_come_from_the_dashboard_and_only_usable_ones_survive(self):
+  payload={'fine':[{'id':'A1B2C3D4E5F6','host':'utilities','level':'warning','pattern':'smartd: FAILURE','reason':'scheduled for replacement','marked_at':1790000000},
+                   {'id':'not-a-group-id','host':'h','level':'WARNING','reason':'x','marked_at':1},
+                   {'id':'0123456789ab','host':'h','level':'WARNING','reason':'y','marked_at':'soon'},
+                   {'id':'0123456789ab','host':'h','level':'WARNING','reason':'z'*500,'marked_at':5},
+                   'junk',{}]}
+  with patch.object(r,'fetch',return_value=payload):marks=r.fine_marks()
+  self.assertEqual([m['id'] for m in marks],['a1b2c3d4e5f6','0123456789ab'])
+  self.assertEqual(marks[0]['level'],'WARNING')
+  self.assertLessEqual(len(marks[1]['reason']),200)
+  with patch.object(r,'fetch',return_value={'fine':None}):self.assertEqual(r.fine_marks(),[])
+  with patch.object(r,'fetch',return_value=[]):self.assertEqual(r.fine_marks(),[])
+  with patch.object(r,'fetch',side_effect=TimeoutError()):self.assertRaises(Exception,r.fine_marks)
+ def test_a_marked_group_gets_ryans_note_and_the_note_is_redacted_and_short(self):
+  gid='a1b2c3d4e5f6'
+  group=dict(id=gid,host='utilities',level='WARNING',count=1,first_at=800,last_at=800,message='smartd: FAILURE 187 Reported offline')
+  other=dict(id='eeeeeeeeeeee',host='proxmox',level='CRITICAL',count=1,first_at=800,last_at=800,message='kernel: CRITICAL unlink')  # no mark of its own
+  marks=[{'id':gid,'host':'utilities','level':'WARNING','reason':'password=hunter2 is only the test account','marked_at':1790000000},
+         {'id':gid,'host':'utilities','level':'WARNING','reason':'oldest mark','marked_at':1000},
+         {'id':gid,'host':'utilities','level':'WARNING','reason':'x'*500,'marked_at':2000},
+         {'id':'ffffffffffff','host':'proxmox','level':'CRITICAL','reason':'other group','marked_at':1790000000}]
+  ev=r.attach_fine_marks(dict(groups=[dict(group),dict(other)]),marks)
+  notes=ev['groups'][0]['fine_notes']
+  self.assertEqual(len(notes),2)  # newest first, at most two
+  self.assertIn('Ryan marked this as fine on',notes[0])  # newest mark first
+  self.assertIn('password=[redacted]',notes[0]);self.assertNotIn('hunter2',json.dumps(ev))
+  self.assertIn('x'*200,notes[1]);self.assertNotIn('x'*201,notes[1])  # free text is capped before it can reach the model
+  self.assertNotIn('fine_notes',ev['groups'][1])  # a mark never lands on another group
+  self.assertNotIn('fine_notes',ev['groups'][1].keys())
+ def test_no_marks_and_an_unreachable_dashboard_change_nothing_about_the_review(self):
+  group=dict(id='a1b2c3d4e5f6',host='utilities',level='WARNING',count=1,first_at=800,last_at=800,message='smartd: FAILURE')
+  ev=r.attach_fine_marks(dict(groups=[dict(group)]),[])
+  self.assertNotIn('fine_notes',ev['groups'][0])
+  self.assertNotIn('fine_marks_error',ev)  # no marks is not the same as an unreachable dashboard
+  with patch.object(r,'fetch',side_effect=OSError('dashboard down')):
+   ev=r.attach_fine_marks(dict(groups=[dict(group)]))
+  self.assertEqual(ev['fine_marks_error'],'OSError')  # recorded as unavailability, never as "no marks"
+  self.assertNotIn('fine_notes',ev['groups'][0])
+ def test_a_new_mark_changes_review_key_so_a_saved_verdict_is_reviewed_again(self):
+  gid='a1b2c3d4e5f6'
+  group=dict(id=gid,host='utilities',level='WARNING',count=1,first_at=800,last_at=800,message='smartd: FAILURE 187 Reported offline')
+  marks=[{'id':gid,'host':'utilities','level':'WARNING','reason':'disk already replaced','marked_at':1790000000}]
+  plain=r.review_key(group)
+  marked=r.review_key(dict(group,fine_notes=r.fine_notes(group,marks)))
+  self.assertNotEqual(plain,marked)
+  self.assertEqual(plain,r.review_key(dict(group,fine_notes=[])))  # unmarked groups keep their saved verdicts
+ def test_ryans_note_reaches_the_model_but_the_mark_record_itself_does_not(self):
+  gid='a1b2c3d4e5f6'
+  group=dict(id=gid,host='utilities',level='WARNING',count=1,first_at=800,last_at=800,hours=[0]*24,context=['smartd: FAILURE'],
+             message='smartd: FAILURE 187 Reported offline',fine_notes=r.fine_notes({'id':gid,'host':'utilities','level':'WARNING','message':'x'},
+             [{'id':gid,'host':'utilities','level':'WARNING','reason':'api_key=hunter2isatest','marked_at':1790000000}]))
+  body=r.request_body(group);user=body['messages'][1]['content']
+  self.assertIn('Ryan marked this as fine on',user)
+  self.assertIn('api_key=[redacted]',user);self.assertNotIn('hunter2isatest',json.dumps(body))
+  self.assertNotIn('fine_notes',json.loads(user))  # the note is text for the model, not a field it has to parse
+ def test_a_marked_group_is_still_reviewed_and_the_note_reaches_the_report(self):
+  gid='a1b2c3d4e5f6'
+  group=dict(id=gid,host='utilities',level='WARNING',count=1,first_at=800,last_at=800,message='smartd: FAILURE 187 Reported offline')
+  marks=[{'id':gid,'host':'utilities','level':'WARNING','reason':'disk is due for replacement','marked_at':1790000000}]
+  with patch.object(r,'fine_marks',return_value=marks):
+   saved,st,rv,stop=self._run([group],review=[(dict(group_id=gid,interpretation='Predictive failure.',verdict='act',next='Replace the disk'),{},None)])
+  self.assertEqual(rv.call_count,1)  # marked, and still reviewed
+  self.assertIn('Ryan marked this as fine on',saved['evidence']['groups'][0]['fine_notes'][0])
+  self.assertEqual(saved['findings'][0]['verdict'],'act')  # a mark never lowers a verdict
+ def test_a_marked_group_with_a_saved_verdict_is_reviewed_once_more(self):
+  gid='a1b2c3d4e5f6'
+  group=dict(id=gid,host='utilities',level='WARNING',count=1,first_at=800,last_at=800,message='smartd: FAILURE 187 Reported offline')
+  marks=[{'id':gid,'host':'utilities','level':'WARNING','reason':'disk is due for replacement','marked_at':1790000000}]
+  notes=r.fine_notes(dict(id=gid,host='utilities',level='WARNING',message='x'),marks)
+  with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)):
+   (Path(d)/'reports').mkdir();(Path(d)/'reports/latest.json').write_text(json.dumps(
+    dict(status='complete',local_date='2000-01-01',findings=[dict(group_id=gid,interpretation='Old verdict.',verdict='watch',next='Watch it',
+         review_key=r.review_key(group))])))
+   with patch.object(r,'fine_marks',return_value=marks):
+    saved,st,rv,stop=self._run([group],review=[(dict(group_id=gid,interpretation='Predictive failure.',verdict='act',next='Replace the disk'),{},None)])
+  self.assertEqual(rv.call_count,1)   # the saved verdict no longer matches, so the model is asked again
+  self.assertEqual(saved['findings'][0]['verdict'],'act')
  def test_report_permissions_and_retention(self):
   with tempfile.TemporaryDirectory() as d,patch.object(r,'ROOT',Path(d)):
    folder=Path(d)/'reports';folder.mkdir()

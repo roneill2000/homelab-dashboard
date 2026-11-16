@@ -363,6 +363,168 @@ def patch_actions(source):
     return source
 
 
+NIGHTLY_FINE_HELPERS = '''
+def _nightly_fine_path():
+    import os
+    from pathlib import Path
+    return Path(os.environ.get('HOMELAB_NIGHTLY_FINE_FILE', '/var/lib/homelab-dashboard/nightly-fine.json'))
+
+def _nightly_fine_scrub(text):
+    # Defence in depth, not the guarantee: the nightly runner redacts every reason with the same
+    # scrub() the log reports use before it reaches the model (nightly/runner.py), and that copy is
+    # installed next to the runner. This one is best effort because the dashboard host has no copy of
+    # the redactor installed; when it is missing the text is still stored, unmarked, and never dropped.
+    try:
+        import homelab_log_snapshot
+        if callable(getattr(homelab_log_snapshot, 'scrub', None)):
+            return str(homelab_log_snapshot.scrub(str(text))), True
+    except Exception:
+        pass
+    return str(text), False
+
+def _nightly_fine_load():
+    try:
+        raw = _nightly_fine_path().read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    items = data if isinstance(data, list) else (data.get('items') if isinstance(data, dict) else None)
+    out = []
+    for item in items or []:
+        entry = _nightly_fine_valid(item)
+        if entry is not None:
+            out.append(entry)
+    return out
+
+def _nightly_fine_valid(item):
+    # The stable key of a nightly log group is its id: sha256 over (host, level, normalized pattern),
+    # written by the log snapshot. A mark is attached to that id, so it survives the raw example lines
+    # changing, and neither the dashboard nor the UI has to re-implement the pattern normaliser.
+    import re
+    if not isinstance(item, dict):
+        return None
+    group_id = str(item.get('id') or '').strip().lower()
+    if not re.fullmatch(r'[0-9a-f]{12}', group_id):
+        return None
+    host = str(item.get('host') or '').strip()
+    level = str(item.get('level') or '').strip().upper()
+    pattern = str(item.get('pattern') or item.get('normalized') or '').strip()
+    if not host or len(host) > 64 or level not in ('CRITICAL', 'WARNING') or len(pattern) > 400:
+        return None
+    if not isinstance(item.get('marked_at'), (int, float)) or isinstance(item.get('marked_at'), bool):
+        return None
+    entry = {'id': group_id, 'host': host, 'level': level, 'pattern': pattern,
+             'reason': str(item.get('reason') or '')[:200], 'marked_at': int(item['marked_at'])}
+    if item.get('scrubbed'):
+        entry['scrubbed'] = True
+    return entry
+
+def _nightly_fine_key(entry):
+    return entry['id']
+
+def _nightly_fine_save(items):
+    import os
+    path = _nightly_fine_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + '.tmp')
+    with open(tmp, 'w', encoding='utf-8') as handle:
+        json.dump(items, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return items
+
+def _nightly_fine_mark(group_id, host, level, pattern, reason, now=None):
+    import time
+    entry = _nightly_fine_valid({'id': group_id, 'host': host, 'level': level, 'pattern': pattern, 'marked_at': 1, 'reason': reason})
+    if entry is None:
+        return None
+    text = str(reason or '').strip()
+    if text:
+        scrubbed, redacted = _nightly_fine_scrub(text)
+        # Redaction first, then the cap: cutting first could slice a secret in half and re-form it.
+        entry['reason'] = str(scrubbed)[:200]
+        if redacted:
+            entry['scrubbed'] = True
+    entry['marked_at'] = int(time.time() if now is None else now)
+    items = [item for item in _nightly_fine_load() if _nightly_fine_key(item) != _nightly_fine_key(entry)]
+    items.append(entry)
+    return _nightly_fine_save(items[-200:])
+
+def _nightly_fine_remove(group_id, host, level, pattern):
+    entry = _nightly_fine_valid({'id': group_id, 'host': host, 'level': level, 'pattern': pattern, 'marked_at': 1})
+    if entry is None:
+        return None
+    items = _nightly_fine_load()
+    keep = [item for item in items if _nightly_fine_key(item) != _nightly_fine_key(entry)]
+    return _nightly_fine_save(keep), len(items) - len(keep)
+'''
+
+
+def patch_nightly_fine(source):
+    """Ryan's "This is fine" feedback on nightly log review findings (SPEC-nightly-review-next item 5).
+
+    GET /api/nightly-fine serves the stored list; POST /api/action/nightly-fine and
+    /api/action/nightly-fine-remove add and clear one mark. A free-text reason is stored scrubbed and
+    capped at 200 characters; scrubbed here when the log redactor is installed on this host, stored as typed
+    otherwise. The nightly runner scrubs every reason again before the model sees it, which is the guarantee. A mark is never a suppression: the nightly review still reviews the group and tells
+    the model what Ryan said. Both routes are read/write of one small local file; nothing is pushed to
+    any service."""
+    marker = '# HOMELAB_NIGHTLY_FINE_V1'
+    if marker in source:
+        return source
+    post_anchor = '        if self.path.startswith("/api/action/") and not _dashboard_action_allowed(self): return\n'
+    get_anchor = '        if parsed.path == "/api/storage":'
+    if source.count(post_anchor) != 1:
+        raise ValueError('Expected guarded action route in do_POST')
+    if source.count(get_anchor) != 1:
+        raise ValueError('Expected storage route in do_GET')
+    source = source.replace(post_anchor, post_anchor + '''        if self.path.startswith("/api/action/nightly-fine"):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                length = -1
+            if length < 0 or length > 4096:  # a mark is a few hundred bytes; refuse anything odd before reading
+                self.send_error(413 if length > 4096 else 400)
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
+            try:
+                req_data = json.loads(raw)
+            except Exception:
+                req_data = {}
+            payload = req_data if isinstance(req_data, dict) else {}
+            if self.path == "/api/action/nightly-fine-remove":
+                removed = _nightly_fine_remove(payload.get("id"), payload.get("host"), payload.get("level"), payload.get("pattern"))
+                body = {"ok": removed is not None, "fine": _nightly_fine_load()}
+            else:
+                stored = _nightly_fine_mark(payload.get("id"), payload.get("host"), payload.get("level"), payload.get("pattern"), payload.get("reason"))
+                body = {"ok": stored is not None, "fine": stored if stored is not None else _nightly_fine_load()}
+            raw = json.dumps(body).encode("utf-8")
+            self.send_response(200 if body["ok"] else 400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
+''', 1)
+    source = source.replace(get_anchor, '''        if parsed.path == "/api/nightly-fine":
+            self._dashboard_send(json.dumps({"fine": _nightly_fine_load()}).encode("utf-8"), "application/json", "no-store")
+            return
+''' + get_anchor, 1)
+    source = source.replace('class DashboardHandler(', NIGHTLY_FINE_HELPERS + '\n' + marker + '\n\nclass DashboardHandler(', 1)
+    compile(source, '<dashboard>', 'exec')
+    return source
+
+
 def patch_updates(source):
     """Route /api/updates to update_proxy ahead of every other handler."""
     marker = '# HOMELAB_UPDATES_V1'

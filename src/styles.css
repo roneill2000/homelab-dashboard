@@ -628,6 +628,19 @@ h1{font-size:36px}
 .nightly-scope{font-size:14px;color:var(--md-sys-color-on-surface-variant);line-height:1.6}
 .nightly-findings{margin-top:16px;border-top:1px solid var(--md-sys-color-outline-variant)}
 .nightly-findings>article{padding:22px 0;border-bottom:1px solid var(--md-sys-color-outline-variant)}
+/* "This is fine" (item 5): Ryan's own note about a pattern, inside the finding it belongs to. It is a judgement
+ he stores for the review model; it never hides the finding or changes the verdict. */
+.nightly-fine{margin-top:12px;display:grid;gap:8px}
+.nightly-fine-mark{margin:0;display:flex;align-items:center;gap:6px;font-size:14px;color:var(--md-sys-color-on-surface-variant);overflow-wrap:anywhere}
+.nightly-fine-mark .material-symbols-rounded{color:var(--md-sys-color-primary)}
+.nightly-fine-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.nightly-fine-reason{display:flex;flex:1 1 240px;gap:10px;align-items:center}
+.nightly-fine-reason input{flex:1;min-width:0;padding:10px 13px;border:1px solid var(--md-sys-color-outline-variant);border-radius:10px;background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);font-size:16px;min-height:40px}
+.nightly-fine-reason input::placeholder{color:var(--md-sys-color-on-surface-variant)}
+.nightly-fine-reason input:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:3px}
+.nightly-fine .text-button,.nightly-fine-reason .secondary-button{min-height:40px}
+.log-group .nightly-fine{margin-top:14px;padding-top:12px;border-top:1px solid var(--md-sys-color-outline-variant)}
+@media(max-width:540px){.nightly-fine-reason{flex-direction:column;align-items:stretch}.nightly-fine-reason .m3-btn{width:100%}}
 .nightly-findings h4{margin:0 0 12px;font-size:18px}
 .nightly-findings h4 span{display:block;font-size:14px;font-weight:400;color:var(--md-sys-color-on-surface-variant);margin-top:5px}
 .nightly-pattern{font-size:15px;overflow-wrap:anywhere}
