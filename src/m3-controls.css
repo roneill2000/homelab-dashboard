@@ -424,7 +424,18 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 .dl-row__text small{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-small-size)}
 .dl-row .m3-btn{flex:none}
 /* Search results: every row is exactly three lines (title, quality tags, details), so the list scans evenly. */
-.dl-row--result .dl-row__text>strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.dl-rel{position:relative;display:inline-block;max-width:100%;vertical-align:top;align-self:flex-start;border-radius:4px;outline:none;cursor:default}.dl-rel:focus-visible{box-shadow:0 0 0 2px var(--md-sys-color-primary)}
+.dl-rel>strong{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Hover/focus card on a search result: the full release name and what it says (group, source, video, audio).
+   Shows after a short pause so moving down the list doesn't flash cards; tap focuses it on a phone. */
+.dl-rel__card{position:absolute;left:0;top:100%;margin-top:2px;z-index:30;width:min(560px,calc(100vw - 64px));box-sizing:border-box;padding:12px 16px;background:var(--md-sys-color-surface-container-highest);color:var(--md-sys-color-on-surface);border-radius:var(--md-sys-shape-corner-medium);box-shadow:var(--md-sys-elevation-level2);font-size:var(--md-sys-typescale-body-small-size);line-height:1.45;white-space:normal;cursor:text;visibility:hidden;opacity:0;transform:translateY(-4px);transition:opacity .12s,transform .12s,visibility 0s linear .12s}
+.dl-rel:hover>.dl-rel__card,.dl-rel:focus-within>.dl-rel__card{visibility:visible;opacity:1;transform:none;transition:opacity .15s .35s,transform .15s .35s,visibility 0s linear .35s}
+.dl-rel:focus-within>.dl-rel__card{transition-delay:0s}
+.dl-rel__name{display:block;font-family:var(--md-ref-typeface-mono,ui-monospace,monospace);overflow-wrap:anywhere;user-select:text;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--md-sys-color-outline-variant)}
+.dl-rel__facts{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}.dl-rel__facts dt{color:var(--md-sys-color-on-surface-variant)}.dl-rel__facts dd{margin:0;overflow-wrap:anywhere}
+.dl-group{font-weight:500;color:var(--md-sys-color-on-surface)}
+@media (prefers-reduced-motion:reduce){.dl-rel__card,.dl-rel:hover>.dl-rel__card{transform:none}}
 .dl-row--result .dl-tags,.dl-row--result .dl-row__text small{flex-wrap:nowrap;overflow:hidden}
 .dl-row--result .dl-row__text small>span{flex:none}.dl-row--result .dl-row__text small>.dl-indexer{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 @media (max-width:599px){.dl-row--result .m3-btn{min-width:0;padding:0 12px}.dl-row--result .dl-get-label{display:none}.dl-row--result .dl-row__text small{gap:4px 8px}.dl-row--result .dl-tags,.dl-row--result .dl-row__text small{flex-wrap:wrap;overflow:visible}}
