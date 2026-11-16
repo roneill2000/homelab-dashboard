@@ -368,6 +368,24 @@ class NightlyActTests(unittest.TestCase):
         a.nightly_act_message(self.report_dated(), a.act_group_status(self.report_dated(), fn))
         self.assertEqual(seen, [('a1', 1794711600)], 'only the new act finding, since the snapshot time')
 
+    def test_recheck_incomplete_tail_is_not_cleared(self):
+        # The re-check read only the tail and the tail's first timestamped line is already past
+        # since, so lines between since and the tail were never read: count 0 here is a coverage
+        # gap, not a quiet group. Treat it like a failed re-check: fail open, keep priority,
+        # never say "not seen since".
+        calls = []
+        fn = lambda gid, since: {'count': 0, 'error': False, 'incomplete': True, 'files_scanned': 2, 'last_line': None}
+        r = self.report_dated()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(a.nightly_act_notify(r, path=Path(d) / 'sent.json',
+                                                 sender=lambda *args, **k: calls.append(args), recent_fn=fn))
+        self.assertEqual(len(calls), 1, 'an incomplete re-check never drops the act')
+        self.assertEqual(calls[0][3], 4, 'an incomplete re-check does not quiet the alert')
+        self.assertNotIn('not seen since', calls[0][2], 'an incomplete read is not "it stopped"')
+        status = a.act_group_status(r, fn)
+        self.assertTrue(status['a1']['live'])
+        self.assertIsNone(status['a1']['count'], 'an incomplete count is not trustworthy')
+
     def test_recheck_that_raises_is_not_cleared(self):
         def fn(gid, since):
             raise RuntimeError('monitor died')

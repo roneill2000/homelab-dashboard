@@ -121,6 +121,46 @@ class GroupRecentTests(unittest.TestCase):
             out = group_recent(Path(d), 'deadbeef', TS0 - 100, CRIT, WARN)
             self.assertIs(out['error'], True, 'a file that cannot be read is an error, not a quiet zero')
 
+    def test_incomplete_when_the_tail_starts_after_since(self):
+        # A busy log: the file is bigger than the tail window, and the oldest line the
+        # re-check could read is later than since, so lines between since and that first
+        # line were never seen. count is not trustworthy: mark the result incomplete, not error.
+        with tempfile.TemporaryDirectory() as d:
+            gid = self.gid('orangepi', self.line('orangepi', 50, 'link is down on wlan0'))
+            lines = [self.line('orangepi', 0, 'link is down on wlan0')]  # at/after since but outside the tail
+            lines += [f'2026-10-27T10:00:{m:02d}Z orangepi filler: {"x" * 60} {m}' for m in range(60)]
+            lines += [self.line('orangepi', 50, 'link is down on wlan0')]  # newest, inside the tail
+            self.write(d, 'orangepi', lines)
+            size = Path(d, 'orangepi.log').stat().st_size
+            self.assertGreater(size, 4096)
+            since = datetime(2026, 10, 27, 9, 0, tzinfo=timezone.utc).timestamp()
+            out = group_recent(Path(d), gid, since, CRIT, WARN, tail_bytes=4096)
+            self.assertIs(out['incomplete'], True, 'a tail whose first timestamped line is past since cannot prove quiet')
+            self.assertIs(out['error'], False, 'incomplete is a coverage fact, not a read failure')
+
+    def test_complete_read_is_never_incomplete(self):
+        # A small file: the read starts at byte 0, so every line after since was seen.
+        with tempfile.TemporaryDirectory() as d:
+            self.write(d, 'unraid', [self.line('unraid', 0, 'nothing here')])
+            since = datetime(2026, 10, 27, 9, 0, tzinfo=timezone.utc).timestamp()
+            out = group_recent(Path(d), 'deadbeef', since, CRIT, WARN)
+            self.assertEqual(out['count'], 0, 'a genuinely quiet, complete read')
+            self.assertIs(out['incomplete'], False)
+            self.assertIs(out['error'], False)
+
+    def test_incomplete_flag_survives_a_whole_file_tail(self):
+        # tail_bytes equal to the file size: read starts at byte 0, so even a late first
+        # timestamp does not make it incomplete.
+        with tempfile.TemporaryDirectory() as d:
+            gid = self.gid('unraid', self.line('unraid', 40, 'link is down on br0'))
+            lines = [self.line('unraid', 40, 'link is down on br0')]
+            self.write(d, 'unraid', lines)
+            size = Path(d, 'unraid.log').stat().st_size
+            since = datetime(2026, 10, 27, 10, 10, tzinfo=timezone.utc).timestamp()
+            out = group_recent(Path(d), gid, since, CRIT, WARN, tail_bytes=size)
+            self.assertEqual(out['count'], 1)
+            self.assertIs(out['incomplete'], False, 'a read that starts at byte 0 is complete')
+
 
 if __name__=='__main__':
     unittest.main()

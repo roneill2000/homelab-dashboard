@@ -539,21 +539,29 @@ def group_recent(directory,group_id,since,critical,warning,tail_bytes=GROUP_RECE
     normalize, hash - so a group id from the snapshot is the same id here. Only the tail is read
     (GROUP_RECENT_TAIL_BYTES per file); a file that cannot be read sets error=True instead of
     quietly reporting zero. `last_line` is scrubbed.
+
+    A tail is not the whole file: when the tail's first timestamped line is later than `since`
+    and the read did not start at byte 0, the lines between `since` and that first line sit in
+    the part never read, so their group is set incomplete=True instead of reporting a trustworthy
+    zero. `error` stays for read failures only.
     """
     tail_bytes=min(max(int(tail_bytes),0),GROUP_RECENT_TAIL_BYTES)
-    count=0;files_scanned=0;error=False;last_line=None
+    count=0;files_scanned=0;error=False;incomplete=False;last_line=None
     for p in sorted(p for p in Path(directory).glob('*.log') if not p.is_symlink())[:MAX_FILES]:
         try:
             with p.open('rb') as f:
                 f.seek(0,os.SEEK_END);size=f.tell()
-                f.seek(max(0,size-tail_bytes))
+                start=max(0,size-tail_bytes)
+                f.seek(start)
                 if f.tell()>0:f.readline()  # a partial first line is not a line
                 chunk=f.read().decode('utf-8','replace')
         except OSError:error=True;continue  # never a silent zero: the caller must know the read failed
         files_scanned+=1
+        first_ts=None
         for line in chunk.splitlines():
             try:ts=datetime.fromisoformat(line.split()[0].replace('Z','+00:00')).timestamp()
             except (ValueError,IndexError):continue
+            if first_ts is None:first_ts=ts
             if ts<since:continue
             level='CRITICAL' if any(r.search(line) for r in critical) else 'WARNING' if any(r.search(line) for r in warning) else None
             if not level:continue
@@ -564,7 +572,11 @@ def group_recent(directory,group_id,since,critical,warning,tail_bytes=GROUP_RECE
             if _group_id(p.stem,level,normalize(message))!=group_id:continue
             count+=1
             if last_line is None or ts>=last_line[0]:last_line=(ts,clean[:300])
-    return dict(count=count,files_scanned=files_scanned,error=error,
+        # start>0 means bytes before the tail were skipped. If the tail's first timestamped
+        # line is already past `since`, the window between since and that line was never read,
+        # so this file cannot prove the group is quiet.
+        if start>0 and first_ts is not None and first_ts>since:incomplete=True
+    return dict(count=count,files_scanned=files_scanned,error=error,incomplete=incomplete,
                 last_line=(dict(ts=last_line[0],line=last_line[1]) if last_line else None))
 
 

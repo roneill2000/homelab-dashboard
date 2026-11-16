@@ -280,6 +280,12 @@ def act_group_status(nightly, recent_fn=None):
         if not isinstance(data, dict):
             out[gid] = dict(live=True, count=None, last_seen=None)
             continue
+        # incomplete=True: the tail began after `since`, so lines between since and the tail
+        # were never read. Like a failed re-check: it proves nothing, so fail open and never say
+        # "not seen since". quiet only counts on a clean, complete, zero read.
+        if data.get('incomplete') is True:
+            out[gid] = dict(live=True, count=None, last_seen=None)
+            continue
         quiet = data.get('error') is False and data.get('count') == 0
         last = (data.get('last_line') or {}).get('ts') if isinstance(data.get('last_line'), dict) else None
         out[gid] = dict(live=not quiet,
