@@ -239,6 +239,12 @@ class Broker:
                 self.job = dict(status='idle',model=A310_LABEL)
             return dict(self.job)
 
+    def public_state(self):
+        # What GET /job shows (the page polls it every second, any device on the dashboard can read it): the job
+        # without the tab's chat history. The asking tab keeps its own copy; the worker reads state() (Claude, 16 Nov).
+        out=self.state();out.pop('history',None)
+        return out
+
     def submit(self, prompt, target='a310', homelab=False, history=None):
         if not isinstance(target, str) or not TARGET_RE.match(target):
             return 400, dict(status='failed', error='Unknown model choice.')
@@ -449,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized():return self.reply(403,{'error':'Forbidden'})
         if self.path=='/gpu':return self.reply(200,gpu_probe.snapshot())
         if self.path!='/job':return self.reply(404,{'error':'Not found'})
-        self.reply(200,BROKER.state())
+        self.reply(200,BROKER.public_state())
     def do_POST(self):
         if not self.authorized():return self.reply(403,{'error':'Forbidden'})
         if self.path!='/job':return self.reply(404,{'error':'Not found'})

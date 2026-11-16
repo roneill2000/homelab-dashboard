@@ -62,6 +62,17 @@ class QwenHistoryTests(unittest.TestCase):
         self.assertEqual((job['history_sent'],job['history_dropped']),(3,0))
         self.assertEqual(job['context_note'],'Your question and 3 earlier turns were sent; no system prompt or homelab data.')
 
+    def test_polled_job_never_carries_the_chat_history(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(q.r,'ROOT',Path(folder)), patch.object(q.threading,'Thread') as thread:
+            broker=q.Broker()
+            code,_=broker.submit('Follow up?','a310',False,turns(3))
+            thread.call_args.kwargs['args'][0].close()
+            self.assertEqual(code,202)
+            self.assertEqual(len(broker.state()['history']),3)     # the worker still has it
+            polled=broker.public_state()
+            self.assertNotIn('history',polled)                       # GET /job does not
+            self.assertEqual(polled['history_sent'],3)
+
     def test_history_is_scrubbed_with_the_same_scrub_as_the_prompt(self):
         code,job=self.submit([dict(q='Where is token=hunter2 set?', a='It uses password: s3cret and Authorization: bearer xyz.')])
         self.assertEqual(code,202)
