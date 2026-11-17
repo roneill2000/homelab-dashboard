@@ -541,6 +541,7 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
   .qwen-homelab::after,button.dl-filter::after{content:'';position:absolute;left:0;right:0;top:50%;height:48px;transform:translateY(-50%)}
   .dl-filters{flex-wrap:wrap;overflow-x:visible}
   .segments.service-categories,.gpu-toolbar .segments{flex-wrap:wrap}
+  .segments.service-categories>button:not([aria-pressed=true]),.gpu-toolbar .segments>button:not([aria-pressed=true]){border-radius:var(--md-comp-button-group-connected-inner-corner)}
   .energy-devices .mono{font-size:13px}
 }
 .updates-section>.source-note.error{margin:0 0 12px}
