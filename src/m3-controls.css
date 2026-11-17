@@ -430,8 +430,10 @@ html.m3-scroll-locked body{overscroll-behavior:none}
 /* Hover/focus card on a search result: the full release name and what it says (group, source, video, audio).
    Shows after a short pause so moving down the list doesn't flash cards; tap focuses it on a phone. */
 .dl-rel__card{position:absolute;left:0;top:100%;margin-top:2px;z-index:30;width:min(560px,calc(100vw - 64px));box-sizing:border-box;padding:12px 16px;background:var(--md-sys-color-surface-container-highest);color:var(--md-sys-color-on-surface);border-radius:var(--md-sys-shape-corner-medium);box-shadow:var(--md-sys-elevation-level2);font-size:var(--md-sys-typescale-body-small-size);line-height:1.45;white-space:normal;cursor:text;visibility:hidden;opacity:0;transform:translateY(-4px);transition:opacity .12s,transform .12s,visibility 0s linear .12s}
-.dl-rel:hover>.dl-rel__card,.dl-rel:focus-within>.dl-rel__card{visibility:visible;opacity:1;transform:none;transition:opacity .15s .35s,transform .15s .35s,visibility 0s linear .35s}
-.dl-rel:focus-within>.dl-rel__card{transition-delay:0s}
+/* Two rules on purpose: build.mjs wraps any rule with :hover in @media (hover:hover), and a tap (focus) must open the card on a phone. */
+.dl-rel:hover>.dl-rel__card{visibility:visible;opacity:1;transform:none;transition:opacity .15s .35s,transform .15s .35s,visibility 0s linear .35s}
+.dl-rel:focus-within>.dl-rel__card{visibility:visible;opacity:1;transform:none;transition:opacity .15s,transform .15s,visibility 0s}
+.dl-rel--up>.dl-rel__card{top:auto;bottom:100%;margin-top:0;margin-bottom:2px}
 .dl-rel__name{display:block;font-family:var(--md-ref-typeface-mono,ui-monospace,monospace);overflow-wrap:anywhere;user-select:text;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--md-sys-color-outline-variant)}
 .dl-rel__note{display:block;margin:-4px 0 8px;color:var(--md-sys-color-on-surface-variant);font-style:italic}
 .dl-rel__facts{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}.dl-rel__facts dt{color:var(--md-sys-color-on-surface-variant)}.dl-rel__facts dd{margin:0;overflow-wrap:anywhere}
