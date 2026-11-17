@@ -638,7 +638,7 @@ h1{font-size:36px}
 .nightly-fine-reason input{flex:1;min-width:0;padding:10px 13px;border:1px solid var(--md-sys-color-outline-variant);border-radius:10px;background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);font-size:16px;min-height:40px}
 .nightly-fine-reason input::placeholder{color:var(--md-sys-color-on-surface-variant)}
 .nightly-fine-reason input:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:3px}
-.nightly-fine .text-button,.nightly-fine-reason .secondary-button{min-height:40px}
+@media (min-width:600px){.nightly-fine .text-button,.nightly-fine-reason .secondary-button{min-height:40px}}
 .log-group .nightly-fine{margin-top:14px;padding-top:12px;border-top:1px solid var(--md-sys-color-outline-variant)}
 @media(max-width:540px){.nightly-fine-reason{flex-direction:column;align-items:stretch}.nightly-fine-reason .m3-btn{width:100%}}
 .nightly-findings h4{margin:0 0 12px;font-size:18px}

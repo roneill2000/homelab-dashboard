@@ -531,3 +531,26 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
 .dl-history__bad,.dl-history__bad>span:first-child{color:var(--md-sys-color-error)}
 .dl-history__why{margin-left:8px;color:var(--md-sys-color-error)}
 .dl-history__none{font-size:var(--md-sys-typescale-body-small-size);color:var(--md-sys-color-on-surface-variant)}
+
+/* 16 Nov UI audit: phone touch targets (48 px), wrapping strips, chat-history fade, Markdown tables and code, energy axis */
+@media (max-width:599px){
+  .m3-segment,.section-jump{min-height:48px;height:auto}
+  .dl-row--result .m3-btn,.m3-dialog__actions .m3-btn{min-width:48px}
+  details>summary{min-height:48px;box-sizing:border-box}
+  .qwen-homelab,button.dl-filter{position:relative}
+  .qwen-homelab::after,button.dl-filter::after{content:'';position:absolute;left:0;right:0;top:50%;height:48px;transform:translateY(-50%)}
+  .dl-filters{flex-wrap:wrap;overflow-x:visible}
+  .segments.service-categories,.gpu-toolbar .segments{flex-wrap:wrap}
+  .energy-devices .mono{font-size:13px}
+}
+.updates-section>.source-note.error{margin:0 0 12px}
+#main:focus{outline:none}
+.qwen-history{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 16px,#000 calc(100% - 16px),transparent 100%);padding-top:8px;padding-bottom:12px}
+.md-pre{margin:8px 0;padding:12px 16px;border-radius:var(--md-sys-shape-corner-small,8px);background:var(--md-sys-color-surface-container-high);font-family:var(--md-ref-typeface-mono,ui-monospace,monospace);font-size:13px;line-height:1.5;white-space:pre;overflow-x:auto}
+.md-table{border-collapse:collapse;font-size:14px;line-height:1.5;margin:8px 0;white-space:normal}
+.md-table th,.md-table td{text-align:left;vertical-align:top;padding:6px 12px;border-bottom:1px solid var(--md-sys-color-outline-variant)}
+.md-table th{font-weight:500;color:var(--md-sys-color-on-surface-variant)}
+.qwen-answer a,.qwen-history-answer a{color:var(--md-sys-color-primary)}
+.energy-days{margin-bottom:4px}
+.energy-days__axis{display:flex;justify-content:space-between;margin:0 0 12px;font-size:12px;color:var(--md-sys-color-on-surface-variant)}
+.dl-nomatch .text-button{margin-left:4px}
