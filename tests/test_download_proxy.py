@@ -710,6 +710,28 @@ class DebridTests(unittest.TestCase):
         self.assertEqual(len(out['downloads']), dp._DEBRID_ROWS)
         self.assertEqual(out['downloads'][0]['name'], 'f%02d.mkv' % (dp._DEBRID_KEEP + 19))  # newest first
 
+    def test_a_pack_row_names_its_season_and_counts_files_started(self):
+        """A season pack at the service: the panel gets the season from the release name and how many of its
+        files went to the worker, so a 100% pack reads 'ready, 3 of 12 started' and two seasons differ."""
+        now = int(time.time())
+        rows = [{'name': 'rd-S1', 'kind': None, 'title': 'Rome', 'dest': None, 'state': 'preparing', 'started': now,
+                 'release': 'Rome.2005.S01.1080p.BluRay.REMUX-NOGRP', 'handed': [2, 3, 4],
+                 'prep': {'progress': 1.0, 'seeds': None, 'files': 9, 'provider': 'Real-Debrid'}},
+                {'name': 'rd-S2', 'kind': None, 'title': 'Rome', 'dest': None, 'state': 'preparing', 'started': now,
+                 'release': 'Rome 2005 S02 1080p BluRay REMUX-NOGRP',
+                 'prep': {'progress': 0.4, 'seeds': 5, 'files': 10, 'provider': 'Real-Debrid'}},
+                {'name': 'rd-X', 'kind': None, 'title': 'Film', 'dest': None, 'state': 'preparing', 'started': now,
+                 'release': 'Film.2010.1080p.BluRay-GRP', 'prep': {'progress': 0, 'seeds': None, 'files': None,
+                                                                  'provider': 'TorBox'}}]
+        with dp._STATE_LOCK:
+            dp._save_state({'downloads': rows})
+        out = {r['name']: r for r in dp.debrid_status()['downloads']}
+        self.assertEqual((out['rd-S1']['season'], out['rd-S1']['prep']['started'], out['rd-S1']['prep']['files']), (1, 3, 9))
+        self.assertEqual((out['rd-S2']['season'], out['rd-S2']['prep']['started']), (2, 0))
+        self.assertIsNone(out['rd-X']['season'])
+        self.assertNotIn('release', out['rd-S1'])        # the release name itself stays in the backend
+        self.assertNotIn('handed', out['rd-S1'])
+
     def test_the_state_file_is_private_before_its_first_byte(self):
         """These rows hold pasted links with their access tokens: the tmp file must already be 0600
         when the first byte lands in it, not chmodded once the whole write is done."""
@@ -1534,7 +1556,7 @@ class DebridGrabTests(DebridTests):
         for held in ('debrid', 'tried', 'release', 'torbox', 'url', 'provider'):
             self.assertNotIn(held, row)
         self.assertEqual(row['state'], 'preparing')
-        self.assertEqual(row['prep'], {'progress': 0, 'seeds': None, 'files': None, 'provider': 'Real-Debrid'})
+        self.assertEqual(row['prep'], {'progress': 0, 'seeds': None, 'files': None, 'provider': 'Real-Debrid', 'started': 0})
 
     def test_an_expired_token_is_a_410(self):
         self.reset_key_cache()

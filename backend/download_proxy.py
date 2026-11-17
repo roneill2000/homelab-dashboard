@@ -2602,14 +2602,22 @@ def _debrid_rows(state):
         st = d.get('state') or 'unknown'
         if _off_list(d, now):
             continue   # cleared by hand, or closed for 7 days: the History sheet reads those, the list does not
-        out.append(dict(name=d['name'], kind=d['kind'], title=d['title'], season=d.get('season'),
+        # A pack still at the service: say which season it is (from the release name) and how many of its files
+        # have already gone to the download worker, so the panel can show 'Ready · 3 of 12 started' (16 Nov 2026).
+        prep, season = d.get('prep'), d.get('season')
+        if isinstance(prep, dict):
+            prep = dict(prep, started=len(d.get('handed') or []))
+        if season is None and st == 'preparing':
+            m = re.search(r'(?:^|[^A-Za-z0-9])S(\d{1,2})(?:E\d{1,3})?(?![A-Za-z0-9])', str(d.get('release') or ''), re.I)
+            season = int(m.group(1)) if m else None
+        out.append(dict(name=d['name'], kind=d['kind'], title=d['title'], season=season,
                         episode=d.get('episode'), dest=d['dest'], state=st, done=st in _DEBRID_SCAN_UNTIL,
                         bytes=int(d.get('bytes') or 0), total_bytes=int(d.get('total_bytes') or 0),
                         speed=int(d.get('speed') or 0), eta=d.get('eta') or '',
                         scanned=bool(d.get('scanned')), scan_error=d.get('scan_error'),
                         error=d.get('error'), grounded=d.get('grounded'), started=d.get('started'),
                         files_small=d.get('files_small'), files_cut=d.get('files_cut'),
-                        prep=d.get('prep'),
+                        prep=prep,
                         sampled=d.get('sampled'),
                         # The link stays inside the backend: the panel only learns whether a retry is possible.
                         can_retry=(bool(d.get('url')) or bool(d.get('debrid'))) and st in _RETRY_STATES,
