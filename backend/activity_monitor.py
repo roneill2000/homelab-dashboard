@@ -82,7 +82,7 @@ def worker_rate(path=DEBRID_STATE, now=None):
 
 
 def debrid_rate(rdt=None, worker=None):
-    """Everything coming down from Real-Debrid/TorBox: RdtClient (Sonarr) plus the download worker.
+    """Everything coming down from Real-Debrid/TorBox: RdtClient plus the download worker.
     One source failing still gives the other's rate; both failing gives no reading."""
     values = []
     for fn in (rdt or rdt_rate, worker or worker_rate):
