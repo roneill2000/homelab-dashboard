@@ -586,7 +586,8 @@ def patch_opencode(source):
             name = node.targets[0].id
             if name == 'port_targets':
                 keys = [getattr(k, 'value', None) for k in node.value.keys]
-                for gone in ('opencode', 'openhands', 'hermes'):  # retired 2 and 9 Nov 2026; earlier deploys added them
+                # Guacamole (LXC 111 Tomcat :8080) and UHF (:8080 on .13) were switched off 16 Nov 2026 (Nexterm replaces Guacamole).
+                for gone in ('opencode', 'openhands', 'hermes', 'guacamole', 'uhf'):  # retired 2, 9 and 16 Nov 2026
                     keys = [getattr(k, 'value', None) for k in node.value.keys]
                     if gone in keys:
                         i = keys.index(gone)
@@ -600,6 +601,10 @@ def patch_opencode(source):
                     if key not in [getattr(k, 'value', None) for k in node.value.keys]:
                         node.value.keys.append(ast.Constant(key))
                         node.value.values.append(expression(target))
+                # LXC 102 host check used Sonarr's :8989; Sonarr was removed 16 Nov 2026, so check Prowlarr's :9696.
+                keys = [getattr(k, 'value', None) for k in node.value.keys]
+                if 'utilities' in keys:
+                    node.value.values[keys.index('utilities')] = expression("('192.168.0.13', 9696)")
                 found.add(name)
             elif name == 'known':
                 for gone in (19, 21):  # OpenHands .19, Hermes .21 (pi's row has its own key)
@@ -607,6 +612,12 @@ def patch_opencode(source):
                     if gone in keys:
                         i = keys.index(gone)
                         del node.value.keys[i], node.value.values[i]
+                # 16 Nov 2026: .6 is Nexterm now (Guacamole off); .13's link pointed at Sonarr (removed).
+                keys = [getattr(k, 'value', None) for k in node.value.keys]
+                if 6 in keys:
+                    node.value.values[keys.index(6)] = expression("('Nexterm', 'LXC 111', 'https://nexterm.lan', checks.get('nexterm', False))")
+                if 13 in keys:
+                    node.value.values[keys.index(13)] = expression("('Utilities Stack', 'LXC 102', 'http://192.168.0.13:9696', checks.get('utilities', False))")
                 found.add(name)
         if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == 'i' and isinstance(node.iter, ast.List):
             node.iter.elts = [v for v in node.iter.elts if getattr(v, 'value', None) not in (19, 21)]
