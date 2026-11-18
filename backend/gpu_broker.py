@@ -1,10 +1,11 @@
 """GPU broker: one engine on the gaming PC's 16 GB card at a time, switched automatically.
 
-Listens on :8080 (llama-server router), :8088 (Strata, general model) and :8089 (Strata, Qwen3.8 Coder for coding agents)
-on this host and forwards to the same ports on the PC. Before forwarding a generation request it makes sure the right
-engine holds the GPU: every other engine is unloaded first (llama-server's models, the other Strata server), then a
-Strata engine is loaded if it isn't. Status reads (/models, /health, /slots, ...)
-pass straight through and never switch. Responses stream (SSE) as they arrive. Clients keep their own auth headers.
+Listens on :8080 (llama-server router), :8092 (KV-streaming llama-server router), :8088 (Strata, general model) and
+:8089 (Strata, Qwen3.8 Coder for coding agents) on this host and forwards to the same ports on the PC. Before
+forwarding a generation request it makes sure the right engine holds the GPU: every other engine is unloaded first
+(both llama-servers' models, the other Strata server), then a Strata engine is loaded if it isn't. Status reads
+(/models, /health, /slots, ...) pass straight through and never switch. Responses stream (SSE) as they arrive. Clients
+keep their own auth headers.
 
 :8000 is one URL for every model (http://192.168.0.2:8000/v1): GET /v1/models lists all engines' models and a
 generation request goes to the engine its `model` names, with the same switching. The broker adds llama-server's token
@@ -28,9 +29,11 @@ import ai_monitor
 import pc_net
 
 PC = '192.168.0.12'
-PORTS = {8080: 'llama', 8088: 'strata', 8089: 'coder'}
+PORTS = {8080: 'llama', 8088: 'strata', 8089: 'coder', 8092: 'kvllama'}
 # The two Strata servers (one model each; the coder one starts unloaded with --lazy). Only one is ever loaded.
 STRATA = {'strata': 8088, 'coder': 8089}
+# The two llama-server routers (main :8080, KV-streaming :8092). Only one engine holds the GPU at a time.
+LLAMA = {'llama': 8080, 'kvllama': 8092}
 # One URL for every local model (2 Nov 2026): http://192.168.0.2:8000/v1. The request's `model` picks the engine,
 # GET /v1/models lists all of them, and the broker adds llama-server's token itself, so clients need no key.
 UNIFIED_PORT = 8000
@@ -39,7 +42,7 @@ _names_lock = threading.Lock()
 _llama_ids = {'at': 0.0, 'ids': []}
 # Generation requests still streaming, per engine. A request for another engine waits (up to DRAIN_TIMEOUT) for these to
 # finish before its swap, so a swap never cuts a reply mid-stream (Sonnet audit, 2 Nov 2026: ping-pong between clients).
-_inflight = {'llama': 0, 'strata': 0, 'coder': 0}
+_inflight = {'llama': 0, 'kvllama': 0, 'strata': 0, 'coder': 0}
 _inflight_cv = threading.Condition()
 DRAIN_TIMEOUT = 600
 # Requests that generate (and so need their engine on the GPU). Anything else is forwarded as-is.
@@ -320,11 +323,22 @@ def game_running():
     return ai_monitor.game_running()
 
 
+def _llama_busy(url, token):
+    return any(m['state'] in ('loaded', 'loading')
+               for m in ai_monitor.models(ai_monitor.fetch(url, token)))
+
+
 def llama_busy():
     try:
         config = json.loads(ai_monitor.CONFIG.read_text())
-        return any(m['state'] in ('loaded', 'loading')
-                   for m in ai_monitor.models(ai_monitor.fetch(config['url'] + '/models', config['token'])))
+        return _llama_busy(config['url'] + '/models', config['token'])
+    except Exception:
+        return False
+
+
+def kvllama_busy():
+    try:
+        return _llama_busy(f'http://{PC}:{LLAMA["kvllama"]}/v1/models', llama_token())
     except Exception:
         return False
 
@@ -340,7 +354,7 @@ _sleep_requested_at = 0.0             # Part B hook: set when the broker itself 
 # up in the PC's OpenSSH log as one 'Connection closed by 192.168.0.3' per model call. A confirmed stamp is trusted for
 # this long; a successful pc_awake() probe sets it, so does any upstream engine reply (a model answered -> the PC is up,
 # no probe needed). A failed upstream connection clears it: that is the only cheap sign the PC may have slept since.
-# The probe stays on port 22 only; the engine ports (8080/8088/8089) close while a game runs, so they cannot tell awake
+# The probe stays on port 22 only; the engine ports (8080/8092/8088/8089) close while a game runs, so they cannot tell awake
 # from asleep and must not become the cache's proof.
 AWAKE_CACHE = 15.0
 _awake = {'at': 0.0}
@@ -363,11 +377,12 @@ class WakeTimeout(RuntimeError):
 
 
 def engine_ready(engine):
-    """True when the requested engine answers its cheap status URL (:8080/:8088/:8089 /health, the ones ai_monitor
-    already uses; they do not count as model activity)."""
+    """True when the requested engine answers its cheap status URL (:8080/:8092/:8088/:8089 /health, the ones
+    ai_monitor already uses; they do not count as model activity)."""
     try:
-        if engine == 'llama':
-            req = urllib.request.Request(f'http://{PC}:8080/health', headers={'Authorization': 'Bearer ' + llama_token()})
+        if engine in LLAMA:
+            req = urllib.request.Request(f'http://{PC}:{LLAMA[engine]}/health',
+                                         headers={'Authorization': 'Bearer ' + llama_token()})
             with urllib.request.urlopen(req, timeout=3) as resp:
                 return resp.status == 200
         return isinstance(ai_monitor.strata(STRATA[engine]), dict)
@@ -444,10 +459,10 @@ def release(engine):
 
 
 def ensure(engine, hold=False):
-    """Give the GPU to `engine` ('llama', 'strata' or 'coder'); serialised so concurrent requests cannot interleave a
-    switch. Waits for other engines' streaming replies to finish, unloads every other engine, then loads a Strata engine
-    if needed. With hold=True the caller is counted as streaming on `engine` (call release() when done), counted under
-    the switch lock so no other swap can slip in between. Returns what it did, '+'-joined, or None."""
+    """Give the GPU to `engine` ('llama', 'kvllama', 'strata' or 'coder'); serialised so concurrent requests cannot
+    interleave a switch. Waits for other engines' streaming replies to finish, unloads every other engine, then loads a
+    Strata engine if needed. With hold=True the caller is counted as streaming on `engine` (call release() when done),
+    counted under the switch lock so no other swap can slip in between. Returns what it did, '+'-joined, or None."""
     did = []
     with _switch_lock:
         if not drain(engine):
@@ -470,19 +485,22 @@ def _switch(engine):
             ai_monitor.strata_post('/unload', port=port)
             if not ai_monitor.wait_strata(False, timeout=120, port=port):
                 raise RuntimeError(f'{other} did not unload')
-    if engine in STRATA:
-        if llama_busy():
-            log(f'{engine} request: unloading llama-server models')
-            did.append('unload-llama')
-            ai_monitor.unload_llama()
-        if not strata_loaded(engine):
-            if game_running():
-                raise GamePaused()
-            log(f'{engine} request: loading it')
-            did.append('load-' + engine)
-            ai_monitor.strata_post('/load', port=STRATA[engine])
-            if not ai_monitor.wait_strata(True, port=STRATA[engine]):
-                raise RuntimeError(f'{engine} did not load')
+    for other, busy_fn, unload_fn in (
+        ('llama', lambda: llama_busy(), lambda: ai_monitor.unload_llama()),
+        ('kvllama', lambda: kvllama_busy(), lambda: ai_monitor.unload_kvllama()),
+    ):
+        if other != engine and busy_fn():
+            log(f'{engine} request: unloading {other}-server models')
+            did.append('unload-' + other)
+            unload_fn()
+    if engine in STRATA and not strata_loaded(engine):
+        if game_running():
+            raise GamePaused()
+        log(f'{engine} request: loading it')
+        did.append('load-' + engine)
+        ai_monitor.strata_post('/load', port=STRATA[engine])
+        if not ai_monitor.wait_strata(True, port=STRATA[engine]):
+            raise RuntimeError(f'{engine} did not load')
     return did
 
 
@@ -501,7 +519,8 @@ def strata_names(max_age=60.0):
 
 def route(model, names=None):
     """The engine for a request's `model` on the unified port: a Strata server's own model id, else a Flash-Next name
-    (coder or not), else llama-server, whose router knows its own models and answers unknown ones itself."""
+    (coder or not), else kvllama for qwen3.8-27b(-long), else llama-server, whose router knows its own models and
+    answers unknown ones itself."""
     m = (model or '').strip().lower()
     names = strata_names() if names is None else names
     for engine in ('coder', 'strata'):
@@ -509,6 +528,8 @@ def route(model, names=None):
             return engine
     if 'flash-next' in m or m.startswith('strata'):
         return 'coder' if 'coder' in m else 'strata'
+    if m in ('qwen3.8-27b', 'qwen3.8-27b-long'):
+        return 'kvllama'
     return 'llama'
 
 
@@ -535,7 +556,7 @@ def llama_body(body):
         return body
     if not isinstance(data, dict):
         return body
-    always = str(data.get('model') or '').startswith(ALWAYS_THINK_PREFIX)
+    always = str(data.get('model') or '').strip().lower().startswith(ALWAYS_THINK_PREFIX)
     kwargs = data.get('chat_template_kwargs')
     kwargs = dict(kwargs) if isinstance(kwargs, dict) else {}
     raw = data.get('reasoning_effort')
@@ -559,6 +580,20 @@ def llama_body(body):
         kwargs.setdefault('reasoning_effort', effort)
     data['chat_template_kwargs'] = kwargs
     return json.dumps(data).encode()
+
+
+def rewrite_kv_model(body):
+    """Rewrite legacy 'qwen3.8-27b-long' to 'qwen3.8-27b' for kvllama (:8092 only serves 'qwen3.8-27b')."""
+    if not body:
+        return body
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return body
+    if isinstance(data, dict) and isinstance(data.get('model'), str) and data['model'].strip().lower() == 'qwen3.8-27b-long':
+        data['model'] = 'qwen3.8-27b'
+        return json.dumps(data).encode()
+    return body
 
 
 # Loop guard (11 Nov 2026). Three agent sessions (9 and 11 Nov) repeated one tool call with the same result 55-80
@@ -652,18 +687,27 @@ def llama_token():
     return json.loads(ai_monitor.CONFIG.read_text())['token']
 
 
-def all_models():
-    """OpenAI /v1/models for every engine: llama-server's own list plus the two Strata models."""
-    data = []
+def _llama_models(port, label):
     try:
-        data = [m for m in ai_monitor.fetch(f'http://{PC}:8080/v1/models', llama_token()).get('data', [])
-                if isinstance(m, dict) and m.get('id')]
+        items = [m for m in ai_monitor.fetch(f'http://{PC}:{port}/v1/models', llama_token()).get('data', [])
+                 if isinstance(m, dict) and m.get('id') and m['id'].strip().lower() != 'qwen3.8-27b-long']
         # llama-server's entries pass through whole: their `status` (loaded/unloaded) is what the approver judges read
-        data = [dict(m, owned_by=m.get('owned_by') or 'llama-server') for m in data]
+        return [dict(m, owned_by=m.get('owned_by') or 'llama-server') for m in items]
     except Exception as exc:
-        log(f'models: llama-server list unavailable ({exc.__class__.__name__})')
+        log(f'models: {label} list unavailable ({exc.__class__.__name__})')
+        return []
+
+
+def all_models():
+    """OpenAI /v1/models for every engine: kvllama (:8092), llama (:8080), plus the two Strata models."""
+    data, seen = [], set()
+    for m in _llama_models(LLAMA['kvllama'], 'kvllama-server') + _llama_models(LLAMA['llama'], 'llama-server'):
+        if m['id'] not in seen:
+            seen.add(m['id'])
+            data.append(m)
     for engine, name in strata_names().items():
-        if name and all(m['id'] != name for m in data):
+        if name and name not in seen:
+            seen.add(name)
             data.append({'id': name, 'object': 'model', 'owned_by': engine, 'created': 0})
     return {'object': 'list', 'data': data}
 
@@ -759,7 +803,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if known and model not in known:  # refuse before any swap: an unknown name must not unload Strata
                     return self.fail(404, f'Unknown model {model!r}; GET /v1/models lists the available ones')
             host, port = self.server.upstream[0], self.server.ports[engine]
-            if engine == 'llama':
+            if engine in LLAMA:
                 extra['Authorization'] = 'Bearer ' + llama_token()
         if generate and body:
             body, run = loop_guard(body)
@@ -771,7 +815,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                       'so this turn was stopped. Send a new message to go on.')
             if run >= LOOP_NUDGE_AT:
                 log(f'loop guard: {ai_history.model_of(body)} repeated one tool step {run} times; note added')
-        if generate and engine == 'llama':
+        if generate and engine == 'kvllama':
+            body = rewrite_kv_model(body)
+        if generate and engine in LLAMA:
             body = llama_body(body)
         # Session queue: park behind the lease holder instead of swapping the engine away. Pass-through clients
         # (PASS_THROUGH) and status reads take no part; the holder's own requests ride straight through (this
@@ -1033,7 +1079,7 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
     def __init__(self, address, engine, upstream):
         self.engine, self.upstream = engine, upstream
-        self.ports = {'llama': 8080, **STRATA}  # the unified port's upstream per engine (tests point these at a fake PC)
+        self.ports = {**LLAMA, **STRATA}  # the unified port's upstream per engine (tests point these at a fake PC)
         super().__init__(address, Handler)
 
 

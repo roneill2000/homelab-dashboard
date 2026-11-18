@@ -34,6 +34,11 @@ _watchdog = {}       # last watchdog action, reported in the snapshot
 PC_GPU_URL = 'http://192.168.0.12:9835/gpu'
 # Strata (Qwen3.8-Flash-Next; Coder on :8089) on the gaming PC. /health is cheap and does not count as model activity.
 STRATA_URL = 'http://192.168.0.12:8088/health'
+# KV-streaming llama-server router on the gaming PC (qwen3.8-27b; same HTTP API and token as :8080).
+KV_BASE = 'http://192.168.0.12:8092'
+KV_URL = KV_BASE + '/v1'
+_kv_state = {'token_samples': [], 'last_speed': None, 'last_active_at': 0, 'last_active_model': None,
+             'last_slot_check': 0, 'stuck': None, 'watchdog': {}}
 _pc_gpu = {'latest': None, 'history': [], 'error': None, 'last_try': 0}
 GPU_KEYS = ('power_w', 'power_limit_w', 'temperature_c', 'utilization_pct', 'memory_util_pct', 'vram_used_mib',
             'vram_total_mib', 'fan_pct', 'clock_mhz')
@@ -181,32 +186,27 @@ def apply_strata_speed(result, now):
             return
 
 
-def desktop():
-    global _token_samples, _last_speed, _last_active_at, _last_active_model, _last_slot_check, _stuck, _watchdog
-    config = json.loads(CONFIG.read_text())
-    if config.get('url') != 'http://192.168.0.12:8080/v1':
-        raise ValueError('Unexpected model endpoint')
-    
+def _poll_llama(v1_url, token, state, poll_gpu=False):
     # 1. Fetch model list
-    model_list = models(fetch(config['url'] + '/models', config['token']))
-    
+    model_list = models(fetch(v1_url + '/models', token))
+
     # 2. Check for active generation on the loaded model
     loaded_model = next((m['id'] for m in model_list if m['state'] == 'loaded'), None)
     active_speed = None
     is_active = False
     is_recent = False
-    
+
     now = time.time()
     with _lock:
         watching = now < _live_until
-    if watching:
+    if poll_gpu and watching:
         pc_gpu_poll(now)
-    due = now - _last_slot_check >= WATCHDOG_INTERVAL
+    due = now - state['last_slot_check'] >= WATCHDOG_INTERVAL
     if loaded_model and (watching or due):
         try:
-            _last_slot_check = now
-            base_url = config['url'].replace('/v1', '')
-            slots_data = fetch(f"{base_url}/slots?model={loaded_model}&autoload=false", config['token'])
+            state['last_slot_check'] = now
+            base_url = v1_url.replace('/v1', '')
+            slots_data = fetch(f"{base_url}/slots?model={loaded_model}&autoload=false", token)
             if isinstance(slots_data, list):
                 active_slot = next((s for s in slots_data if s.get('is_processing')), None)
                 # Watchdog: a slot that stays "processing" with no new tokens for STUCK_SECONDS is stuck; unload the
@@ -215,18 +215,18 @@ def desktop():
                     tok = active_slot.get('next_token')
                     dec = tok[0].get('n_decoded', 0) if isinstance(tok, list) and tok else (tok or {}).get('n_decoded', 0) if isinstance(tok, dict) else 0
                     key = (loaded_model, active_slot.get('id_task'))
-                    if _stuck and _stuck['key'] == key and _stuck['decoded'] == dec:
-                        if now - _stuck['since'] >= STUCK_SECONDS:
+                    if state['stuck'] and state['stuck']['key'] == key and state['stuck']['decoded'] == dec:
+                        if now - state['stuck']['since'] >= STUCK_SECONDS:
                             try:
-                                unload(base_url, config['token'], loaded_model)
-                                _watchdog = dict(action='unloaded', model=loaded_model, at=int(now), stuck_seconds=int(now - _stuck['since']))
+                                unload(base_url, token, loaded_model)
+                                state['watchdog'] = dict(action='unloaded', model=loaded_model, at=int(now), stuck_seconds=int(now - state['stuck']['since']))
                             except Exception:
-                                _watchdog = dict(action='unload_failed', model=loaded_model, at=int(now))
-                            _stuck = None
+                                state['watchdog'] = dict(action='unload_failed', model=loaded_model, at=int(now))
+                            state['stuck'] = None
                     else:
-                        _stuck = dict(key=key, decoded=dec, since=now)
+                        state['stuck'] = dict(key=key, decoded=dec, since=now)
                 else:
-                    _stuck = None
+                    state['stuck'] = None
                 if active_slot:
                     is_active = True
                     is_recent = False
@@ -235,43 +235,45 @@ def desktop():
                     if isinstance(tokens, list) and tokens:
                         decoded = tokens[0].get('n_decoded', 0)
                     task_id = active_slot.get('id_task')
-                    
+
                     # Reset buffer if new task or counter rolled backwards
-                    if _token_samples and (_token_samples[-1][2] != task_id or decoded < _token_samples[-1][1]):
-                        _token_samples = []
-                    
-                    _token_samples.append((now, decoded, task_id))
+                    samples = state['token_samples']
+                    if samples and (samples[-1][2] != task_id or decoded < samples[-1][1]):
+                        samples = []
+
+                    samples.append((now, decoded, task_id))
                     # Retain samples strictly within the last 5.0 seconds
-                    _token_samples = [s for s in _token_samples if now - s[0] <= 5.0]
-                    
-                    if len(_token_samples) >= 2:
-                        dt = _token_samples[-1][0] - _token_samples[0][0]
-                        dn = _token_samples[-1][1] - _token_samples[0][1]
+                    samples = [s for s in samples if now - s[0] <= 5.0]
+                    state['token_samples'] = samples
+
+                    if len(samples) >= 2:
+                        dt = samples[-1][0] - samples[0][0]
+                        dn = samples[-1][1] - samples[0][1]
                         if dt >= 0.1 and dn > 0:
                             active_speed = round(dn / dt, 1)
-                        elif dn == 0 and _token_samples[-1][1] > 0 and dt > 0:
-                            active_speed = round(_token_samples[-1][1] / max(0.5, dt), 1)
-                    
+                        elif dn == 0 and samples[-1][1] > 0 and dt > 0:
+                            active_speed = round(samples[-1][1] / max(0.5, dt), 1)
+
                     if active_speed:
-                        _last_speed = active_speed
-                        _last_active_at = now
-                        _last_active_model = loaded_model
+                        state['last_speed'] = active_speed
+                        state['last_active_at'] = now
+                        state['last_active_model'] = loaded_model
                 else:
-                    _token_samples = []
+                    state['token_samples'] = []
                     # 5-second decay hold after generation completes
-                    if _last_speed and (now - _last_active_at <= 5.0) and _last_active_model == loaded_model:
+                    if state['last_speed'] and (now - state['last_active_at'] <= 5.0) and state['last_active_model'] == loaded_model:
                         is_active = True
                         is_recent = True
-                        active_speed = _last_speed
+                        active_speed = state['last_speed']
                     else:
                         is_active = False
                         is_recent = False
                         active_speed = None
         except Exception:
-            _token_samples = []
+            state['token_samples'] = []
     else:
-        _token_samples = []
-        
+        state['token_samples'] = []
+
     return dict(
         models=model_list,
         active_speed=active_speed,
@@ -279,8 +281,39 @@ def desktop():
         is_recent=is_recent,
         active_model=loaded_model if is_active else None,
         live=watching,
-        watchdog=dict(_watchdog) if _watchdog else None
+        watchdog=dict(state['watchdog']) if state['watchdog'] else None
     )
+
+
+def desktop():
+    global _token_samples, _last_speed, _last_active_at, _last_active_model, _last_slot_check, _stuck, _watchdog
+    config = json.loads(CONFIG.read_text())
+    if config.get('url') != 'http://192.168.0.12:8080/v1':
+        raise ValueError('Unexpected model endpoint')
+    state = {
+        'token_samples': _token_samples,
+        'last_speed': _last_speed,
+        'last_active_at': _last_active_at,
+        'last_active_model': _last_active_model,
+        'last_slot_check': _last_slot_check,
+        'stuck': _stuck,
+        'watchdog': _watchdog,
+    }
+    try:
+        return _poll_llama(config['url'], config['token'], state, poll_gpu=True)
+    finally:
+        _token_samples = state['token_samples']
+        _last_speed = state['last_speed']
+        _last_active_at = state['last_active_at']
+        _last_active_model = state['last_active_model']
+        _last_slot_check = state['last_slot_check']
+        _stuck = state['stuck']
+        _watchdog = state['watchdog']
+
+
+def kv():
+    config = json.loads(CONFIG.read_text())
+    return _poll_llama(KV_URL, config['token'], _kv_state, poll_gpu=False)
 
 
 def collect(now=None, min_interval=1.0):
@@ -292,9 +325,16 @@ def collect(now=None, min_interval=1.0):
         _last_poll = now
         prior = copy.deepcopy(_latest)
     result = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         # 'coder': the second Strata server (Qwen3.8 Coder for coding agents, :8089, started unloaded)
-        futures = {k: pool.submit(fn) for k, fn in [('webui', webui), ('desktop', desktop), ('strata', strata), ('coder', lambda: strata(8089))]}
+        # 'kv': the KV-streaming llama-server router (qwen3.8-27b, :8092)
+        futures = {k: pool.submit(fn) for k, fn in [
+            ('webui', webui),
+            ('desktop', desktop),
+            ('kv', kv),
+            ('strata', strata),
+            ('coder', lambda: strata(8089)),
+        ]}
         for key, future in futures.items():
             old = prior.get(key, {})
             try:
@@ -381,12 +421,21 @@ def wait_strata(loaded, timeout=SWITCH_TIMEOUT, sleep=time.sleep, port=8088, eve
     return False
 
 
+def _unload_router(v1_url, token):
+    base_url = v1_url.replace('/v1', '')
+    for m in models(fetch(v1_url + '/models', token)):
+        if m['state'] in ('loaded', 'loading'):
+            unload(base_url, token, m['id'])
+
+
 def unload_llama():
     config = json.loads(CONFIG.read_text())
-    base_url = config['url'].replace('/v1', '')
-    for m in models(fetch(config['url'] + '/models', config['token'])):
-        if m['state'] in ('loaded', 'loading'):
-            unload(base_url, config['token'], m['id'])
+    _unload_router(config['url'], config['token'])
+
+
+def unload_kvllama():
+    config = json.loads(CONFIG.read_text())
+    _unload_router(KV_URL, config['token'])
 
 
 def _run_switch(target):
@@ -397,6 +446,10 @@ def _run_switch(target):
                 ok, message = None, 'A game is running on the gaming PC, so Strata was not loaded.'
             elif target == 'strata':
                 unload_llama()
+                try:
+                    unload_kvllama()
+                except Exception:
+                    pass
                 strata_post('/load')
                 ok = wait_strata(True)
             else:

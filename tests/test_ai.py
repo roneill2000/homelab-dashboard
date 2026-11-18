@@ -166,3 +166,51 @@ class PcGpuTests(unittest.TestCase):
    res={'desktop':{'online':True,'is_active':active,'active_speed':5},'strata':{'online':True,'loaded':True}}
    with patch.object(a,'_live_until',until),patch.object(a,'fetch',side_effect=AssertionError):a.apply_strata_speed(res,1000)
    self.assertEqual(res['desktop']['active_speed'],5)
+
+class KvTests(unittest.TestCase):
+ def setUp(self):
+  kv_clean={'token_samples':[],'last_speed':None,'last_active_at':0,'last_active_model':None,'last_slot_check':0,'stuck':None,'watchdog':{}}
+  for name,val in (('_live_until',0),('_kv_state',kv_clean)):
+   p=patch.object(a,name,val);p.start();self.addCleanup(p.stop)
+ def test_kv_polls_8092_models_slots_speed_and_watchdog(self):
+  from unittest.mock import MagicMock
+  cfg=MagicMock();cfg.read_text.return_value=json.dumps({'url':'http://192.168.0.12:8080/v1','token':'k'})
+  seen=[]
+  slots=[{'id':0,'is_processing':True,'id_task':1,'next_token':[{'n_decoded':100}]}]
+  def fetch(url,token=None):
+   seen.append((url,token))
+   if url.endswith('/models'):return {'data':[{'id':'qwen3.8-27b','status':{'value':'loaded'}}]}
+   return slots
+  with patch.object(a,'CONFIG',cfg),patch.object(a,'fetch',side_effect=fetch),patch('time.time',return_value=10000):
+   a.request_live(30)
+   r1=a.kv()
+  self.assertEqual(seen,[('http://192.168.0.12:8092/v1/models','k'),('http://192.168.0.12:8092/slots?model=qwen3.8-27b&autoload=false','k')])
+  self.assertEqual(r1['models'][0]['id'],'qwen3.8-27b');self.assertTrue(r1['is_active']);self.assertEqual(r1['active_model'],'qwen3.8-27b')
+  slots=[{'id':0,'is_processing':True,'id_task':1,'next_token':[{'n_decoded':140}]}]
+  with patch.object(a,'CONFIG',cfg),patch.object(a,'fetch',side_effect=fetch),patch('time.time',return_value=10002):
+   r2=a.kv()
+  self.assertEqual(r2['active_speed'],20.0)
+  with patch.object(a,'CONFIG',cfg),patch.object(a,'fetch',side_effect=fetch),patch.object(a,'unload') as un,patch('time.time',return_value=10363):
+   r3=a.kv()
+  un.assert_called_once_with('http://192.168.0.12:8092','k','qwen3.8-27b')
+  self.assertEqual(r3['watchdog']['action'],'unloaded')
+ def test_collect_reports_kv_key_independently_of_desktop(self):
+  with patch.object(a,'_latest',{}),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={'version':'test'}), \
+       patch.object(a,'desktop',return_value={'models':[],'online':True}),patch.object(a,'strata',return_value={'model':'m','loaded':False}), \
+       patch.object(a,'kv',return_value={'models':[{'id':'qwen3.8-27b','state':'loaded'}],'active_speed':31.5,'is_active':True,'is_recent':False,'active_model':'qwen3.8-27b','live':True,'watchdog':None}):
+   a.collect(1000)
+   snap=a.snapshot()
+  self.assertTrue(snap['kv']['online']);self.assertEqual(snap['kv']['active_model'],'qwen3.8-27b');self.assertEqual(snap['kv']['active_speed'],31.5)
+  self.assertTrue(snap['desktop']['online']);self.assertEqual(snap['desktop']['models'],[])
+  with patch.object(a,'_latest',snap),patch.object(a,'_last_poll',0),patch.object(a,'webui',return_value={}), \
+       patch.object(a,'desktop',return_value={'models':[]}),patch.object(a,'strata',return_value={'model':'m','loaded':False}), \
+       patch.object(a,'kv',side_effect=TimeoutError):
+   a.collect(1031)
+   snap2=a.snapshot()
+  self.assertFalse(snap2['kv']['online']);self.assertEqual(snap2['kv']['models'][0]['id'],'qwen3.8-27b');self.assertTrue(snap2['desktop']['online'])
+ def test_unload_kvllama_targets_8092(self):
+  from unittest.mock import MagicMock
+  cfg=MagicMock();cfg.read_text.return_value=json.dumps({'url':'http://192.168.0.12:8080/v1','token':'k'})
+  with patch.object(a,'CONFIG',cfg),patch.object(a,'fetch',return_value={'data':[{'id':'qwen3.8-27b','status':{'value':'loaded'}}]}),patch.object(a,'unload') as un:
+   a.unload_kvllama()
+  un.assert_called_once_with('http://192.168.0.12:8092','k','qwen3.8-27b')

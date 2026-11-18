@@ -177,6 +177,41 @@ class BrokerTests(unittest.TestCase):
         finally:
             strata.shutdown(); strata.server_close()
 
+    def test_kvllama_listener_has_parity_with_llama_listener(self):
+        kv = serve(g.Server(('127.0.0.1', 0), 'kvllama', ('127.0.0.1', self.pc.server_address[1])))
+        try:
+            c = http.client.HTTPConnection('127.0.0.1', kv.server_address[1], timeout=10)
+            with patch.object(g, 'ensure') as ensure:
+                c.request('GET', '/v1/models', headers={'Authorization': 'Bearer client-key'})
+                r = c.getresponse()
+                self.assertEqual((r.status, r.read()), (200, b'{"data":[]}'))
+                ensure.assert_not_called()
+            self.assertEqual(FakePC.seen[0], ('GET', '/v1/models', 'Bearer client-key', None))
+            FakePC.seen = []
+            c = http.client.HTTPConnection('127.0.0.1', kv.server_address[1], timeout=10)
+            c.request('POST', '/v1/chat/completions',
+                      body=b'{"model":"qwen3.8-27b-long"}',
+                      headers={'Content-Type': 'application/json', 'Origin': 'http://evil.example'})
+            self.assertEqual(c.getresponse().status, 403)
+            self.assertEqual(FakePC.seen, [])
+            with patch.object(g, 'ensure') as ensure:
+                c = http.client.HTTPConnection('127.0.0.1', kv.server_address[1], timeout=10)
+                c.request('POST', '/v1/chat/completions',
+                          body=json.dumps({'model': 'qwen3.8-27b-long', 'reasoning_effort': 'off', 'stream': True}).encode(),
+                          headers={'Content-Type': 'application/json', 'Authorization': 'Bearer client-key'})
+                r = c.getresponse()
+                self.assertEqual(r.status, 200)
+                FakePC.release.set()
+                self.assertEqual(r.read(), b'data: one\n\ndata: two\n\n')
+            ensure.assert_called_once_with('kvllama', hold=True)
+            self.assertEqual(FakePC.seen[0][2], 'Bearer client-key')
+            sent = json.loads(FakePC.seen[0][3])
+            self.assertEqual(sent['model'], 'qwen3.8-27b')
+            self.assertEqual(sent['reasoning_effort'], 'medium')
+            self.assertEqual(sent['chat_template_kwargs'], {'reasoning_effort': 'medium'})
+        finally:
+            kv.shutdown(); kv.server_close()
+
 
 class EnsureTests(unittest.TestCase):
     def setUp(self):
@@ -184,15 +219,17 @@ class EnsureTests(unittest.TestCase):
         d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
         p = patch.object(g.ai_monitor, 'GPU_LOCK', __import__('pathlib').Path(d.name) / 'gpu.lock'); p.start(); self.addCleanup(p.stop)
 
-    def run_ensure(self, engine, loaded, llama_busy, wait=True, game=False):
+    def run_ensure(self, engine, loaded, llama_busy, wait=True, game=False, kvllama_busy=False):
         """loaded: which Strata engines are loaded, e.g. {'strata': True}; returns the calls made, in order."""
         calls = []
         state = {'strata': False, 'coder': False, **loaded}
         with patch.object(g, 'strata_loaded', side_effect=lambda e='strata': state[e]), \
              patch.object(g, 'llama_busy', return_value=llama_busy), \
+             patch.object(g, 'kvllama_busy', return_value=kvllama_busy), \
              patch.object(g, 'game_running', return_value=game), \
              patch.object(g.ai_monitor, 'strata_post', side_effect=lambda p, port=8088: calls.append(f'{p}:{port}')), \
              patch.object(g.ai_monitor, 'unload_llama', side_effect=lambda: calls.append('unload-llama')), \
+             patch.object(g.ai_monitor, 'unload_kvllama', side_effect=lambda: calls.append('unload-kvllama')), \
              patch.object(g.ai_monitor, 'wait_strata', return_value=wait):
             g.ensure(engine)
         return calls
@@ -201,6 +238,15 @@ class EnsureTests(unittest.TestCase):
         self.assertEqual(self.run_ensure('llama', {'strata': True}, False), ['/unload:8088'])
         self.assertEqual(self.run_ensure('llama', {'coder': True}, False), ['/unload:8089'])
         self.assertEqual(self.run_ensure('llama', {}, True), [])
+
+    def test_kvllama_swaps_with_llama_strata_and_coder(self):
+        self.assertEqual(self.run_ensure('kvllama', {}, True), ['unload-llama'])
+        self.assertEqual(self.run_ensure('kvllama', {'strata': True}, True), ['/unload:8088', 'unload-llama'])
+        self.assertEqual(self.run_ensure('kvllama', {'coder': True}, False), ['/unload:8089'])
+        self.assertEqual(self.run_ensure('kvllama', {}, False, kvllama_busy=True), [])
+        self.assertEqual(self.run_ensure('llama', {}, False, kvllama_busy=True), ['unload-kvllama'])
+        self.assertEqual(self.run_ensure('strata', {}, False, kvllama_busy=True), ['unload-kvllama', '/load:8088'])
+        self.assertEqual(self.run_ensure('coder', {}, False, kvllama_busy=True), ['unload-kvllama', '/load:8089'])
 
     def test_strata_request_frees_llama_then_loads_strata(self):
         self.assertEqual(self.run_ensure('strata', {}, True), ['unload-llama', '/load:8088'])
@@ -250,10 +296,11 @@ class UnifiedPortTests(unittest.TestCase):
         FakePC.release.set()
         self.pc = serve(http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakePC))
         self.broker = serve(g.Server(('127.0.0.1', 0), 'auto', ('127.0.0.1', 0)))
-        self.broker.ports = {e: self.pc.server_address[1] for e in ('llama', 'strata', 'coder')}
+        self.broker.ports = {e: self.pc.server_address[1] for e in ('llama', 'kvllama', 'strata', 'coder')}
         self.port = self.broker.server_address[1]
         self.patches = [patch.object(g, 'strata_names', return_value=NAMES),
-                        patch.object(g, 'llama_token', return_value='secret')]
+                        patch.object(g, 'llama_token', return_value='secret'),
+                        patch.object(g.pc_net, 'pc_awake', return_value=True)]
         for p in self.patches:
             p.start()
 
@@ -276,7 +323,9 @@ class UnifiedPortTests(unittest.TestCase):
         self.assertEqual(g.route('qwen3.8-flash-next-iq3_xxs', NAMES), 'strata')
         self.assertEqual(g.route('QWEN3.8-FLASH-NEXT-IQ3_XXS', NAMES), 'strata')
         self.assertEqual(g.route('qwen3.8-flash-next-coder-q2', {}), 'coder')   # a name the servers no longer report
-        self.assertEqual(g.route('qwen3.8-27b', NAMES), 'llama')
+        self.assertEqual(g.route('qwen3.8-27b', NAMES), 'kvllama')
+        self.assertEqual(g.route('qwen3.8-27b-long', NAMES), 'kvllama')
+        self.assertEqual(g.route('qwen3.8-27b-uncensored', NAMES), 'llama')
         self.assertEqual(g.route(None, NAMES), 'llama')
 
     def test_coder_request_switches_to_coder_without_the_llama_token(self):
@@ -286,10 +335,42 @@ class UnifiedPortTests(unittest.TestCase):
         self.assertIsNone(FakePC.seen[0][2])
 
     def test_llama_request_gets_the_brokers_token_not_the_clients(self):
-        with patch.object(g, 'ensure') as ensure:
-            self.assertEqual(self.post('qwen3.8-27b', auth='Bearer whatever')[0], 200)
+        with patch.object(g, 'ensure') as ensure, patch.object(g, 'llama_ids', return_value=['gemma-4-26b-a4b']):
+            self.assertEqual(self.post('gemma-4-26b-a4b', auth='Bearer whatever')[0], 200)
         ensure.assert_called_once_with('llama', hold=True)
         self.assertEqual(FakePC.seen[0][2], 'Bearer secret')
+        FakePC.seen = []
+        with patch.object(g, 'ensure') as ensure:
+            self.assertEqual(self.post('qwen3.8-27b', auth='Bearer whatever')[0], 200)
+        ensure.assert_called_once_with('kvllama', hold=True)
+        self.assertEqual(FakePC.seen[0][2], 'Bearer secret')
+
+    def test_kvllama_long_rewrites_model_and_applies_never_off_thinking(self):
+        with patch.object(g, 'ensure') as ensure:
+            c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+            c.request('POST', '/v1/chat/completions',
+                      body=json.dumps({'model': 'qwen3.8-27b-long', 'reasoning_effort': 'off'}).encode(),
+                      headers={'Content-Type': 'application/json'})
+            self.assertEqual(c.getresponse().status, 200)
+            ensure.assert_called_once_with('kvllama', hold=True)
+            sent = json.loads(FakePC.seen[-1][3])
+            self.assertEqual(sent['model'], 'qwen3.8-27b')
+            self.assertEqual(sent['reasoning_effort'], 'medium')
+            self.assertEqual(sent['chat_template_kwargs'], {'reasoning_effort': 'medium'})
+            c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+            c.request('POST', '/v1/chat/completions',
+                      body=json.dumps({'model': 'qwen3.8-27b-long', 'messages': []}).encode(),
+                      headers={'Content-Type': 'application/json'})
+            self.assertEqual(c.getresponse().status, 200)
+            self.assertEqual(json.loads(FakePC.seen[-1][3]), {'model': 'qwen3.8-27b', 'messages': []})
+            c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+            c.request('POST', '/v1/chat/completions',
+                      body=json.dumps({'model': 'qwen3.8-27b', 'chat_template_kwargs': {'enable_thinking': False}}).encode(),
+                      headers={'Content-Type': 'application/json'})
+            self.assertEqual(c.getresponse().status, 200)
+            sent = json.loads(FakePC.seen[-1][3])
+            self.assertEqual(sent['reasoning_effort'], 'medium')
+            self.assertNotIn('enable_thinking', sent['chat_template_kwargs'])
 
     def test_llama_reasoning_effort_is_normalized_and_copied_to_template_kwargs(self):
         with patch.object(g, 'ensure'):
@@ -330,6 +411,26 @@ class UnifiedPortTests(unittest.TestCase):
             c.request('GET', '/v1/models')
             ids = [m['id'] for m in json.loads(c.getresponse().read())['data']]
         self.assertEqual(ids, ['qwen3.8-27b', 'gemma-4-26b-a4b', NAMES['strata'], NAMES['coder']])
+
+    def test_models_merges_kvllama_dedupes_drops_long_and_survives_8092_down(self):
+        def fake_fetch(url, token=None):
+            if ':8092/' in url:
+                return {'data': [{'id': 'qwen3.8-27b', 'status': {'value': 'loaded'}}, {'id': 'qwen3.8-27b-long'}]}
+            return {'data': [{'id': 'qwen3.8-27b', 'status': {'value': 'unloaded'}},
+                             {'id': 'qwen3.8-27b-long'},
+                             {'id': 'gemma-4-26b-a4b', 'status': {'value': 'unloaded'}}]}
+        with patch.object(g.ai_monitor, 'fetch', side_effect=fake_fetch):
+            data = g.all_models()['data']
+        self.assertEqual([m['id'] for m in data], ['qwen3.8-27b', 'gemma-4-26b-a4b', NAMES['strata'], NAMES['coder']])
+        self.assertEqual(data[0]['status'], {'value': 'loaded'})  # kvllama wins on duplicate id
+
+        def fake_fetch_kv_down(url, token=None):
+            if ':8092/' in url:
+                raise TimeoutError('down')
+            return {'data': [{'id': 'gemma-4-26b-a4b'}, {'id': 'qwen3.8-27b-long'}]}
+        with patch.object(g.ai_monitor, 'fetch', side_effect=fake_fetch_kv_down):
+            ids = [m['id'] for m in g.all_models()['data']]
+        self.assertEqual(ids, ['gemma-4-26b-a4b', NAMES['strata'], NAMES['coder']])
 
     def test_llama_model_status_passes_through_for_the_approver(self):
         listed = {'data': [{'id': 'qwen3.8-27b', 'status': {'value': 'loaded'}}]}
@@ -380,7 +481,16 @@ class DrainTests(unittest.TestCase):
         self.assertFalse(done.wait(1.5))   # still waiting: the coder reply is streaming
         g.release('coder')
         self.assertTrue(done.wait(5))
-        self.assertEqual(g._inflight, {'llama': 1, 'strata': 0, 'coder': 0})
+        self.assertEqual(g._inflight, {'llama': 1, 'kvllama': 0, 'strata': 0, 'coder': 0})
+        g.release('llama')
+        g.ensure('kvllama', hold=True)
+        done2 = threading.Event()
+        t2 = threading.Thread(target=lambda: (g.ensure('strata', hold=True), done2.set()))
+        t2.start()
+        self.assertFalse(done2.wait(0.3))
+        g.release('kvllama')
+        self.assertTrue(done2.wait(5))
+        self.assertEqual(g._inflight, {'llama': 0, 'kvllama': 0, 'strata': 1, 'coder': 0})
 
     def test_same_engine_requests_do_not_wait(self):
         g.ensure('coder', hold=True)
@@ -457,11 +567,12 @@ class LoopGuardTests(unittest.TestCase):
         FakePC.seen = []
         pc = serve(http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakePC))
         broker = serve(g.Server(('127.0.0.1', 0), 'auto', ('127.0.0.1', 0)))
-        broker.ports = {e: pc.server_address[1] for e in ('llama', 'strata', 'coder')}
+        broker.ports = {e: pc.server_address[1] for e in ('llama', 'kvllama', 'strata', 'coder')}
         FakePC.release.set()
         try:
             with patch.object(g, 'strata_names', return_value=NAMES), patch.object(g, 'llama_token', return_value='t'), \
-                 patch.object(g, 'llama_ids', return_value=['qwen3.8-27b']), \
+                 patch.object(g, 'llama_ids', return_value=['gemma-4-26b-a4b']), \
+                 patch.object(g.pc_net, 'pc_awake', return_value=True), \
                  patch.object(g, 'ensure') as ensure, patch.object(g, 'remember') as remember:
                 def post(steps, model='qwen3.8-27b'):
                     c = http.client.HTTPConnection('127.0.0.1', broker.server_address[1], timeout=10)
@@ -472,7 +583,7 @@ class LoopGuardTests(unittest.TestCase):
                 self.assertEqual(post(5)[0], 200)
                 self.assertIn('5 times in a row', json.loads(FakePC.seen[-1][3])['messages'][-1]['content'])
                 ensure.reset_mock(); FakePC.seen = []
-                for model in ('qwen3.8-27b', NAMES['strata']):    # Strata conversations too
+                for model in ('qwen3.8-27b', 'gemma-4-26b-a4b', NAMES['strata']):    # kvllama, llama, Strata
                     status, raw = post(6, model)
                     self.assertEqual(status, 409)
                     message = json.loads(raw)['error']['message']

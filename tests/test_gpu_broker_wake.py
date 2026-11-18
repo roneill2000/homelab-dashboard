@@ -168,6 +168,19 @@ class Pure(unittest.TestCase):
             started[0]()
         sleep_pc.assert_called_once_with(command='cancel')
 
+    def test_kvllama_engine_ready_probes_8092_health_with_bearer_token(self):
+        seen = []
+        class Resp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+        def fake_open(req, timeout=3):
+            seen.append((req.full_url, req.get_header('Authorization')))
+            return Resp()
+        with patch.object(g, 'llama_token', return_value='tok'), patch.object(g.urllib.request, 'urlopen', side_effect=fake_open):
+            self.assertTrue(g.engine_ready('kvllama'))
+        self.assertEqual(seen, [(f'http://{g.PC}:8092/health', 'Bearer tok')])
+
 
 class ThroughHTTP(unittest.TestCase):
     def setUp(self):
