@@ -34,6 +34,9 @@ PORTS = {8080: 'llama', 8088: 'strata', 8089: 'coder', 8092: 'kvllama'}
 STRATA = {'strata': 8088, 'coder': 8089}
 # The two llama-server routers (main :8080, KV-streaming :8092). Only one engine holds the GPU at a time.
 LLAMA = {'llama': 8080, 'kvllama': 8092}
+# Models the KV-streaming router serves (18 Nov 2026: all three 27B models at 262,144 context with MTP3). The old
+# 'qwen3.8-27b-long' name is an alias of 'qwen3.8-27b' (rewrite_kv_model).
+KV_MODELS = {'qwen3.8-27b', 'qwen3.8-27b-long', 'qwen3.8-27b-uncensored', 'qwen3.8-27b-heretic'}
 # One URL for every local model (2 Nov 2026): http://192.168.0.2:8000/v1. The request's `model` picks the engine,
 # GET /v1/models lists all of them, and the broker adds llama-server's token itself, so clients need no key.
 UNIFIED_PORT = 8000
@@ -519,7 +522,7 @@ def strata_names(max_age=60.0):
 
 def route(model, names=None):
     """The engine for a request's `model` on the unified port: a Strata server's own model id, else a Flash-Next name
-    (coder or not), else kvllama for qwen3.8-27b(-long), else llama-server, whose router knows its own models and
+    (coder or not), else kvllama for KV_MODELS (the 27B family), else llama-server, whose router knows its own models and
     answers unknown ones itself."""
     m = (model or '').strip().lower()
     names = strata_names() if names is None else names
@@ -528,7 +531,7 @@ def route(model, names=None):
             return engine
     if 'flash-next' in m or m.startswith('strata'):
         return 'coder' if 'coder' in m else 'strata'
-    if m in ('qwen3.8-27b', 'qwen3.8-27b-long'):
+    if m in KV_MODELS:
         return 'kvllama'
     return 'llama'
 

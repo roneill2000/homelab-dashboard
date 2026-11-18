@@ -325,7 +325,9 @@ class UnifiedPortTests(unittest.TestCase):
         self.assertEqual(g.route('qwen3.8-flash-next-coder-q2', {}), 'coder')   # a name the servers no longer report
         self.assertEqual(g.route('qwen3.8-27b', NAMES), 'kvllama')
         self.assertEqual(g.route('qwen3.8-27b-long', NAMES), 'kvllama')
-        self.assertEqual(g.route('qwen3.8-27b-uncensored', NAMES), 'llama')
+        self.assertEqual(g.route('qwen3.8-27b-uncensored', NAMES), 'kvllama')
+        self.assertEqual(g.route('qwen3.8-27b-heretic', NAMES), 'kvllama')
+        self.assertEqual(g.route('gemma-4-26b-a4b', NAMES), 'llama')
         self.assertEqual(g.route(None, NAMES), 'llama')
 
     def test_coder_request_switches_to_coder_without_the_llama_token(self):
@@ -388,7 +390,7 @@ class UnifiedPortTests(unittest.TestCase):
                          {'reasoning_effort': 'none', 'chat_template_kwargs': {'enable_thinking': False}})
 
     def test_qwen_27b_family_never_runs_without_thinking(self):
-        for model in ('qwen3.8-27b', 'qwen3.8-27b-long', 'qwen3.8-27b-uncensored', 'qwen3.8-27b-uncensored-fast'):
+        for model in ('qwen3.8-27b', 'qwen3.8-27b-long', 'qwen3.8-27b-uncensored', 'qwen3.8-27b-heretic'):
             for ask in ({'reasoning_effort': 'off'}, {'reasoning_effort': 'none'},
                         {'chat_template_kwargs': {'enable_thinking': False}},
                         {'reasoning_effort': 'none', 'chat_template_kwargs': {'enable_thinking': False, 'x': 1}}):

@@ -47,12 +47,13 @@ class RouteTests(unittest.TestCase):
 
     def test_qwen_27b_and_long_route_to_kvllama(self):
         names = {'strata': 'qwen3.8-flash-next-iq3_xxs', 'coder': 'qwen3.8-flash-next-coder-iq1_m'}
-        for model in ('qwen3.8-27b', 'qwen3.8-27b-long', '  Qwen3.8-27B-Long \n', 'QWEN3.8-27B'):
+        for model in ('qwen3.8-27b', 'qwen3.8-27b-long', '  Qwen3.8-27B-Long \n', 'QWEN3.8-27B',
+                      'qwen3.8-27b-uncensored', 'qwen3.8-27b-heretic'):
             self.assertEqual(gpu_broker.route(model, names=names), 'kvllama', model)
 
     def test_other_27b_variants_still_route_to_llama(self):
         names = {'strata': '', 'coder': ''}
-        for model in ('qwen3.8-27b-uncensored', 'qwen3.8-27b-uncensored-fast', 'gemma-4-26b-a4b'):
+        for model in ('qwen3.8-27b-uncensored-fast', 'gemma-4-26b-a4b'):
             self.assertEqual(gpu_broker.route(model, names=names), 'llama', model)
 
     # Case-insensitivity (route() folds at line 166: m = model.strip().lower(); names lower in the match loop):

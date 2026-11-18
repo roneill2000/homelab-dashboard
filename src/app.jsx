@@ -213,10 +213,10 @@ const STRATA_MODEL='qwen3.8-flash-next-iq3_xxs',CODER_MODEL='qwen3.8-flash-next-
 const modelProfiles={
  'gemma-4-26b-a4b':{role:'Chat · reads images',speed:215}, // 7 Nov 2026: QAT UD-Q4_K_XL, 1 slot: 210-222 tok/s short answers (was Q3_K_XL 168.3, 22 Oct)
  'qwen3.8-27b':{role:'Coding · pi default, 256k + MTP',speed:80}, // 18 Nov 2026: Unsloth UD3.1 IQ4_XS on the KV-streaming llama.cpp fork (:8092), 262,144 ctx q8/q4 + MTP3: short ~80 tok/s, 124k prompt read ~930 / write ~47 tok/s, 250k write ~20 (was UD-Q3_K_XL 64k on :8080; the 100k Long entry is gone)
- 'qwen3.8-27b-uncensored-fast':{role:'Uncensored · quicker, 45k context',speed:90}, // 7 Nov 2026: Cold Fusion + MTP (2 drafts), prose 89-93, code 108-115 tok/s // measured 22 Oct 2026: 48K context, 100% CUDA0 (186 tok/s prefill)
  [STRATA_MODEL]:{role:'Strata · general reasoning',speed:69.1}, // 1 Nov 2026: Qwen3.8-Flash-Next IQ3_XXS (ISTA-DASLab GSQ-RCO) replaced Swift 1.5: same quality (strata-bench 28/29, hard v3 44/50 vs 43/50), median 69 tok/s writing, ~295 tok/s prompt reading, resident experts + 64k
  [CODER_MODEL]:{role:'Strata · coding, 262k context',speed:108.5}, // 1 Nov 2026: Qwen3.8-Flash-Next Coder IQ1_M (half the experts at ~3.5 bit, all in RAM): 108 tok/s writing, ~2,600 tok/s prompt reading, 25k-token prompt in 6.8 s; strata-bench 28/29, v3 43/50; --kv-grow + 128k context
- 'qwen3.8-27b-uncensored':{role:'Uncensored · Cold Fusion',speed:53.5} // 7 Nov 2026: Cold Fusion 735-882 UD-IQ4_XS (own quant), 64k q8/q4 + ngram; replaced Ara v5 and the stock 27B
+ 'qwen3.8-27b-heretic':{role:'Uncensored · Heretic 2.1, 256k + MTP',speed:null}, // 18 Nov 2026: symmetrisch Heretic v2.1.0 (stock 27B abliterated, 9/100 refusals, KL 0.12), mradermacher i1 quant + grafted Unsloth MTP head, on :8092
+ 'qwen3.8-27b-uncensored':{role:'Uncensored · Cold Fusion, 256k + MTP',speed:78} // 18 Nov 2026: moved to the KV-streaming fork (:8092), 262,144 ctx + grafted MTP3: short 78, 124k write 35.5, 250k 16.3 tok/s (Cold Fusion Fast removed)
 };
 function inlineMd(text,key){
  // Bold may hold code or a link (a model writes **Unraid (`sda`)**); links only for http(s) addresses.
@@ -391,8 +391,8 @@ function QwenEvidence({evidence}){
  const labels=items=>(items||[]).map(k=>evidenceNames[k]||k).join(', ');
  return <details className="qwen-evidence"><summary>Show evidence</summary><p className="source-note">Exact observations supplied to the model. Freshness is measured at capture time; general knowledge is not sourced here.</p>{valid(evidence.observed_at)&&<p className="source-note">Captured {new Date(evidence.observed_at*1000).toLocaleString()}</p>}{Object.entries(evidence.sources).map(([key,value])=><details className="evidence-source" key={key}><summary>{evidenceNames[key]||key}</summary><pre>{JSON.stringify(value,null,2)}</pre></details>)}{evidence.recorded_configuration&&<details className="evidence-source"><summary>Recorded configuration · {evidence.recorded_configuration.as_of}</summary><pre>{JSON.stringify(evidence.recorded_configuration,null,2)}</pre></details>}{evidence.budget_omissions?.length>0&&<p className="source-note warning">Trimmed to fit: {evidence.budget_omissions.join(', ')}</p>}{evidence.not_selected?.length>0&&<p className="source-note">Not selected for this question: {labels(evidence.not_selected)}</p>}</details>
 }
-const PC_MODEL_NAMES={'qwen3.8-27b':'Qwen3.8 27B','qwen3.8-27b-uncensored':'Cold Fusion 27B','qwen3.8-27b-uncensored-fast':'Cold Fusion 27B Fast','gemma-4-26b-a4b':'Gemma 4 26B',[STRATA_MODEL]:'Qwen3.8 Flash',[CODER_MODEL]:'Qwen3.8 Coder'};
-const ASK_HINTS={'qwen3.8-27b':'coding, long documents, 256k','qwen3.8-27b-uncensored':'uncensored','qwen3.8-27b-uncensored-fast':'quicker, shorter chats','gemma-4-26b-a4b':'all-round, reads images',[STRATA_MODEL]:'deep reasoning, web search'};
+const PC_MODEL_NAMES={'qwen3.8-27b':'Qwen3.8 27B','qwen3.8-27b-uncensored':'Cold Fusion 27B','qwen3.8-27b-heretic':'Heretic 27B','gemma-4-26b-a4b':'Gemma 4 26B',[STRATA_MODEL]:'Qwen3.8 Flash',[CODER_MODEL]:'Qwen3.8 Coder'};
+const ASK_HINTS={'qwen3.8-27b':'coding, long documents, 256k','qwen3.8-27b-uncensored':'uncensored','qwen3.8-27b-heretic':'uncensored, close to stock','gemma-4-26b-a4b':'all-round, reads images',[STRATA_MODEL]:'deep reasoning, web search'};
 // Ask box menu (Ryan, 13 Nov 2026: trim it): one PC llama model plus Flash; other models still answer if asked by id.
 const ASK_PC_MODELS=['qwen3.8-27b'],ASK_TARGETS=['a310','auto','strata',...ASK_PC_MODELS.map(id=>'pc:'+id)];
 const askLabel=id=>(PC_MODEL_NAMES[id]||id)+(ASK_HINTS[id]?' · '+ASK_HINTS[id]:'');

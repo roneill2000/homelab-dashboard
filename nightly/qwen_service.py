@@ -36,7 +36,7 @@ PC_MODEL = 'qwen3.8-27b'  # stock 27B since 13 Nov 2026 (Ryan trimmed the Ask me
 PC_TOKEN = r.ROOT / 'router-token'
 PC_LABEL = 'Qwen3.8 27B · gaming PC'
 A310_LABEL = 'Nemotron Bolt E4B · Unraid'
-PC_NAMES = {'qwen3.8-27b': 'Qwen3.8 27B', 'qwen3.8-27b-uncensored': 'Cold Fusion 27B', 'qwen3.8-27b-uncensored-fast': 'Cold Fusion 27B Fast', 'gemma-4-26b-a4b': 'Gemma 4 26B'}
+PC_NAMES = {'qwen3.8-27b': 'Qwen3.8 27B', 'qwen3.8-27b-uncensored': 'Cold Fusion 27B', 'qwen3.8-27b-heretic': 'Heretic 27B', 'gemma-4-26b-a4b': 'Gemma 4 26B'}
 # Model choices: 'a310' (Nemotron Bolt E4B since 13 Nov 2026, Gemma 4 E4B before; 'a310-12b' from old browsers is answered the same, the 12B was retired 24 Oct 2026),
 # 'auto' (27B if the PC is on),
 # 'pc' (the 27B) or 'pc:<router model id>' for any model the gaming PC serves, or 'strata'.
