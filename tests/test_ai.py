@@ -156,6 +156,14 @@ class PcGpuTests(unittest.TestCase):
   with patch.object(a,'_live_until',2000),patch.object(a,'_strata_hold',{}),patch.object(a,'fetch',return_value={'live':{'state':'generating','tok_s':74.2}}):
    a.apply_strata_speed(res,1000)
   d=res['desktop'];self.assertEqual(d['active_speed'],74.2);self.assertTrue(d['is_active']);self.assertFalse(d['is_recent']);self.assertEqual(d['active_model'],'flash')
+ def test_kv_speed_feeds_desktop_live_fields(self):
+  res={'desktop':{'online':True,'is_active':False},'kv':{'online':True,'is_active':True,'active_speed':42.5,'is_recent':False,'active_model':'qwen3.8-27b'}}
+  a.apply_kv_speed(res)
+  self.assertEqual((res['desktop']['active_speed'],res['desktop']['active_model'],res['desktop']['active_engine']),(42.5,'qwen3.8-27b','kvllama'))
+  busy={'desktop':{'online':True,'is_active':True,'active_speed':200,'active_model':'gemma'},'kv':{'online':True,'is_active':True,'active_speed':40}}
+  a.apply_kv_speed(busy); self.assertEqual(busy['desktop']['active_speed'],200)
+  idle={'desktop':{'online':True,'is_active':False},'kv':{'online':True,'is_active':False}}
+  a.apply_kv_speed(idle); self.assertNotIn('active_speed',idle['desktop'])
  def test_strata_speed_held_briefly_then_cleared(self):
   with patch.object(a,'_strata_hold',{}):
    with patch.object(a,'fetch',return_value={'live':{'tok_s':70.0}}):self.assertEqual(a.strata_live(8088,1000),(70.0,False))

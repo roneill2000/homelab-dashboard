@@ -165,6 +165,16 @@ def strata_live(port, now):
     return None
 
 
+def apply_kv_speed(result):
+    """The 27B models run on the KV-streaming router (:8092, 18 Nov 2026); its live speed feeds the same desktop fields
+    the Local AI page and the widget read (GPU card 'Generation', 'Loaded now'). :8080 generating wins (one GPU)."""
+    desk, kv_state = result.get('desktop'), result.get('kv') or {}
+    if not isinstance(desk, dict) or desk.get('is_active') or not kv_state.get('online') or not kv_state.get('is_active'):
+        return
+    desk.update(active_speed=kv_state.get('active_speed'), is_active=True, is_recent=kv_state.get('is_recent'),
+                active_model=kv_state.get('active_model'), active_engine='kvllama')
+
+
 def apply_strata_speed(result, now):
     """While the Local AI page is open and llama-server is idle, report the loaded Strata server's live speed."""
     desk = result.get('desktop')
@@ -342,6 +352,7 @@ def collect(now=None, min_interval=1.0):
                 result[key] = dict(value, online=True, last_attempt_at=int(now), last_success_at=int(now), error=None)
             except Exception:
                 result[key] = dict(old, online=False, last_attempt_at=int(now), error='Source unavailable')
+    apply_kv_speed(result)
     apply_strata_speed(result, now)
     with _lock:
         _latest.clear()

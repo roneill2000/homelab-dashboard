@@ -1054,7 +1054,8 @@ def _dashboard_widget_summary(now=None):
         if not fresh_src(desk):
             pc['state'] = 'off'
         else:
-            models = [m for m in desk.get('models') or [] if isinstance(m, dict)]
+            kvd = obj(ai_monitor.snapshot().get('kv'))
+            models = [m for m in (desk.get('models') or []) + ((kvd.get('models') or []) if fresh_src(kvd) else []) if isinstance(m, dict)]
             loaded = next((m.get('id') for m in models if m.get('state') == 'loaded'), None)
             loading = next((m.get('id') for m in models if m.get('state') == 'loading'), None)
             pc['model'] = loaded or loading

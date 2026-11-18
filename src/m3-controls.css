@@ -540,8 +540,11 @@ details[open]>summary:not(:has(.material-symbols-rounded))::after{transform:rota
   .qwen-homelab,button.dl-filter{position:relative}
   .qwen-homelab::after,button.dl-filter::after{content:'';position:absolute;left:0;right:0;top:50%;height:48px;transform:translateY(-50%)}
   .dl-filters{flex-wrap:wrap;overflow-x:visible}
-  .segments.service-categories,.gpu-toolbar .segments{flex-wrap:wrap}
-  .segments.service-categories>button:not([aria-pressed=true]),.gpu-toolbar .segments>button:not([aria-pressed=true]){border-radius:var(--md-comp-button-group-connected-inner-corner)}
+  /* Wrapped on phones (18 Nov 2026): a wrapped row cannot sit inside one pill outline (overflow:hidden clipped the
+     second row into half-pills), so each option becomes its own outlined chip with gaps. */
+  .segments.service-categories,.gpu-toolbar .segments{flex-wrap:wrap;gap:8px;overflow:visible;border-radius:0;box-shadow:none}
+  .segments.service-categories>button,.gpu-toolbar .segments>button{border-left:0;border-radius:var(--md-sys-shape-corner-full);box-shadow:inset 0 0 0 1px var(--md-sys-color-outline);padding:0 16px}
+  .segments.service-categories>button[aria-pressed=true],.gpu-toolbar .segments>button[aria-pressed=true]{box-shadow:none}
   .energy-devices .mono{font-size:13px}
 }
 .updates-section>.source-note.error{margin:0 0 12px}
