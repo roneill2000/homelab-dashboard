@@ -574,7 +574,7 @@ def paused_for_game():
     return True if 'GAME=yes' in out else False if 'GAME=no' in out else None
 
 
-def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_for_game, coder_ok=None):
+def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_for_game, coder_ok=None, kv_ok=None):
     """The PC's two AI engines, only while the PC is awake (asleep is normal, and keeps the last state).
     Strata's server stays up during games (game-watch only unloads its model); llama-server is stopped on purpose
     during games, so it only counts as down when no game is running."""
@@ -596,6 +596,15 @@ def ai_engine_checks(awake=pc_awake, strata_ok=None, llama_ok=None, game=paused_
         if playing is not None:
             out['llama-down'] = (not playing, 'llama-server is not running',
                                  'The gaming PC is awake, no game is running, and llama-server (:8080) does not answer. On the PC: Start-Service llm-router.', 3)
+    # The KV-streaming llama-server (:8092, the three 27B models, 18 Nov 2026); game-watch stops it during games too.
+    up = kv_ok() if kv_ok else http_ok(f'http://{PC}:8092/health')
+    if up:
+        out['kvllama-down'] = (False, 'The 27B model server is not running', '', 3)
+    else:
+        playing = game()
+        if playing is not None:
+            out['kvllama-down'] = (not playing, 'The 27B model server is not running',
+                                   'The gaming PC is awake, no game is running, and the KV-streaming llama-server (:8092: 27B, Heretic, Cold Fusion) does not answer. On the PC: Start-Service llm-router-kv.', 3)
     return out
 
 
